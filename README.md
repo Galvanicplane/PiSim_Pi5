@@ -1,20 +1,40 @@
 # PiSim_Pi5
 
-Raspberry Pi 5 Python scripts for UDP telemetry communication with **PiSim (Unreal Engine 5)**.
+Raspberry Pi 5 Python scripts for telemetry communication and **live camera video streaming** with **PiSim (Unreal Engine 5)**.
 
 ## File Structure
 
-- `airplane.py`: `AirplaneUDPMessage` class definition with binary serialization (`to_binary`, `from_binary`) matching `FAirplaneUDPMessage` in Unreal Engine C++.
-- `land_vehicle.py`: `LandVehicleUDPMessage` class definition with binary serialization (`to_binary`, `from_binary`) matching `FLandVehicleUDPMessage` in Unreal Engine C++.
-- `udp_sender.py`: `UDPSender` class to send binary telemetry packets over UDP from Raspberry Pi 5 to PiSim.
-- `udp_receiver.py`: `UDPReceiver` class to listen for incoming binary UDP packets, inspect packet header `MessageType`, and deserialize into corresponding vehicle struct.
+- `airplane.py`: `AirplaneUDPMessage` struct class with binary serialization (`to_binary`, `from_binary`) matching `FAirplaneUDPMessage` in Unreal Engine C++.
+- `land_vehicle.py`: `LandVehicleUDPMessage` struct class with binary serialization (`to_binary`, `from_binary`) matching `FLandVehicleUDPMessage` in Unreal Engine C++.
+- `udp_sender.py`: `UDPSender` class to send binary telemetry packets over UDP (Port 5005) from Raspberry Pi 5 to PiSim.
+- `udp_receiver.py`: `UDPReceiver` class to listen for incoming binary UDP telemetry packets (Port 5005).
+- `video_receiver.py`: **Live OpenCV Video Receiver** to capture and display real-time camera feeds sent from Unreal Engine over Ethernet (Port 5006).
 
 ## Requirements
 
 - Python 3.8+ (Raspberry Pi OS / Linux / Windows)
-- Standard library modules (`socket`, `struct`, `time`)
+- Packages:
+  ```bash
+  pip install opencv-python numpy
+  ```
 
-## Usage Example
+---
+
+## 📽️ Live Video Stream Usage (Unreal Engine -> Pi 5)
+
+1. Run `video_receiver.py` on Raspberry Pi 5:
+   ```bash
+   python video_receiver.py
+   ```
+2. In Unreal Engine 5 (PiSim):
+   - Add `UDPVideoStreamer` component to your Vehicle / Airplane Actor.
+   - Attach a `SceneCaptureComponent2D` with a `TextureRenderTarget2D` (e.g. 640x480 resolution).
+   - Set `TargetIP` to your Pi 5 IP (e.g., `192.168.1.100`), `TargetPort = 5006`, `FrameRate = 30`.
+   - Click **Play**. The live video window will open in Python on your Pi 5!
+
+---
+
+## 📡 Telemetry Usage Example (Port 5005)
 
 ### Sending Telemetry (Pi 5 -> Unreal Engine)
 ```python
