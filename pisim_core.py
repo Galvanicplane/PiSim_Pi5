@@ -47,11 +47,14 @@ class PiSimCoreBridge:
         self.video_thread = None
         self.enable_video = False
         
-        print(f"[*] PiSim Core Bridge Initialized.")
-        print(f"    - Target UE5 Host IP    : {self.target_host}")
-        print(f"    - Sending /cmd_vel TO   : UDP Port {self.control_port}")
-        print(f"    - Listening /sim/imu ON : UDP Port {self.telemetry_port}")
-        print(f"    - Listening FPV Video ON: UDP Port {self.video_port}")
+        print("\n========================================================")
+        print("    PiSim Core Bridge Initialized & Ready              ")
+        print("========================================================")
+        print(f"  [+] Target UE5 Host IP    : {self.target_host}")
+        print(f"  [+] Sending /cmd_vel TO   : UDP Port {self.control_port}")
+        print(f"  [+] Listening /sim/imu ON : UDP Port {self.telemetry_port}")
+        print(f"  [+] Listening FPV Video ON: UDP Port {self.video_port}")
+        print("========================================================\n")
 
     def start(self, enable_video=True):
         self.running = True
@@ -78,10 +81,10 @@ class PiSimCoreBridge:
         """Packs and transmits geometry_msgs/msg/Twist CDR payload over UDP."""
         data = struct.pack(TWIST_FORMAT, linear_x, linear_y, linear_z, angular_x, angular_y, angular_z)
         self.send_sock.sendto(data, (self.target_host, self.control_port))
-        print(f"[TX /cmd_vel] Linear: ({linear_x:.2f}, {linear_y:.2f}, {linear_z:.2f}) m/s | Angular: ({angular_z:.2f}) rad/s")
+        print(f"--> [TX /cmd_vel SENT] Target: {self.target_host}:{self.control_port} | Linear X: {linear_x:.2f} m/s | Angular Z: {angular_z:.2f} rad/s")
 
     def _telemetry_loop(self):
-        print(f"[*] Listening for /sim/imu telemetry on UDP Port {self.telemetry_port}...")
+        print(f"[*] Telemetry listener active on UDP Port {self.telemetry_port}...")
         while self.running:
             try:
                 data, addr = self.recv_sock.recvfrom(4096)
@@ -91,7 +94,9 @@ class PiSimCoreBridge:
                     gx, gy, gz = unpacked[4:7]
                     ax, ay, az = unpacked[7:10]
                     
-                    print(f"[RX /sim/imu] Orient: ({qx:.3f}, {qy:.3f}, {qz:.3f}, {qw:.3f}) | Gyro: ({gx:.2f}, {gy:.2f}, {gz:.2f}) | Accel: ({ax:.2f}, {ay:.2f}, {az:.2f})")
+                    print(f"<-- [RX /sim/imu RECEIVED] From {addr[0]}:{addr[1]} | Orient: ({qx:.3f}, {qy:.3f}, {qz:.3f}, {qw:.3f}) | Accel: ({ax:.2f}, {ay:.2f}, {az:.2f}) m/s²")
+                else:
+                    print(f"[!] Received unexpected packet size on 7401: {len(data)} bytes from {addr[0]}")
             except Exception as e:
                 if not self.running:
                     break
@@ -113,6 +118,7 @@ class PiSimCoreBridge:
         print(f"[*] FPV Video receiver active on UDP Port {self.video_port}...")
         window_name = "PiSim Pi5 Live FPV Stream (Port 5000)"
 
+        frame_count = 0
         try:
             while self.running:
                 data, addr = video_sock.recvfrom(65507)
@@ -121,6 +127,9 @@ class PiSimCoreBridge:
                 np_arr = np.frombuffer(data, np.uint8)
                 frame = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
                 if frame is not None:
+                    frame_count += 1
+                    if frame_count % 30 == 0:
+                        print(f"<-- [RX /sim/camera RECEIVED] FPV Frame #{frame_count} from {addr[0]}:{addr[1]} ({frame.shape[1]}x{frame.shape[0]})")
                     cv2.imshow(window_name, frame)
                     cv2.waitKey(1)
         except Exception:
@@ -134,21 +143,20 @@ class PiSimCoreBridge:
 
 
 def interactive_cli(bridge):
-    print("\n==========================================")
-    print("   PiSim Bridge - Control & Video CLI     ")
-    print("==========================================")
-    print("Commands (press Enter after letter):")
-    print("  w - Move Forward (1.0 m/s)")
-    print("  s - Move Backward (-1.0 m/s)")
-    print("  a - Yaw Left (0.5 rad/s)")
-    print("  d - Yaw Right (-0.5 rad/s)")
-    print("  space / x - Stop")
-    print("  q - Quit")
-    print("==========================================\n")
+    print("\n========================================================")
+    print("      PiSim Bridge Interactive Control Console          ")
+    print("========================================================")
+    print("  w + Enter - Move Forward (1.0 m/s)")
+    print("  s + Enter - Move Backward (-1.0 m/s)")
+    print("  a + Enter - Yaw Left (0.5 rad/s)")
+    print("  d + Enter - Yaw Right (-0.5 rad/s)")
+    print("  space/x/Enter - Stop (0 m/s)")
+    print("  q + Enter - Quit")
+    print("========================================================\n")
 
     try:
         while True:
-            cmd = input("Command > ").strip().lower()
+            cmd = input("Command (w/a/s/d/x/q) > ").strip().lower()
             if cmd == 'w':
                 bridge.publish_cmd_vel(linear_x=1.0)
             elif cmd == 's':
