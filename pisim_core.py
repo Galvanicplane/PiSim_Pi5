@@ -143,8 +143,13 @@ class PiSimCoreBridge:
                     frame = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
                     if frame is not None:
                         frame_count += 1
+                        # Save last received frame to disk for visual verification
+                        try:
+                            cv2.imwrite("last_received_frame.jpg", frame)
+                        except Exception:
+                            pass
                         if frame_count % 30 == 0:
-                            print(f"<-- [RX FPV Frame] #{frame_seq} ({frame.shape[1]}x{frame.shape[0]}) from {addr[0]}")
+                            print(f"<-- [RX FPV Frame] #{frame_seq} ({frame.shape[1]}x{frame.shape[0]}) saved to last_received_frame.jpg")
                         cv2.imshow(window_name, frame)
                         cv2.waitKey(1)
                     frame_chunks = {}
