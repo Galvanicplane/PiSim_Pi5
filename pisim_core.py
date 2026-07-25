@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """
 pisim_core.py - Python Core Bridge for PiSim Bridge Platform
-Communicates with UE5 simulation over UDP Port 7400 (Control & IMU Telemetry) and UDP Port 5000 (FPV Live Video).
-Publishes velocity commands (/cmd_vel), receives IMU telemetry (/sim/imu), and displays live FPV camera feed.
+Communicates with UE5 simulation over UDP:
+- Transmits /cmd_vel (Twist) TO UE5 on UDP Port 7400
+- Listens for /sim/imu (IMU Telemetry) FROM UE5 on UDP Port 7401
+- Listens for /sim/camera (FPV Live Video) FROM UE5 on UDP Port 5000
 """
 
 import socket
@@ -11,10 +13,11 @@ import threading
 import time
 import sys
 
-# Dual-Port Configuration
-CONTROL_PORT = 7400
-VIDEO_PORT = 5000
-TARGET_HOST = "127.0.0.1"
+# Port Architecture Configuration
+UE5_CONTROL_PORT = 7400     # UE5 listens for /cmd_vel on 7400
+PI5_TELEMETRY_PORT = 7401   # Pi5 listens for /sim/imu on 7401
+PI5_VIDEO_PORT = 5000       # Pi5 listens for video frames on 5000
+TARGET_HOST = "127.0.0.1"   # UE5 Host IP address
 
 # Binary Struct Formats matching C++ #pragma pack(push, 1)
 TWIST_FORMAT = "<6d"
@@ -25,67 +28,76 @@ IMU_SIZE = struct.calcsize(IMU_FORMAT)
 
 
 class PiSimCoreBridge:
-    def __init__(self, target_host=TARGET_HOST, control_port=CONTROL_PORT, video_port=VIDEO_PORT):
+    def __init__(self, target_host=TARGET_HOST, control_port=UE5_CONTROL_PORT, telemetry_port=PI5_TELEMETRY_PORT, video_port=PI5_VIDEO_PORT):
         self.target_host = target_host
         self.control_port = control_port
+        self.telemetry_port = telemetry_port
         self.video_port = video_port
         
-        self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        self.sock.bind(("0.0.0.0", self.control_port))
+        # Sender Socket (for transmitting /cmd_vel to UE5)
+        self.send_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        
+        # Receiver Socket (for listening to /sim/imu on 7401)
+        self.recv_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.recv_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self.recv_sock.bind(("0.0.0.0", self.telemetry_port))
         
         self.running = False
         self.recv_thread = None
         self.video_thread = None
         self.enable_video = False
         
-        print(f"[*] PiSim Core Bridge initialized.")
-        print(f"    - Control & Telemetry Port: {self.control_port} UDP")
-        print(f"    - FPV Video Stream Port   : {self.video_port} UDP")
+        print(f"[*] PiSim Core Bridge Initialized.")
+        print(f"    - Target UE5 Host IP    : {self.target_host}")
+        print(f"    - Sending /cmd_vel TO   : UDP Port {self.control_port}")
+        print(f"    - Listening /sim/imu ON : UDP Port {self.telemetry_port}")
+        print(f"    - Listening FPV Video ON: UDP Port {self.video_port}")
 
     def start(self, enable_video=True):
         self.running = True
         self.enable_video = enable_video
         
-        # Telemetry receive thread
-        self.recv_thread = threading.Thread(target=self._receive_loop, daemon=True)
+        # Start Telemetry Receiver Thread
+        self.recv_thread = threading.Thread(target=self._telemetry_loop, daemon=True)
         self.recv_thread.start()
-        print(f"[*] Listening for /sim/imu telemetry on UDP Port {self.control_port}...")
 
-        # Video stream receive thread
+        # Start Video Receiver Thread
         if self.enable_video:
             self.video_thread = threading.Thread(target=self._video_loop, daemon=True)
             self.video_thread.start()
 
     def stop(self):
         self.running = False
-        if self.sock:
-            self.sock.close()
+        if self.send_sock:
+            self.send_sock.close()
+        if self.recv_sock:
+            self.recv_sock.close()
         print("[*] PiSim Core Bridge shut down.")
 
     def publish_cmd_vel(self, linear_x=0.0, linear_y=0.0, linear_z=0.0, angular_x=0.0, angular_y=0.0, angular_z=0.0):
         """Packs and transmits geometry_msgs/msg/Twist CDR payload over UDP."""
         data = struct.pack(TWIST_FORMAT, linear_x, linear_y, linear_z, angular_x, angular_y, angular_z)
-        self.sock.sendto(data, (self.target_host, self.control_port))
+        self.send_sock.sendto(data, (self.target_host, self.control_port))
         print(f"[TX /cmd_vel] Linear: ({linear_x:.2f}, {linear_y:.2f}, {linear_z:.2f}) m/s | Angular: ({angular_z:.2f}) rad/s")
 
-    def _receive_loop(self):
+    def _telemetry_loop(self):
+        print(f"[*] Listening for /sim/imu telemetry on UDP Port {self.telemetry_port}...")
         while self.running:
             try:
-                data, addr = self.sock.recvfrom(4096)
+                data, addr = self.recv_sock.recvfrom(4096)
                 if len(data) == IMU_SIZE:
                     unpacked = struct.unpack(IMU_FORMAT, data)
                     qx, qy, qz, qw = unpacked[0:4]
                     gx, gy, gz = unpacked[4:7]
                     ax, ay, az = unpacked[7:10]
                     
-                    print(f"[RX /sim/imu] Orient Quat: ({qx:.3f}, {qy:.3f}, {qz:.3f}, {qw:.3f}) | Gyro: ({gx:.2f}, {gy:.2f}, {gz:.2f}) rad/s | Accel: ({ax:.2f}, {ay:.2f}, {az:.2f}) m/s²")
+                    print(f"[RX /sim/imu] Orient: ({qx:.3f}, {qy:.3f}, {qz:.3f}, {qw:.3f}) | Gyro: ({gx:.2f}, {gy:.2f}, {gz:.2f}) | Accel: ({ax:.2f}, {ay:.2f}, {az:.2f})")
             except Exception as e:
                 if not self.running:
                     break
 
     def _video_loop(self):
-        """Listens on UDP Port 5000 for JPEG video frames and displays window using OpenCV if available."""
+        """Listens on UDP Port 5000 for JPEG video frames and displays window using OpenCV."""
         try:
             import cv2
             import numpy as np
@@ -98,7 +110,7 @@ class PiSimCoreBridge:
         video_sock.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 4 * 1024 * 1024)
         video_sock.bind(("0.0.0.0", self.video_port))
 
-        print(f"[*] FPV Video receiver listening on UDP Port {self.video_port}...")
+        print(f"[*] FPV Video receiver active on UDP Port {self.video_port}...")
         window_name = "PiSim Pi5 Live FPV Stream (Port 5000)"
 
         try:
@@ -125,7 +137,7 @@ def interactive_cli(bridge):
     print("\n==========================================")
     print("   PiSim Bridge - Control & Video CLI     ")
     print("==========================================")
-    print("Commands:")
+    print("Commands (press Enter after letter):")
     print("  w - Move Forward (1.0 m/s)")
     print("  s - Move Backward (-1.0 m/s)")
     print("  a - Yaw Left (0.5 rad/s)")
@@ -136,7 +148,7 @@ def interactive_cli(bridge):
 
     try:
         while True:
-            cmd = input("Enter command (w/a/s/d/x/q): ").strip().lower()
+            cmd = input("Command > ").strip().lower()
             if cmd == 'w':
                 bridge.publish_cmd_vel(linear_x=1.0)
             elif cmd == 's':
@@ -145,7 +157,7 @@ def interactive_cli(bridge):
                 bridge.publish_cmd_vel(angular_z=0.5)
             elif cmd == 'd':
                 bridge.publish_cmd_vel(angular_z=-0.5)
-            elif cmd in ['x', ' ']:
+            elif cmd in ['x', ' ', '']:
                 bridge.publish_cmd_vel(linear_x=0.0, angular_z=0.0)
             elif cmd == 'q':
                 break
