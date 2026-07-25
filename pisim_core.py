@@ -17,7 +17,7 @@ import sys
 UE5_CONTROL_PORT = 7400     # UE5 listens for /cmd_vel on 7400
 PI5_TELEMETRY_PORT = 7401   # Pi5 listens for /sim/imu on 7401
 PI5_VIDEO_PORT = 5000       # Pi5 listens for video frames on 5000
-TARGET_HOST = "127.0.0.1"   # UE5 Host IP address
+TARGET_HOST = "192.168.1.10" # UE5 Host PC IP address (Ethernet)
 
 # Binary Struct Formats matching C++ #pragma pack(push, 1)
 TWIST_FORMAT = "<6d"
