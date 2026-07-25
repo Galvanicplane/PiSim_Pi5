@@ -2,7 +2,7 @@
 """
 pisim_core.py - Python Core Bridge for PiSim Bridge Platform
 Communicates with UE5 simulation over UDP:
-- Transmits /cmd_vel (Twist) TO UE5 on UDP Port 7400
+- Transmits /cmd_vel (Twist) TO UE5 on UDP Port 7400 (Real-time non-blocking WASD controls)
 - Listens for /sim/imu (IMU Telemetry) FROM UE5 on UDP Port 7401
 - Listens for /sim/camera (FPV Live Video) FROM UE5 on UDP Port 5000
 """
@@ -14,10 +14,10 @@ import time
 import sys
 
 # Port Architecture Configuration
-UE5_CONTROL_PORT = 7400     # UE5 listens for /cmd_vel on 7400
-PI5_TELEMETRY_PORT = 7401   # Pi5 listens for /sim/imu on 7401
-PI5_VIDEO_PORT = 5000       # Pi5 listens for video frames on 5000
-TARGET_HOST = "192.168.1.10" # UE5 Host PC IP address (Ethernet)
+UE5_CONTROL_PORT = 7400      # UE5 listens for /cmd_vel on 7400
+PI5_TELEMETRY_PORT = 7401    # Pi5 listens for /sim/imu on 7401
+PI5_VIDEO_PORT = 5000        # Pi5 listens for video frames on 5000
+TARGET_HOST = "192.168.1.10"  # UE5 Host PC IP address (Ethernet)
 
 # Binary Struct Formats matching C++ #pragma pack(push, 1)
 TWIST_FORMAT = "<6d"
@@ -48,7 +48,7 @@ class PiSimCoreBridge:
         self.enable_video = False
         
         print("\n========================================================")
-        print("    PiSim Core Bridge Initialized & Ready              ")
+        print("    PiSim Core Bridge - Real-Time Control & Telemetry   ")
         print("========================================================")
         print(f"  [+] Target UE5 Host IP    : {self.target_host}")
         print(f"  [+] Sending /cmd_vel TO   : UDP Port {self.control_port}")
@@ -81,7 +81,7 @@ class PiSimCoreBridge:
         """Packs and transmits geometry_msgs/msg/Twist CDR payload over UDP."""
         data = struct.pack(TWIST_FORMAT, linear_x, linear_y, linear_z, angular_x, angular_y, angular_z)
         self.send_sock.sendto(data, (self.target_host, self.control_port))
-        print(f"--> [TX /cmd_vel SENT] Target: {self.target_host}:{self.control_port} | Linear X: {linear_x:.2f} m/s | Angular Z: {angular_z:.2f} rad/s")
+        print(f"--> [TX /cmd_vel] Linear X: {linear_x:+.2f} m/s | Angular Z: {angular_z:+.2f} rad/s")
 
     def _telemetry_loop(self):
         print(f"[*] Telemetry listener active on UDP Port {self.telemetry_port}...")
@@ -94,10 +94,8 @@ class PiSimCoreBridge:
                     gx, gy, gz = unpacked[4:7]
                     ax, ay, az = unpacked[7:10]
                     
-                    print(f"<-- [RX /sim/imu RECEIVED] From {addr[0]}:{addr[1]} | Orient: ({qx:.3f}, {qy:.3f}, {qz:.3f}, {qw:.3f}) | Accel: ({ax:.2f}, {ay:.2f}, {az:.2f}) m/s²")
-                else:
-                    print(f"[!] Received unexpected packet size on 7401: {len(data)} bytes from {addr[0]}")
-            except Exception as e:
+                    print(f"<-- [RX /sim/imu] Orient: ({qx:.3f}, {qy:.3f}, {qz:.3f}, {qw:.3f}) | Accel Z: {az:+.2f} m/s²")
+            except Exception:
                 if not self.running:
                     break
 
@@ -129,7 +127,7 @@ class PiSimCoreBridge:
                 if frame is not None:
                     frame_count += 1
                     if frame_count % 30 == 0:
-                        print(f"<-- [RX /sim/camera RECEIVED] FPV Frame #{frame_count} from {addr[0]}:{addr[1]} ({frame.shape[1]}x{frame.shape[0]})")
+                        print(f"<-- [RX FPV Frame] #{frame_count} ({frame.shape[1]}x{frame.shape[0]}) from {addr[0]}")
                     cv2.imshow(window_name, frame)
                     cv2.waitKey(1)
         except Exception:
@@ -142,37 +140,80 @@ class PiSimCoreBridge:
                 pass
 
 
-def interactive_cli(bridge):
+def get_key_nonblocking():
+    """Reads a single keypress instantly without pressing Enter (Linux/Pi5 & Windows)."""
+    if sys.platform == "win32":
+        import msvcrt
+        if msvcrt.kbhit():
+            try:
+                ch = msvcrt.getch().decode('utf-8', errors='ignore').lower()
+                return ch
+            except Exception:
+                return ""
+        return ""
+    else:
+        # Linux / Raspberry Pi 5
+        import select
+        import tty
+        import termios
+        fd = sys.stdin.fileno()
+        old_settings = termios.tcgetattr(fd)
+        try:
+            tty.setraw(sys.stdin.fileno())
+            rlist, _, _ = select.select([sys.stdin], [], [], 0.02)
+            if rlist:
+                ch = sys.stdin.read(1).lower()
+                return ch
+            return ""
+        finally:
+            termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+
+
+def realtime_teleop_cli(bridge):
     print("\n========================================================")
-    print("      PiSim Bridge Interactive Control Console          ")
+    print("   🎮 Instant WASD Real-Time Teleoperation Console      ")
     print("========================================================")
-    print("  w + Enter - Move Forward (1.0 m/s)")
-    print("  s + Enter - Move Backward (-1.0 m/s)")
-    print("  a + Enter - Yaw Left (0.5 rad/s)")
-    print("  d + Enter - Yaw Right (-0.5 rad/s)")
-    print("  space/x/Enter - Stop (0 m/s)")
-    print("  q + Enter - Quit")
+    print("  [W] -> Move Forward (1.5 m/s)")
+    print("  [S] -> Move Backward (-1.5 m/s)")
+    print("  [A] -> Yaw Left (+0.8 rad/s)")
+    print("  [D] -> Yaw Right (-0.8 rad/s)")
+    print("  [SPACE / X] -> Immediate Emergency Stop (0 m/s)")
+    print("  [Q] -> Exit Teleoperation")
     print("========================================================\n")
+    print("[*] Press keys directly (NO ENTER NEEDED). Ready!\n")
+
+    current_linear = 0.0
+    current_angular = 0.0
 
     try:
-        while True:
-            cmd = input("Command (w/a/s/d/x/q) > ").strip().lower()
-            if cmd == 'w':
-                bridge.publish_cmd_vel(linear_x=1.0)
-            elif cmd == 's':
-                bridge.publish_cmd_vel(linear_x=-1.0)
-            elif cmd == 'a':
-                bridge.publish_cmd_vel(angular_z=0.5)
-            elif cmd == 'd':
-                bridge.publish_cmd_vel(angular_z=-0.5)
-            elif cmd in ['x', ' ', '']:
-                bridge.publish_cmd_vel(linear_x=0.0, angular_z=0.0)
-            elif cmd == 'q':
-                break
-            else:
-                print("Unknown command. Use w, a, s, d, x, or q.")
+        while bridge.running:
+            key = get_key_nonblocking()
+            if key:
+                if key == 'w':
+                    current_linear = 1.5
+                    current_angular = 0.0
+                    bridge.publish_cmd_vel(linear_x=current_linear, angular_z=current_angular)
+                elif key == 's':
+                    current_linear = -1.5
+                    current_angular = 0.0
+                    bridge.publish_cmd_vel(linear_x=current_linear, angular_z=current_angular)
+                elif key == 'a':
+                    current_angular = 0.8
+                    bridge.publish_cmd_vel(linear_x=current_linear, angular_z=current_angular)
+                elif key == 'd':
+                    current_angular = -0.8
+                    bridge.publish_cmd_vel(linear_x=current_linear, angular_z=current_angular)
+                elif key in [' ', 'x']:
+                    current_linear = 0.0
+                    current_angular = 0.0
+                    bridge.publish_cmd_vel(linear_x=0.0, angular_z=0.0)
+                elif key == 'q':
+                    print("\n[*] Exiting teleoperation console...")
+                    bridge.publish_cmd_vel(linear_x=0.0, angular_z=0.0)
+                    break
+            time.sleep(0.02)
     except KeyboardInterrupt:
-        pass
+        bridge.publish_cmd_vel(linear_x=0.0, angular_z=0.0)
 
 
 if __name__ == "__main__":
@@ -189,5 +230,5 @@ if __name__ == "__main__":
         bridge.stop()
     else:
         bridge.start(enable_video=True)
-        interactive_cli(bridge)
+        realtime_teleop_cli(bridge)
         bridge.stop()
