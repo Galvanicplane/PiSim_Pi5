@@ -4,7 +4,7 @@ pisim_core.py - Python Core Bridge for PiSim Bridge Platform
 Communicates with UE5 simulation over UDP:
 - Transmits /cmd_vel (Twist) TO UE5 on UDP Port 7400 (Real-time non-blocking WASD controls)
 - Listens for /sim/imu (IMU Telemetry) FROM UE5 on UDP Port 7401
-- Listens for /sim/camera (FPV Live Video) FROM UE5 on UDP Port 5000
+- Listens for /sim/camera (FPV Live Video) FROM UE5 on UDP Port 5000 (MTU Chunk Reassembly)
 """
 
 import socket
@@ -81,7 +81,7 @@ class PiSimCoreBridge:
         """Packs and transmits geometry_msgs/msg/Twist CDR payload over UDP."""
         data = struct.pack(TWIST_FORMAT, linear_x, linear_y, linear_z, angular_x, angular_y, angular_z)
         self.send_sock.sendto(data, (self.target_host, self.control_port))
-        print(f"--> [TX /cmd_vel] Linear X: {linear_x:+.2f} m/s | Angular Z: {angular_z:+.2f} rad/s")
+        print(f"--> [TX /cmd_vel] Linear X: {linear_x:+.2f} m/s | Angular Z: {angular_z:+.2f} rad/s -> {self.target_host}:{self.control_port}")
 
     def _telemetry_loop(self):
         print(f"[*] Telemetry listener active on UDP Port {self.telemetry_port}...")
@@ -100,7 +100,7 @@ class PiSimCoreBridge:
                     break
 
     def _video_loop(self):
-        """Listens on UDP Port 5000 for JPEG video frames and displays window using OpenCV."""
+        """Listens on UDP Port 5000 for MTU-safe JPEG video chunks and reassembles frames for OpenCV."""
         try:
             import cv2
             import numpy as np
@@ -110,26 +110,44 @@ class PiSimCoreBridge:
 
         video_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         video_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        video_sock.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 4 * 1024 * 1024)
+        video_sock.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 8 * 1024 * 1024)
         video_sock.bind(("0.0.0.0", self.video_port))
 
-        print(f"[*] FPV Video receiver active on UDP Port {self.video_port}...")
+        print(f"[*] FPV Video receiver active on UDP Port {self.video_port} (MTU Reassembly)...")
         window_name = "PiSim Pi5 Live FPV Stream (Port 5000)"
 
+        current_frame_seq = None
+        frame_chunks = {}
         frame_count = 0
+
         try:
             while self.running:
                 data, addr = video_sock.recvfrom(65507)
-                if not data:
+                if len(data) < 4:
                     continue
-                np_arr = np.frombuffer(data, np.uint8)
-                frame = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
-                if frame is not None:
-                    frame_count += 1
-                    if frame_count % 30 == 0:
-                        print(f"<-- [RX FPV Frame] #{frame_count} ({frame.shape[1]}x{frame.shape[0]}) from {addr[0]}")
-                    cv2.imshow(window_name, frame)
-                    cv2.waitKey(1)
+
+                frame_seq = (data[0] << 8) | data[1]
+                chunk_idx = data[2]
+                total_chunks = data[3]
+                payload = data[4:]
+
+                if frame_seq != current_frame_seq:
+                    current_frame_seq = frame_seq
+                    frame_chunks = {}
+
+                frame_chunks[chunk_idx] = payload
+
+                if len(frame_chunks) == total_chunks:
+                    full_jpeg = b"".join(frame_chunks[i] for i in range(total_chunks) if i in frame_chunks)
+                    np_arr = np.frombuffer(full_jpeg, np.uint8)
+                    frame = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+                    if frame is not None:
+                        frame_count += 1
+                        if frame_count % 30 == 0:
+                            print(f"<-- [RX FPV Frame] #{frame_seq} ({frame.shape[1]}x{frame.shape[0]}) from {addr[0]}")
+                        cv2.imshow(window_name, frame)
+                        cv2.waitKey(1)
+                    frame_chunks = {}
         except Exception:
             pass
         finally:
