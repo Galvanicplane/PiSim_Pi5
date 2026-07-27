@@ -12,6 +12,8 @@ import struct
 import threading
 import time
 import sys
+import json
+import os
 
 # Port Architecture Configuration
 UE5_CONTROL_PORT = 7400      # UE5 listens for /cmd_vel on 7400
@@ -55,6 +57,18 @@ class PiSimCoreBridge:
         print(f"  [+] Listening /sim/imu ON : UDP Port {self.telemetry_port}")
         print(f"  [+] Listening FPV Video ON: UDP Port {self.video_port}")
         print("========================================================\n")
+        self.load_robot_config()
+
+    def load_robot_config(self, config_path="robot_config.json"):
+        if os.path.exists(config_path):
+            try:
+                with open(config_path, "r") as f:
+                    config = json.load(f)
+                print(f"[HAL Config] Loaded '{config.get('robot_name')}' with {len(config.get('virtual_ports', []))} Virtual Ports:")
+                for port in config.get("virtual_ports", []):
+                    print(f"  -> [{port.get('port_id')}] Type: {port.get('port_type')} | Target: {port.get('target_component')} | Pin/Addr: {port.get('pin_or_address')}")
+            except Exception as e:
+                print(f"[HAL Config] Error reading {config_path}: {e}")
 
     def start(self, enable_video=True):
         self.running = True
