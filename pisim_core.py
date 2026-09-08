@@ -15,11 +15,21 @@ import sys
 import json
 import os
 
+# Prevent Windows console cp1254 UnicodeEncodeError
+try:
+    if hasattr(sys.stdout, 'reconfigure'):
+        sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+    if hasattr(sys.stderr, 'reconfigure'):
+        sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+except Exception:
+    pass
+
 # Port Architecture Configuration
 UE5_CONTROL_PORT = 7400      # UE5 listens for /cmd_vel on 7400
 PI5_TELEMETRY_PORT = 7401    # Pi5 listens for /sim/imu on 7401
 PI5_VIDEO_PORT = 5000        # Pi5 listens for video frames on 5000
-TARGET_HOST = "192.168.1.10"  # UE5 Host PC IP address (Ethernet)
+# Intelligent Host Detection: If on Raspberry Pi/Linux use 192.168.1.10 (PC Ethernet), else 127.0.0.1
+TARGET_HOST = "192.168.1.10" if sys.platform.startswith("linux") else "127.0.0.1"
 
 # Binary Struct Formats matching C++ #pragma pack(push, 1)
 TWIST_FORMAT = "<6d"
@@ -74,6 +84,9 @@ class PiSimCoreBridge:
         self.running = True
         self.enable_video = enable_video
         
+        # Transmit an immediate handshake ping packet so UE5 registers Pi 5 IP instantly
+        self.publish_cmd_vel(0.0, 0.0)
+
         # Start Telemetry Receiver Thread
         self.recv_thread = threading.Thread(target=self._telemetry_loop, daemon=True)
         self.recv_thread.start()
@@ -254,9 +267,10 @@ def realtime_teleop_cli(bridge):
 
 
 if __name__ == "__main__":
-    bridge = PiSimCoreBridge()
+    target = sys.argv[1] if (len(sys.argv) > 1 and not sys.argv[1].startswith("-")) else TARGET_HOST
+    bridge = PiSimCoreBridge(target_host=target)
     
-    if len(sys.argv) > 1 and sys.argv[1] == "--test":
+    if len(sys.argv) > 1 and "--test" in sys.argv:
         print("[*] Running automated /cmd_vel test sequence...")
         bridge.start(enable_video=False)
         bridge.publish_cmd_vel(linear_x=1.0)

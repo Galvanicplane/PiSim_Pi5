@@ -21,10 +21,20 @@ import math
 from collections import deque
 from datetime import datetime
 
+# Prevent Windows console cp1254 UnicodeEncodeError
+try:
+    if hasattr(sys.stdout, 'reconfigure'):
+        sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+    if hasattr(sys.stderr, 'reconfigure'):
+        sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+except Exception:
+    pass
+
 # ==============================================================================
 # DEFAULT NETWORK CONFIGURATION
 # ==============================================================================
-DEFAULT_UE5_HOST = "127.0.0.1"    # Default: local host (change to PC IP if on Pi 5 Ethernet)
+# Intelligent Host Detection: If on Raspberry Pi/Linux use 192.168.1.10 (PC Ethernet), else 127.0.0.1
+DEFAULT_UE5_HOST = "192.168.1.10" if sys.platform.startswith("linux") else "127.0.0.1"
 CONTROL_PORT = 7400                # UE5 listens on UDP 7400
 TELEMETRY_PORT = 7401              # Pi 5 listens on UDP 7401
 
@@ -233,20 +243,26 @@ class PiSimLiveDashboard:
         time_since_rx = time.time() - self.last_rx_time if self.last_rx_time > 0 else 999.0
         is_linked = time_since_rx < 2.0
 
-        status_badge = f"\033[1;92m🟢 BAGLANDI (Gecikme: {self.latency_ms:4.1f} ms)\033[0m" if is_linked else "\033[1;93m🟡 UE5 BEKLENIYOR (Port 7401)\033[0m"
+        stage1 = f"\033[92m🟢 ACIK (0.0.0.0:{self.telemetry_port} Dinleniyor)\033[0m"
+        stage2 = f"\033[92m🟢 HAZIR ({self.target_host}:{self.control_port})\033[0m"
+        stage3 = f"\033[92m🟢 ALINDI (Gecikme: {self.latency_ms:4.1f} ms)\033[0m" if is_linked else f"\033[93m🟡 BEKLENIYOR... (Hedef: {self.target_host})\033[0m"
+        stage4 = f"\033[92m🟢 AKTIF ({self.tx_rate_hz:4.1f} Hz TX | {self.rx_rate_hz:4.1f} Hz RX)\033[0m" if is_linked else "\033[93m🟡 VERI AKISI BEKLEMEDE\033[0m"
 
         print("\033[96m╔══════════════════════════════════════════════════════════════════════════════════╗\033[0m")
         print("\033[96m║\033[0m       \033[1;97mPiSim // RASPBERRY PI 5 HARDWARE-IN-THE-LOOP TERMINAL DASHBOARD\033[0m            \033[96m║\033[0m")
         print("\033[96m╠══════════════════════════════════════════════════════════════════════════════════╣\033[0m")
-        print(f"\033[96m║\033[0m  \033[1mBaglanti Durumu\033[0m : {status_badge:<48}  \033[96m║\033[0m")
-        print(f"\033[96m║\033[0m  \033[1mHedef UE5 Host\033[0m  : \033[94m{self.target_host}:{self.control_port}\033[0m (Komut TX) | Port \033[94m{self.telemetry_port}\033[0m (Telemetri RX)  \033[96m║\033[0m")
-        print(f"\033[96m║\033[0m  \033[1mPaket Sayaclari\033[0m : TX: \033[92m{self.tx_count}\033[0m ({self.tx_rate_hz:4.1f} Hz) | RX: \033[92m{self.rx_count}\033[0m ({self.rx_rate_hz:4.1f} Hz)               \033[96m║\033[0m")
+        print(f"\033[96m║\033[0m  \033[1;96m🔗 PI 5 ➔ UE5 BAGLANTI ASAMALARI (1 - 4)\033[0m                                        \033[96m║\033[0m")
+        print(f"\033[96m║\033[0m     • Asama 1: Pi 5 Dinleme Soketi : {stage1:<52} \033[96m║\033[0m")
+        print(f"\033[96m║\033[0m     • Asama 2: Hedef UE5 Host      : {stage2:<52} \033[96m║\033[0m")
+        print(f"\033[96m║\033[0m     • Asama 3: UE5 Telemetri Yaniti: {stage3:<52} \033[96m║\033[0m")
+        print(f"\033[96m║\033[0m     • Asama 4: Canli Cift Yon Akis : {stage4:<52} \033[96m║\033[0m")
         print("\033[96m╠══════════════════════════════════════════════════════════════════════════════════╣\033[0m")
         print("\033[96m║\033[0m  \033[1;92m🎮 ANLIK AKTÜATÖR KOMUTLARI (Pi 5 ➔ UE5 Port 7400)\033[0m                              \033[96m║\033[0m")
-        print(f"\033[96m║\033[0m     • Iletilen Linear X   : \033[1;97m{self.cmd_linear_x:+6.2f} m/s\033[0m                                        \033[96m║\033[0m")
+        print(f"\033[96m║\033[0m     • Iletilen Linear X   : \033[1;97m{self.cmd_linear_x:+6.2f} m/s\033[0m  (Toplam TX: {self.tx_count} Paket)             \033[96m║\033[0m")
         print(f"\033[96m║\033[0m     • Iletilen Angular Z  : \033[1;97m{self.cmd_angular_z:+6.2f} rad/s\033[0m                                      \033[96m║\033[0m")
         print("\033[96m╠══════════════════════════════════════════════════════════════════════════════════╣\033[0m")
         print("\033[96m║\033[0m  \033[1;93m🏎️ CANLI IMU & KINEMATIK TELEMETRISI (UE5 ➔ Pi 5 Port 7401)\033[0m                    \033[96m║\033[0m")
+        print(f"\033[96m║\033[0m     • Paket Sayaci (RX)   : \033[1;97m{self.rx_count}\033[0m Paket ({self.rx_rate_hz:4.1f} Hz) - 80 Bayt CDR                   \033[96m║\033[0m")
         print(f"\033[96m║\033[0m     • Lineer Ivme (m/s²)  : X:\033[97m{self.accel[0]:+6.2f}\033[0m  Y:\033[97m{self.accel[1]:+6.2f}\033[0m  Z:\033[97m{self.accel[2]:+6.2f}\033[0m                   \033[96m║\033[0m")
         print(f"\033[96m║\033[0m     • Jiroskop    (rad/s) : X:\033[97m{self.gyro[0]:+6.2f}\033[0m  Y:\033[97m{self.gyro[1]:+6.2f}\033[0m  Z:\033[97m{self.gyro[2]:+6.2f}\033[0m                   \033[96m║\033[0m")
         print(f"\033[96m║\033[0m     • Euler Acilari (deg) : Roll:\033[97m{self.euler[0]:+6.1f}°\033[0m Pitch:\033[97m{self.euler[1]:+6.1f}°\033[0m Yaw:\033[97m{self.euler[2]:+6.1f}°\033[0m             \033[96m║\033[0m")
