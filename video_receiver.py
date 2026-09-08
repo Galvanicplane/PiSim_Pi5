@@ -35,20 +35,42 @@ class VideoReceiver:
 
         frame_count = 0
         start_time = time.time()
+        current_frame_seq = None
+        frame_chunks = {}
 
         try:
             while True:
-                # Max UDP datagram size
                 data, addr = self.sock.recvfrom(65507)
                 if not data:
                     continue
 
-                # Decode JPEG byte buffer to OpenCV image
-                np_arr = np.frombuffer(data, np.uint8)
-                frame = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+                frame = None
+                # Check for 4-byte chunk header: [frame_seq (2B), chunk_idx (1B), total_chunks (1B)]
+                if len(data) >= 4 and data[3] > 0 and data[2] < data[3]:
+                    frame_seq = (data[0] << 8) | data[1]
+                    chunk_idx = data[2]
+                    total_chunks = data[3]
+                    payload = data[4:]
+
+                    if frame_seq != current_frame_seq:
+                        current_frame_seq = frame_seq
+                        frame_chunks = {}
+
+                    frame_chunks[chunk_idx] = payload
+
+                    if len(frame_chunks) == total_chunks:
+                        full_jpeg = b"".join(frame_chunks[i] for i in range(total_chunks) if i in frame_chunks)
+                        np_arr = np.frombuffer(full_jpeg, np.uint8)
+                        frame = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+                        frame_chunks = {}
+                else:
+                    # Direct JPEG fallback
+                    np_arr = np.frombuffer(data, np.uint8)
+                    frame = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
 
                 if frame is not None:
                     frame_count += 1
+
 
                     # Execute custom image processing callback if provided
                     if frame_callback:

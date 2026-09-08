@@ -17,8 +17,22 @@ chmod +x setup_pi5.sh
 
 ## 🚀 Running Modes
 
-### Mode 1: Interactive Live Terminal Dashboard (Recommended)
-Runs on Raspberry Pi 5, NVIDIA Jetson, Linux, or Windows with zero extra dependencies:
+### Mode 1: Graphical Desktop Cockpit & Ground Station (En Çok Tavsiye Edilen)
+Opens a dedicated native high-tech graphical application window featuring:
+- **Live FPV Video Stream** with Fighter Jet OSD HUD (Pitch/Roll artificial horizon, heading compass, airspeed tape).
+- **IMU Sensor Gauges** (Roll/Pitch/Yaw, Gyro deg/s, Accel m/s²).
+- **Interactive WASD Teleoperation Pad** highlighting in real-time.
+- **Motor Differential Drive Status** (RPM and Speed km/h).
+```bash
+# If running locally on same PC:
+python3 pisim_gui.py
+
+# If running on Raspberry Pi 5 connected via Ethernet:
+python3 pisim_gui.py 192.168.1.10
+```
+
+### Mode 2: Interactive Live Terminal Dashboard (Hızlı Terminal Modu)
+Runs on Raspberry Pi 5, NVIDIA Jetson, Linux, or Windows with zero GUI dependencies:
 ```bash
 # If running locally on same PC:
 python3 pisim_dashboard.py
@@ -29,6 +43,7 @@ python3 pisim_dashboard.py 192.168.1.10
 - **Auto-Handshake**: Sends initial beacon packet; UE5 automatically locks onto the Pi 5's IP.
 - **Control**: Real-time non-blocking single-key WASD teleop (No Enter needed).
 - **Telemetry**: Live IMU Gyro, Accel, and Euler angles (Roll/Pitch/Yaw) stream at 50 Hz.
+
 
 ### Mode 2: Standalone UDP Bridge (Non-blocking Teleop & FPV Stream)
 Runs legacy bridge with OpenCV video preview:
