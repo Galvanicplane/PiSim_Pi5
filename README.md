@@ -17,8 +17,21 @@ chmod +x setup_pi5.sh
 
 ## 🚀 Running Modes
 
-### Mode 1: Standalone UDP Bridge (Non-blocking Teleop & FPV Stream)
-Runs without requiring a ROS 2 installation on Pi 5:
+### Mode 1: Interactive Live Terminal Dashboard (Recommended)
+Runs on Raspberry Pi 5, NVIDIA Jetson, Linux, or Windows with zero extra dependencies:
+```bash
+# If running locally on same PC:
+python3 pisim_dashboard.py
+
+# If running on Pi 5 connected via Ethernet cable (replace with UE5 PC IP):
+python3 pisim_dashboard.py 192.168.1.10
+```
+- **Auto-Handshake**: Sends initial beacon packet; UE5 automatically locks onto the Pi 5's IP.
+- **Control**: Real-time non-blocking single-key WASD teleop (No Enter needed).
+- **Telemetry**: Live IMU Gyro, Accel, and Euler angles (Roll/Pitch/Yaw) stream at 50 Hz.
+
+### Mode 2: Standalone UDP Bridge (Non-blocking Teleop & FPV Stream)
+Runs legacy bridge with OpenCV video preview:
 ```bash
 python3 pisim_core.py
 ```
@@ -26,7 +39,7 @@ python3 pisim_core.py
 - **Telemetry**: Listens for `/sim/imu` on UDP Port 7401.
 - **FPV Video**: Live OpenCV camera stream on UDP Port 5000.
 
-### Mode 2: Native ROS 2 Node (rclpy & ROS 2 Environment)
+### Mode 3: Native ROS 2 Node (rclpy & ROS 2 Environment)
 Integrates directly with native ROS 2 packages (`rclpy`, `rviz2`, `rqt_image_view`):
 ```bash
 python3 pisim_ros2_node.py
