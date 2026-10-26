@@ -164,24 +164,23 @@ class PiSimRequestHandler(http.server.SimpleHTTPRequestHandler):
         return super().do_GET()
 
     def log_message(self, format, *args):
-        # Statik dosya istekleri için konsolu sessiz tut
-        if args and any(ext in args[0] for ext in ('.css', '.js', '.png', '.jpg', '.ico', '/api/telemetry')):
-            return
-        super().log_message(format, *args)
+        # Konsolu HTTP GET/POST loglarıyla kirletme, tamamen sessiz tut
+        return
 
 
 def run_udp_telemetry_listener():
-    """Unreal Engine (PiSim) veya SITL'den gelen UDP telemetri paketlerini dinler"""
+    """Unreal Engine'den gelen UDP 7400 telemetri paketlerini dinler"""
     global latest_telemetry, discovered_ue5_ip
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     try:
         sock.bind(("0.0.0.0", TELEMETRY_PORT))
-        print(f"[TelemetryListener] 📡 UDP Port {TELEMETRY_PORT} dinleniyor (Telemetri RX)...")
+        print(f"[Telemetri Dinleyici] 🎧 UDP Port {TELEMETRY_PORT} dinleniyor (Unreal Engine bekleniyor...)")
     except Exception as e:
-        print(f"[TelemetryListener] ⚠️ UDP Port {TELEMETRY_PORT} bağlanamadı: {e}")
+        print(f"[Telemetri Dinleyici] ⚠️ UDP Port {TELEMETRY_PORT} bağlanamadı: {e}")
         return
 
+    was_connected = False
     while True:
         try:
             data, addr = sock.recvfrom(4096)
@@ -191,7 +190,7 @@ def run_udp_telemetry_listener():
             sender_ip = addr[0]
             local_ip = get_local_ip()
             all_ips = get_all_local_ips()
-            # FARKLI FİZİKSEL CİHAZ KURALI: Kendi yerel IP'sinden veya loopback'ten gelen paketleri yoksay
+            # Kendisinden gelen paketleri reddet
             if (sender_ip == "127.0.0.1" or sender_ip == local_ip or sender_ip in all_ips) and local_ip != "127.0.0.1":
                 continue
 
@@ -204,6 +203,13 @@ def run_udp_telemetry_listener():
                     latest_telemetry["vehicle_id"] = msg.get("vehicle_id", 0)
                     latest_telemetry["connected"] = True
                     latest_telemetry["ue5_ip"] = addr[0]
+
+                    if not was_connected:
+                        was_connected = True
+                        print(f"\n========================================================")
+                        print(f"  ✅ [BAĞLANTI KURULDU] Unreal Engine telemetrisi alınıyor!")
+                        print(f"     Kaynak IP: {sender_ip} -> Dinlenen Port: {TELEMETRY_PORT}")
+                        print(f"========================================================\n")
 
                     # ArduPilot SITL / PiSim JSON Veri Formatı
                     if "attitude" in msg:

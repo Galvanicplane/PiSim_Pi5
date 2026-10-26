@@ -133,41 +133,26 @@ def send_probe_burst(target_ip: str = "255.255.255.255", port: int = DISCOVERY_P
         sock.close()
 
 class PiSimDiscoveryService:
-    """Hem aktif Beacon basan hem de gelen Probelara anında yanıt veren tam çift yönlü keşif servisi."""
+    """Sadece yerel ağa (UDP 7499) periyodik 'Ben Pi 5'im' sinyali basar. Dinleme yapmaz, çakışmaz."""
     def __init__(self, port: int = DISCOVERY_PORT, broadcast_interval: float = 2.0):
         self.port = port
         self.broadcast_interval = broadcast_interval
         self.local_ip = get_local_ip()
-        self.all_local_ips = get_all_local_ips()
         self.running = False
         self.broadcast_thread = None
-        self.listener_thread = None
-        self.discovered_peers = {}
-        self.lock = threading.Lock()
 
     def start(self):
         self.running = True
-        self.all_local_ips = get_all_local_ips()
-        self.local_ip = self.all_local_ips[0]
-
-        self.listener_thread = threading.Thread(target=self._listener_loop, daemon=True)
-        self.listener_thread.start()
-
+        self.local_ip = get_local_ip()
         self.broadcast_thread = threading.Thread(target=self._broadcast_loop, daemon=True)
         self.broadcast_thread.start()
-
-        print("======================================================")
-        print("🛰️ [PiSim Auto-Discovery] Aktif Beacon & Prob Servisi Başlatıldı")
-        print(f"   Yerel Cihaz    : Raspberry Pi 5 (IP: {self.local_ip})")
-        print(f"   Keşif Portu    : UDP {self.port} (Broadcast + Dinleme)")
-        print(f"   Yayın Aralığı  : Her {self.broadcast_interval} saniyede bir")
-        print("======================================================")
+        print(f"[Keşif Servisi] 📡 Pi 5 Sinyali Başlatıldı (Yerel IP: {self.local_ip} -> Hedef: UDP {self.port} Broadcast)")
 
     def stop(self):
         self.running = False
 
     def _broadcast_loop(self):
-        """Yerel ağa periyodik 'Ben buradayım!' beacon paketi fırlatır."""
+        """Yerel ağa periyodik 'Ben buradayım' beacon paketi basar."""
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
 
@@ -184,65 +169,6 @@ class PiSimDiscoveryService:
             except Exception:
                 pass
             time.sleep(self.broadcast_interval)
-
-        sock.close()
-
-    def _listener_loop(self):
-        """Gelen PISIM_PROBE veya diğer eşlerin BEACON paketlerini dinler."""
-        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        try:
-            sock.bind(("0.0.0.0", self.port))
-        except Exception as e:
-            print(f"⚠️ [BeaconListener] Port {self.port} dinlenemedi: {e}")
-            return
-
-        sock.settimeout(1.0)
-        while self.running:
-            try:
-                data, addr = sock.recvfrom(2048)
-                if not data:
-                    continue
-
-                text = data.decode('utf-8', errors='ignore').strip()
-                try:
-                    msg = json.loads(text)
-                except json.JSONDecodeError:
-                    msg = {"raw": text}
-
-                # Kendimizden gelen veya Raspberry Pi 5 paketlerini ASLA kabul etme
-                dev_name = msg.get("device", "")
-                src_name = msg.get("source", "")
-                if dev_name == "Raspberry Pi 5" or src_name == "Raspberry Pi 5":
-                    continue
-                if addr[0] == "127.0.0.1" or addr[0] == self.local_ip or addr[0] in self.all_local_ips:
-                    continue
-
-                magic = msg.get("magic", "")
-
-                # 1. Unreal Engine veya simülatörden gelen PROBE isteği
-                if "PROBE" in magic or "PISIM_PROBE" in str(msg) or "UE5" in src_name:
-                    print(f"[{time.strftime('%H:%M:%S')}] 🔔 Unreal Engine Keşif Probu Alındı <- {addr[0]}:{addr[1]}")
-                    resp = build_beacon_payload(self.local_ip)
-                    sock.sendto(json.dumps(resp).encode('utf-8'), addr)
-                    with self.lock:
-                        self.discovered_peers[addr[0]] = {"last_seen": time.time(), "type": "UNREAL_ENGINE"}
-
-                # 2. Unreal Engine'den gelen BEACON veya yanıt
-                elif "BEACON" in magic or "UNREAL" in dev_name or "UE5" in dev_name or "UE5" in src_name:
-                    with self.lock:
-                        self.discovered_peers[addr[0]] = {
-                            "last_seen": time.time(),
-                            "name": "Unreal Engine 5",
-                            "data": msg
-                        }
-                    print(f"[{time.strftime('%H:%M:%S')}] 📡 Unreal Engine Simülatör Keşfedildi: {addr[0]}")
-
-            except socket.timeout:
-                continue
-            except Exception:
-                if not self.running:
-                    break
 
         sock.close()
 
