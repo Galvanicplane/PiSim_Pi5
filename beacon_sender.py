@@ -30,21 +30,56 @@ TELEMETRY_PORT = 7400
 VIDEO_PORT = 7401
 DASHBOARD_PORT = 8080
 
+import subprocess
+
+def get_all_local_ips() -> list:
+    """Tüm aktif yerel ağ IPv4 adreslerini tespit eder (İnternet bağlantısı olmasa dahi eth/wifi adresini bulur)."""
+    found_ips = []
+
+    # 1. Linux / Raspberry Pi: hostname -I komutu (En garantisi, internet gerektirmez)
+    if sys.platform.startswith("linux"):
+        try:
+            out = subprocess.check_output(["hostname", "-I"], timeout=1).decode('utf-8', errors='ignore').strip()
+            for ip in out.split():
+                if not ip.startswith("127.") and ":" not in ip:
+                    found_ips.append(ip)
+        except Exception:
+            pass
+
+    # 2. Standart soket denemeleri
+    probe_targets = [('8.8.8.8', 80), ('192.168.1.1', 80), ('10.0.0.1', 80)]
+    for target in probe_targets:
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.connect(target)
+            ip = s.getsockname()[0]
+            s.close()
+            if ip and not ip.startswith("127."):
+                found_ips.append(ip)
+                break
+        except Exception:
+            pass
+
+    # 3. gethostbyname_ex fallback
+    try:
+        host = socket.gethostname()
+        for ip in socket.gethostbyname_ex(host)[2]:
+            if not ip.startswith("127."):
+                found_ips.append(ip)
+    except Exception:
+        pass
+
+    clean_ips = list(dict.fromkeys(found_ips))
+    return clean_ips if clean_ips else ["127.0.0.1"]
+
 def get_local_ip() -> str:
     """Yerel ağdaki gerçek IP adresini tespit eder."""
-    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    try:
-        s.connect(('8.8.8.8', 80))
-        ip = s.getsockname()[0]
-    except Exception:
-        ip = '127.0.0.1'
-    finally:
-        s.close()
-    return ip
+    ips = get_all_local_ips()
+    return ips[0]
 
 def build_beacon_payload(local_ip: str = None) -> dict:
     """PiSim Beacon JSON kimlik paketini oluşturur."""
-    if not local_ip:
+    if not local_ip or local_ip == "127.0.0.1":
         local_ip = get_local_ip()
     return {
         "magic": "PISIM_BEACON",
@@ -61,11 +96,11 @@ def build_beacon_payload(local_ip: str = None) -> dict:
 def get_broadcast_targets(port: int = DISCOVERY_PORT) -> list:
     """Yerel ağın subnet broadcast (örn: 192.168.1.255) ve global broadcast adreslerini döner."""
     targets = [("255.255.255.255", port), ("127.0.0.1", port)]
-    local_ip = get_local_ip()
-    if local_ip and local_ip != "127.0.0.1":
-        parts = local_ip.split('.')
-        if len(parts) == 4:
-            targets.append((f"{parts[0]}.{parts[1]}.{parts[2]}.255", port))
+    for ip in get_all_local_ips():
+        if ip and not ip.startswith("127."):
+            parts = ip.split('.')
+            if len(parts) == 4:
+                targets.append((f"{parts[0]}.{parts[1]}.{parts[2]}.255", port))
     return list(set(targets))
 
 
