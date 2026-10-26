@@ -183,6 +183,7 @@ def run_udp_telemetry_listener():
         return
 
     was_connected = False
+    last_print_time = 0.0
     while True:
         try:
             data, addr = sock.recvfrom(4096)
@@ -208,17 +209,22 @@ def run_udp_telemetry_listener():
                     latest_telemetry["vehicle_id"] = msg.get("vehicle_id", 0)
                     latest_telemetry["connected"] = True
                     latest_telemetry["ue5_ip"] = addr[0]
-                    if "msg" in msg:
-                        latest_telemetry["msg"] = str(msg["msg"])
-                    else:
-                        latest_telemetry["msg"] = "HI FROM UNREAL"
+                    rx_msg_content = str(msg.get("msg", "HI FROM UNREAL"))
+                    latest_telemetry["msg"] = rx_msg_content
 
                     if not was_connected:
                         was_connected = True
                         print(f"\n========================================================")
                         print(f"  ✅ [BAĞLANTI KURULDU] Unreal Engine telemetrisi alınıyor!")
-                        print(f"     Kaynak IP: {sender_ip} -> Dinlenen Port: {TELEMETRY_PORT}")
+                        print(f"     Kaynak IP  : {sender_ip} -> Dinlenen Port: {TELEMETRY_PORT}")
+                        print(f"     Gelen Mesaj: \"{rx_msg_content}\"")
                         print(f"========================================================\n")
+
+                    current_time = time.time()
+                    if current_time - last_print_time >= 1.5:
+                        last_print_time = current_time
+                        print(f"📩 [RX ← UE5 ({sender_ip})]: \"{rx_msg_content}\" (Port {TELEMETRY_PORT})")
+                        print(f"📤 [TX → UE5 ({sender_ip})]: \"HI FROM PI5\" (Port {DISCOVERY_PORT} Heartbeat)")
 
                     # ArduPilot SITL / PiSim JSON Veri Formatı
                     if "attitude" in msg:
