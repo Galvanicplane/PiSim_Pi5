@@ -123,11 +123,11 @@
                         </div>
                     </div>
 
-                    <!-- İKİ YÖNLÜ VERİ BORULARI (Sadece gerçek veri aktığında animasyonlu yanar) -->
+                    <!-- İKİ YÖNLÜ VERİ BORULARI (Sadece gerçek veri aktığında animasyonlu yanar, bağlı değilken gri/sönüktür) -->
                     <div class="data-flow-container">
-                        <div class="data-node-endpoint active-node">
+                        <div class="data-node-endpoint" id="node-pi5">
                             <div class="node-title">RASPBERRY PI 5</div>
-                            <div class="node-sub">PORT: 7400 RX</div>
+                            <div class="node-sub" id="node-pi5-sub">PORT: 7400 RX</div>
                         </div>
 
                         <div class="data-flow-center-branches">
@@ -143,7 +143,7 @@
                                     </div>
                                 </div>
 
-                                <div class="data-node active-node" onclick="inspectChannel('sitl')" style="cursor: pointer; min-width: 120px;">
+                                <div class="data-node" id="node-center-telemetry" onclick="inspectChannel('sitl')" style="cursor: pointer; min-width: 120px;">
                                     <div class="node-title">UDP 7400 TELEMETRİ</div>
                                     <div class="node-sub">JSON / SITL</div>
                                 </div>
@@ -161,9 +161,27 @@
                             </div>
                         </div>
 
-                        <div class="data-node-endpoint active-node">
+                        <div class="data-node-endpoint" id="node-ue5">
                             <div class="node-title">UNREAL ENGINE 5</div>
-                            <div class="node-sub">CHAOS FİZİK</div>
+                            <div class="node-sub" id="node-ue5-sub">CHAOS FİZİK</div>
+                        </div>
+                    </div>
+
+                    <!-- MANUEL HEDEF IP & PORT AYARI VE KENDİ IP BİLGİSİ (ALT PANEL) -->
+                    <div class="manual-connection-bar" style="display: flex; justify-content: space-between; align-items: center; background: rgba(0, 0, 0, 0.45); border: 1px solid var(--mono-border); padding: 5px 10px; margin-bottom: 4px; font-family: var(--font-mono); font-size: 10px; clip-path: polygon(0 0, calc(100% - 6px) 0, 100% 6px, 100% 100%, 6px 100%, 0 calc(100% - 6px));">
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <span style="color: var(--text-muted); font-weight: 700;">📡 BU CİHAZ (PI 5) IP:</span>
+                            <span id="label-local-ip" style="color: #00e5ff; font-weight: 800; background: rgba(0, 229, 255, 0.1); padding: 1px 6px; border: 1px solid rgba(0, 229, 255, 0.3);">YÜKLENİYOR...</span>
+                        </div>
+                        
+                        <div style="display: flex; align-items: center; gap: 6px;">
+                            <span style="color: var(--text-muted); font-weight: 700;">HEDEF (UNREAL) IP:</span>
+                            <input type="text" id="input-manual-target-ip" placeholder="192.168.1.X" style="width: 110px; background: #06090c; border: 1px solid var(--mono-border); color: #ffffff; padding: 2px 6px; font-size: 10px; font-family: var(--font-mono);">
+                            <span style="color: var(--text-muted); font-weight: 700;">PORT:</span>
+                            <input type="number" id="input-manual-target-port" value="7400" style="width: 55px; background: #06090c; border: 1px solid var(--mono-border); color: var(--accent-color); padding: 2px 6px; font-size: 10px; font-family: var(--font-mono);">
+                            <button class="cod-btn cod-btn-accent" style="padding: 2px 8px; font-size: 9.5px;" onclick="applyManualTargetConnection()">
+                                BAĞLAN / PROB AT
+                            </button>
                         </div>
                     </div>
 
@@ -348,8 +366,14 @@
                         activeBadge.style.color = "var(--accent-color)";
                     }
 
-                    // 2. Veri Kanalları (SADECE BAĞLIYKEN CANLI AKIŞ ANİMASYONU ÇALIŞIR)
+                    // 2. Veri Kanalları ve Düğüm Parlamaları (SADECE BAĞLIYKEN CANLANIR VE PARLAR)
                     pipes.forEach(p => p.classList.add('connected'));
+                    const nPi5 = document.getElementById('node-pi5');
+                    const nUe5 = document.getElementById('node-ue5');
+                    const nCenter = document.getElementById('node-center-telemetry');
+                    if (nPi5) nPi5.classList.add('active-node');
+                    if (nUe5) nUe5.classList.add('active-node');
+                    if (nCenter) nCenter.classList.add('active-node');
 
                     // 3. Sol Araç Listesi (Gerçek Veriyle Tekil Dinamik Kart)
                     if (countTag) countTag.innerText = "[1 BAĞLI]";
@@ -402,8 +426,14 @@
                     }
 
                 } else {
-                    // Bağlı Değilken: Boruların animasyonunu ve paket akışını tamamen durdur
+                    // Bağlı Değilken: Boruların animasyonunu ve parlaklığını tamamen durdur (SÖNÜK/GRİ KALIR)
                     pipes.forEach(p => p.classList.remove('connected'));
+                    const nPi5 = document.getElementById('node-pi5');
+                    const nUe5 = document.getElementById('node-ue5');
+                    const nCenter = document.getElementById('node-center-telemetry');
+                    if (nPi5) nPi5.classList.remove('active-node');
+                    if (nUe5) nUe5.classList.remove('active-node');
+                    if (nCenter) nCenter.classList.remove('active-node');
 
                     if (statusTag) {
                         statusTag.innerText = "BEKLİYOR [UDP 7400]";
@@ -450,11 +480,41 @@
                     document.getElementById('detail-alt-tag').innerText = "ALT: -- m";
                     document.getElementById('cam-telemetry-overlay').innerText = "[SİNYAL BEKLENİYOR - PORT 7401]";
                 }
+
+                // Kendi IP'mizi ve Hedef IP'yi her durumda güncelle
+                if (data && data.local_ip) {
+                    const lblLocalIp = document.getElementById('label-local-ip');
+                    if (lblLocalIp) lblLocalIp.innerText = data.local_ip;
+                }
+                if (data && data.ue5_ip) {
+                    const inpTarget = document.getElementById('input-manual-target-ip');
+                    if (inpTarget && !inpTarget.value) inpTarget.placeholder = data.ue5_ip;
+                }
             } catch (err) {
                 // Ağ geçiş hatalarını yoksay
             }
         }
         setInterval(syncLiveTelemetry, 250);
+
+        function applyManualTargetConnection() {
+            const ipInput = document.getElementById('input-manual-target-ip');
+            const portInput = document.getElementById('input-manual-target-port');
+            const ip = ipInput ? ipInput.value.trim() : '';
+            const port = portInput ? portInput.value.trim() : '7400';
+            if (!ip) {
+                addLog("⚠️ Lütfen hedef Unreal Engine IP adresini girin!");
+                return;
+            }
+            addLog(`[MANUEL BAĞLANTI] Hedef IP ayarlanıyor: ${ip}:${port}...`);
+            fetch(`/api/set_target?ip=${encodeURIComponent(ip)}&port=${encodeURIComponent(port)}`)
+                .then(r => r.json())
+                .then(res => {
+                    addLog(`✅ Hedef ayarlandı -> ${res.target_ip}:${res.target_port}. Keşif probu fırlatıldı!`);
+                })
+                .catch(err => {
+                    addLog(`❌ Hata: ${err}`);
+                });
+        }
 
         function getTime() {
             const now = new Date();

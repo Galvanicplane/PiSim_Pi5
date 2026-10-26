@@ -33,10 +33,10 @@ DASHBOARD_PORT = 8080
 import subprocess
 
 def get_all_local_ips() -> list:
-    """Tüm aktif yerel ağ IPv4 adreslerini tespit eder (İnternet bağlantısı olmasa dahi eth/wifi adresini bulur)."""
+    """Tüm aktif yerel ağ IPv4 adreslerini tespit eder (Hiçbir dış Google/WAN sunucusuna bağlanmaz)."""
     found_ips = []
 
-    # 1. Linux / Raspberry Pi: hostname -I komutu (En garantisi, internet gerektirmez)
+    # 1. Linux / Raspberry Pi: hostname -I komutu (Donanımsal eth/wlan adresleri, %100 yerel)
     if sys.platform.startswith("linux"):
         try:
             out = subprocess.check_output(["hostname", "-I"], timeout=1).decode('utf-8', errors='ignore').strip()
@@ -46,9 +46,9 @@ def get_all_local_ips() -> list:
         except Exception:
             pass
 
-    # 2. Standart soket denemeleri
-    probe_targets = [('8.8.8.8', 80), ('192.168.1.1', 80), ('10.0.0.1', 80)]
-    for target in probe_targets:
+    # 2. Yerel alt ağ arayüz yoklaması (Sadece yerel modem/router IP'lerine bağlanır, internet gerekmez)
+    local_probes = [('192.168.1.1', 80), ('192.168.0.1', 80), ('10.0.0.1', 80), ('172.16.0.1', 80)]
+    for target in local_probes:
         try:
             s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             s.connect(target)
@@ -95,7 +95,7 @@ def build_beacon_payload(local_ip: str = None) -> dict:
 
 def get_broadcast_targets(port: int = DISCOVERY_PORT) -> list:
     """Yerel ağın subnet broadcast (örn: 192.168.1.255) ve global broadcast adreslerini döner."""
-    targets = [("255.255.255.255", port), ("127.0.0.1", port)]
+    targets = [("255.255.255.255", port)]
     for ip in get_all_local_ips():
         if ip and not ip.startswith("127."):
             parts = ip.split('.')
@@ -138,6 +138,7 @@ class PiSimDiscoveryService:
         self.port = port
         self.broadcast_interval = broadcast_interval
         self.local_ip = get_local_ip()
+        self.all_local_ips = get_all_local_ips()
         self.running = False
         self.broadcast_thread = None
         self.listener_thread = None
@@ -146,6 +147,9 @@ class PiSimDiscoveryService:
 
     def start(self):
         self.running = True
+        self.all_local_ips = get_all_local_ips()
+        self.local_ip = self.all_local_ips[0]
+
         self.listener_thread = threading.Thread(target=self._listener_loop, daemon=True)
         self.listener_thread.start()
 
@@ -154,7 +158,7 @@ class PiSimDiscoveryService:
 
         print("======================================================")
         print("🛰️ [PiSim Auto-Discovery] Aktif Beacon & Prob Servisi Başlatıldı")
-        print(f"   Yerel Cihaz    : Raspberry Pi 5 ({self.local_ip})")
+        print(f"   Yerel Cihaz    : Raspberry Pi 5 (IP: {self.local_ip})")
         print(f"   Keşif Portu    : UDP {self.port} (Broadcast + Dinleme)")
         print(f"   Yayın Aralığı  : Her {self.broadcast_interval} saniyede bir")
         print("======================================================")
@@ -206,29 +210,33 @@ class PiSimDiscoveryService:
                 except json.JSONDecodeError:
                     msg = {"raw": text}
 
-                # Kendi yayınladığımız beacon ise yoksay
-                if addr[0] == self.local_ip and msg.get("device") == "Raspberry Pi 5":
+                # Kendimizden gelen veya Raspberry Pi 5 paketlerini ASLA kabul etme
+                dev_name = msg.get("device", "")
+                src_name = msg.get("source", "")
+                if dev_name == "Raspberry Pi 5" or src_name == "Raspberry Pi 5":
+                    continue
+                if addr[0] == "127.0.0.1" or addr[0] == self.local_ip or addr[0] in self.all_local_ips:
                     continue
 
                 magic = msg.get("magic", "")
 
-                # 1. Dashboard veya Unreal'dan gelen PROBE isteği
-                if "PROBE" in magic or "PISIM_PROBE" in str(msg) or "DISCOVER" in str(msg):
-                    print(f"[{time.strftime('%H:%M:%S')}] 🔔 Keşif probu alındı <- {addr[0]}:{addr[1]}")
+                # 1. Unreal Engine veya simülatörden gelen PROBE isteği
+                if "PROBE" in magic or "PISIM_PROBE" in str(msg) or "UE5" in src_name:
+                    print(f"[{time.strftime('%H:%M:%S')}] 🔔 Unreal Engine Keşif Probu Alındı <- {addr[0]}:{addr[1]}")
                     resp = build_beacon_payload(self.local_ip)
                     sock.sendto(json.dumps(resp).encode('utf-8'), addr)
                     with self.lock:
-                        self.discovered_peers[addr[0]] = {"last_seen": time.time(), "type": "PROBE_REQUESTER"}
+                        self.discovered_peers[addr[0]] = {"last_seen": time.time(), "type": "UNREAL_ENGINE"}
 
-                # 2. Unreal veya başka bir eşten gelen BEACON yanıtı
-                elif "BEACON" in magic:
+                # 2. Unreal Engine'den gelen BEACON veya yanıt
+                elif "BEACON" in magic or "UNREAL" in dev_name or "UE5" in dev_name or "UE5" in src_name:
                     with self.lock:
                         self.discovered_peers[addr[0]] = {
                             "last_seen": time.time(),
-                            "name": msg.get("name", "Bilinmeyen"),
+                            "name": "Unreal Engine 5",
                             "data": msg
                         }
-                    print(f"[{time.strftime('%H:%M:%S')}] 📡 Eş Keşfedildi: {msg.get('device', 'Cihaz')} ({addr[0]})")
+                    print(f"[{time.strftime('%H:%M:%S')}] 📡 Unreal Engine Simülatör Keşfedildi: {addr[0]}")
 
             except socket.timeout:
                 continue

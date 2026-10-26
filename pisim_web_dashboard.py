@@ -26,7 +26,7 @@ from pathlib import Path
 from urllib.parse import urlparse, parse_qs
 
 # Import discovery service from beacon_sender
-from beacon_sender import PiSimDiscoveryService, get_local_ip, send_probe_burst, DISCOVERY_PORT
+from beacon_sender import PiSimDiscoveryService, get_local_ip, get_all_local_ips, send_probe_burst, DISCOVERY_PORT
 
 # Ensure UTF-8 output on all consoles
 try:
@@ -59,7 +59,7 @@ latest_telemetry = {
     "ue5_ip": None
 }
 telemetry_lock = threading.Lock()
-discovered_ue5_ip = "127.0.0.1"
+discovered_ue5_ip = None
 
 
 class PiSimRequestHandler(http.server.SimpleHTTPRequestHandler):
@@ -86,6 +86,8 @@ class PiSimRequestHandler(http.server.SimpleHTTPRequestHandler):
             self.send_header('Cache-Control', 'no-cache, no-store, must-revalidate')
             self.end_headers()
             with telemetry_lock:
+                latest_telemetry["local_ip"] = get_local_ip()
+                latest_telemetry["ue5_ip"] = discovered_ue5_ip
                 payload = json.dumps(latest_telemetry).encode('utf-8')
             self.wfile.write(payload)
             return
@@ -111,7 +113,24 @@ class PiSimRequestHandler(http.server.SimpleHTTPRequestHandler):
             self.wfile.write(json.dumps(res).encode('utf-8'))
             return
 
-        # 4. Araç komut fırlatma REST API (ARM, DISARM, ESTOP)
+        # 4. Manuel hedef IP / Port belirleme uç noktası (Kullanıcı alt panelden elle girdiğinde)
+        if clean_path == '/api/set_target':
+            qs = parse_qs(parsed_url.query)
+            target_ip = qs.get('ip', [''])[0].strip()
+            target_port = int(qs.get('port', [7400])[0])
+            if target_ip:
+                discovered_ue5_ip = target_ip
+                send_probe_burst(target_ip=target_ip, port=DISCOVERY_PORT)
+
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.end_headers()
+            res = {"status": "OK", "target_ip": target_ip, "target_port": target_port, "local_ip": get_local_ip()}
+            self.wfile.write(json.dumps(res).encode('utf-8'))
+            return
+
+        # 5. Araç komut fırlatma REST API (ARM, DISARM, ESTOP)
         if clean_path == '/api/command':
             qs = parse_qs(parsed_url.query)
             cmd = qs.get('cmd', [''])[0]
@@ -161,7 +180,14 @@ def run_udp_telemetry_listener():
             if not data:
                 continue
 
-            discovered_ue5_ip = addr[0]
+            sender_ip = addr[0]
+            local_ip = get_local_ip()
+            all_ips = get_all_local_ips()
+            # FARKLI FİZİKSEL CİHAZ KURALI: Kendi yerel IP'sinden veya loopback'ten gelen paketleri yoksay
+            if (sender_ip == "127.0.0.1" or sender_ip == local_ip or sender_ip in all_ips) and local_ip != "127.0.0.1":
+                continue
+
+            discovered_ue5_ip = sender_ip
             text = data.decode('utf-8', errors='ignore')
             try:
                 msg = json.loads(text)

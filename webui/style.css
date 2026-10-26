@@ -1522,11 +1522,11 @@ html, body {
     clip-path: polygon(0 0, calc(100% - 8px) 0, 100% 8px, 100% 100%, 8px 100%, 0 calc(100% - 8px));
 }
 
-/* Sol (PiSim) ve Sağ (UE5) Ana Uç Düğümleri */
+/* Sol (PiSim) ve Sağ (UE5) Ana Uç Düğümleri (Varsayılan: Gri / Sönük, Bağlanınca Aktif) */
 .data-node-endpoint {
     width: 135px;
-    background: var(--mono-mid);
-    border: 1px solid var(--mono-border-bright);
+    background: #0d1117;
+    border: 1px solid #30363d;
     text-align: center;
     clip-path: polygon(0 0, calc(100% - 6px) 0, 100% 6px, 100% 100%, 6px 100%, 0 calc(100% - 6px));
     display: flex;
@@ -1535,24 +1535,41 @@ html, body {
     align-items: center;
     padding: 6px 8px;
     user-select: none;
-    transition: all 0.2s ease;
-}
-
-.data-node-endpoint:hover, .data-node-endpoint.active-node {
-    border-color: var(--accent-color);
-    box-shadow: 0 0 10px var(--accent-dim);
+    transition: all 0.3s ease;
+    opacity: 0.65;
+    box-shadow: none !important;
 }
 
 .data-node-endpoint .node-title {
     font-size: 11px;
     font-weight: 800;
-    color: #ffffff;
+    color: #6e7681;
+    text-shadow: none;
+    transition: color 0.3s ease;
 }
 
 .data-node-endpoint .node-sub {
     font-size: 9px;
-    color: var(--accent-color);
+    color: #484f58;
     margin-top: 1px;
+    transition: color 0.3s ease;
+}
+
+/* SADECE BAĞLANTI KURULDUĞUNDA CANLANIR VE PARLAR */
+.data-node-endpoint.active-node {
+    background: rgba(0, 223, 182, 0.08);
+    border-color: var(--accent-color);
+    box-shadow: 0 0 16px var(--accent-dim) !important;
+    opacity: 1;
+}
+
+.data-node-endpoint.active-node .node-title {
+    color: #ffffff;
+    text-shadow: 0 0 8px var(--accent-glow);
+}
+
+.data-node-endpoint.active-node .node-sub {
+    color: var(--accent-color);
 }
 
 /* Orta Kısım: Üstte SITL Yolu, Altta Doğrudan Bypass Yolu */
@@ -1615,29 +1632,43 @@ html, body {
 
 .data-node {
     padding: 4px 10px;
-    background: var(--mono-mid);
-    border: 1px solid var(--mono-border-bright);
+    background: #0d1117;
+    border: 1px solid #30363d;
     text-align: center;
     clip-path: polygon(0 0, calc(100% - 6px) 0, 100% 6px, 100% 100%, 6px 100%, 0 calc(100% - 6px));
-    transition: all 0.2s ease;
+    transition: all 0.3s ease;
     user-select: none;
-}
-
-.data-node:hover, .data-node.active-node {
-    border-color: var(--accent-color);
-    box-shadow: 0 0 10px var(--accent-dim);
+    opacity: 0.65;
+    box-shadow: none !important;
 }
 
 .data-node .node-title {
     font-size: 10px;
     font-weight: 800;
-    color: #ffffff;
+    color: #6e7681;
+    text-shadow: none;
 }
 
 .data-node .node-sub {
     font-size: 8.5px;
-    color: var(--accent-color);
+    color: #484f58;
     margin-top: 1px;
+}
+
+.data-node.active-node {
+    background: rgba(0, 223, 182, 0.08);
+    border-color: var(--accent-color);
+    box-shadow: 0 0 12px var(--accent-dim) !important;
+    opacity: 1;
+}
+
+.data-node.active-node .node-title {
+    color: #ffffff;
+    text-shadow: 0 0 8px var(--accent-glow);
+}
+
+.data-node.active-node .node-sub {
+    color: var(--accent-color);
 }
 
 /* Çift Yönlü Kanal Borusu (Giden TX ve Gelen RX) */
