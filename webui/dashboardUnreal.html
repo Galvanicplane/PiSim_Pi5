@@ -263,50 +263,37 @@
         }
 
         .target-device-pill:hover, .target-device-pill.selected {
-        /* ==================== ARAÇ SEÇİM MODAL PENCERESİ (%20-40 KARARTMALI BACKDROP) ==================== */
-        .modal-overlay {
+            border-color: var(--accent-color);
+            background: rgba(0, 223, 182, 0.15);
+            color: #ffffff;
+        }
+
+        /* ==================== SOL TAKTİK ARAÇ EKLEME MENÜSÜ ==================== */
+        /* Sol filo panelinin hemen yanında, diğer tüm panellerle birebir aynı stilde (.cod-panel) açılır */
+        .drawer-add-vehicle {
             position: fixed;
-            top: 0;
-            left: 0;
-            width: 100vw;
-            height: 100vh;
-            background: rgba(0, 0, 0, 0.45);
-            backdrop-filter: blur(4px);
-            z-index: 200;
-            display: none;
-            align-items: center;
-            justify-content: center;
+            top: 44px;
+            left: 360px;
+            bottom: 12px;
+            width: 340px;
+            z-index: 85;
+            transform: translateX(-140%);
+            opacity: 0;
+            pointer-events: none;
+            transition: transform 0.35s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.25s ease;
+            box-shadow: 10px 0 35px rgba(0, 0, 0, 0.85);
+        }
+
+        .drawer-add-vehicle.open {
+            transform: translateX(0);
+            opacity: 1;
             pointer-events: auto;
-        }
-
-        .modal-overlay.open {
-            display: flex;
-        }
-
-        .modal-card {
-            width: 500px;
-            max-width: 90vw;
-            background: rgba(11, 15, 20, 0.98);
-            border: 1px solid var(--accent-color);
-            box-shadow: 0 0 35px var(--accent-glow), 0 20px 50px rgba(0, 0, 0, 0.95);
-            padding: 16px 20px;
-            display: flex;
-            flex-direction: column;
-            gap: 10px;
-            clip-path: polygon(0 0, calc(100% - 12px) 0, 100% 12px, 100% 100%, 12px 100%, 0 calc(100% - 12px));
-            animation: modalPop 0.22s cubic-bezier(0.16, 1, 0.3, 1);
-        }
-
-        @keyframes modalPop {
-            0% { transform: scale(0.92); opacity: 0; }
-            100% { transform: scale(1); opacity: 1; }
         }
 
         .saved-vehicle-list {
             display: flex;
             flex-direction: column;
             gap: 6px;
-            max-height: 240px;
             overflow-y: auto;
             margin: 4px 0;
             padding-right: 4px;
@@ -382,16 +369,15 @@
             <span class="vscode-menu-item" onclick="toggleLeftDrawer()">[◀ FİLO]</span>
             <span class="vscode-menu-item" onclick="toggleBottomBridge()">[▼ KÖPRÜ & RADAR]</span>
             <span class="vscode-menu-item" onclick="toggleRightDrawer()">[DONANIM ▶]</span>
-            <span class="vscode-menu-item" onclick="triggerBeaconSimulation()">[📡 CİHAZ KEŞFİ YAP (PROBE)]</span>
-            <span class="vscode-menu-item" style="color: #00e5ff; font-weight: 800;" onclick="openTelemetryTableModal()">[📊 1-DK SQL GÜNLÜĞÜ]</span>
+            <span class="vscode-menu-item" onclick="triggerBeaconProbe()">[📡 CİHAZ KEŞFİ YAP]</span>
         </div>
 
         <div class="vscode-menu-group" style="font-size: 10px; gap: 8px;">
-            <span id="active-vehicle-tag" style="color: #ffffff; font-weight: 800;">ODAK: ARAÇ 1 [İHA-ALPHA]</span>
+            <span id="active-vehicle-tag" style="color: #ffffff; font-weight: 800;">ODAK: [ARAÇ SEÇİLMEDİ]</span>
             <span style="color: var(--text-dark);">|</span>
-            <span style="color: var(--text-dark);">UDP 9002</span>
-            <span style="background: var(--accent-dim); color: var(--accent-color); padding: 1px 6px; border: 1px solid var(--accent-color); font-weight: 800;">
-                ONLINE
+            <span id="active-port-tag" style="color: var(--text-dark);">UDP --</span>
+            <span id="active-status-badge" style="background: rgba(255,255,255,0.05); color: var(--text-muted); padding: 1px 6px; border: 1px solid var(--mono-border); font-weight: 800;">
+                BEKLEMEDE
             </span>
             <button id="btn-theme-switcher" class="cod-btn cod-btn-accent" style="padding: 3px 10px; font-size: 10px;" onclick="cycleTheme()">
                 TEMA: 1/5 PETRONAS F1
@@ -418,110 +404,13 @@
         </button>
     </div>
 
-    <!-- ==================== ORTAYA AÇILAN ARAÇ SEÇİM MODALI (%20-40 KARARTMALI) ==================== -->
-    <div id="vehicle-select-modal" class="modal-overlay" onclick="onModalOverlayClick(event)">
-        <div class="modal-card" onclick="event.stopPropagation()">
-            <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--mono-border); padding-bottom: 6px;">
-                <div>
-                    <div style="font-size: 12px; font-weight: 900; color: #ffffff; letter-spacing: 0.5px;">
-                        // SİMÜLASYON FİLOSUNA ARAÇ EKLE
-                    </div>
-                    <div style="font-size: 9px; color: var(--accent-color); margin-top: 1px;">
-                        [ Kayıtlı Profiller & Varsayılan Kütüphane ]
-                    </div>
-                </div>
-                <button class="cod-btn" style="padding: 2px 7px; font-size: 10px;" onclick="closeAddVehicleModal()">✕</button>
-            </div>
-
-            <div style="font-size: 9.5px; color: var(--text-muted); line-height: 1.4;">
-                Aşağıdan konuşlandırmak istediğiniz kayıtlı aracı seçin. Seçtiğinizde bu pencere kapanacak ve haritada tıkladığınız zemin noktasına ışınlanacaktır.
-            </div>
-
-            <!-- Kayıtlı ve Varsayılan Araçlar Listesi -->
-            <div class="saved-vehicle-list" id="saved-vehicle-list-container">
-                <!-- JavaScript dinamik dolduracak -->
-            </div>
-
-            <!-- EN ALTTA: YENİ ARAÇ TASARLA / GARAJA GİT SEÇENEĞİ -->
-            <div style="margin-top: 6px; padding-top: 8px; border-top: 1px solid var(--mono-border); display: flex; flex-direction: column; gap: 4px;">
-                <div style="font-size: 8.5px; color: var(--text-muted);">
-                    İstediğiniz araç listede yoksa, kendi modelinizi donatıp kaydedebilirsiniz:
-                </div>
-                <button class="cod-btn cod-btn-accent" style="width: 100%; padding: 8px; font-size: 11px; font-weight: 800;" onclick="navigateToGarage()">
-                    ➕ YENİ ARAÇ TASARLA / DÜZENLE (GARAJA GİT)
-                </button>
-            </div>
-        </div>
-    </div>
-
-    <!-- ==================== 1 DAKİKALIK PERİYODİK SQL TELEMETRİ TABLO MODALI ==================== -->
-    <div id="telemetry-sql-modal" class="modal-overlay" onclick="onSqlModalOverlayClick(event)">
-        <div class="modal-card" style="width: 860px; max-width: 95vw; max-height: 85vh; display: flex; flex-direction: column;" onclick="event.stopPropagation()">
-            <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--mono-border); padding-bottom: 6px;">
-                <div>
-                    <div style="font-size: 13px; font-weight: 900; color: #ffffff; letter-spacing: 0.5px;">
-                        // 1 DAKİKALIK SQL TELEMETRİ GÜNLÜĞÜ (TABLO GÖRÜNÜMÜ)
-                    </div>
-                    <div style="font-size: 9.5px; color: var(--accent-color); margin-top: 2px;">
-                        Periyodik SQL Batch Kayıt • Dilediğiniz Veriyi Tabloya Dönüştürme & Dışa Aktarma
-                    </div>
-                </div>
-                <div style="display: flex; gap: 6px; align-items: center;">
-                    <button class="cod-btn cod-btn-accent" style="padding: 3px 8px; font-size: 10px;" onclick="flushTelemetryToSqlNow()">
-                        💾 ŞİMDİ SQL'E YAZ (FLUSH)
-                    </button>
-                    <button class="cod-btn" style="padding: 3px 8px; font-size: 10px;" onclick="exportTelemetryToCsv()">
-                        📥 CSV İNDİR
-                    </button>
-                    <button class="cod-btn" style="padding: 2px 7px; font-size: 10px;" onclick="closeTelemetryTableModal()">✕</button>
-                </div>
-            </div>
-
-            <!-- SQL Dosya Bilgi & İstatistik Kartı -->
-            <div style="background: rgba(0, 229, 255, 0.05); border: 1px solid rgba(0, 229, 255, 0.2); padding: 6px 10px; margin-top: 8px; display: flex; justify-content: space-between; font-size: 9.5px;">
-                <span><strong>SQL Veritabanı Dosyası:</strong> <code style="color: var(--accent-color);">Saved/Telemetry/flight_telemetry.sql</code></span>
-                <span id="sql-stats-summary" style="color: #ffffff;">Kayıtlı: 0 Satır | Periyot: 60 saniye</span>
-            </div>
-
-            <!-- Canlı Tablo Alanı -->
-            <div style="flex: 1; overflow-y: auto; margin-top: 8px; border: 1px solid var(--mono-border); background: #06090c; max-height: 380px;">
-                <table style="width: 100%; border-collapse: collapse; font-family: var(--font-mono); font-size: 9.5px; text-align: left;">
-                    <thead style="background: #0d1217; position: sticky; top: 0; border-bottom: 1px solid var(--mono-border); color: var(--accent-color);">
-                        <tr>
-                            <th style="padding: 5px 8px;">Zaman (s)</th>
-                            <th style="padding: 5px 8px;">Araç</th>
-                            <th style="padding: 5px 8px;">Roll (°)</th>
-                            <th style="padding: 5px 8px;">Pitch (°)</th>
-                            <th style="padding: 5px 8px;">Yaw (°)</th>
-                            <th style="padding: 5px 8px;">İrtifa (m)</th>
-                            <th style="padding: 5px 8px;">Hız (km/s)</th>
-                            <th style="padding: 5px 8px;">Pil (%)</th>
-                            <th style="padding: 5px 8px;">GPS (Enlem / Boylam)</th>
-                            <th style="padding: 5px 8px;">Mod</th>
-                        </tr>
-                    </thead>
-                    <tbody id="telemetry-table-body" style="color: #cccccc;">
-                        <!-- JS dinamik dolduracak -->
-                    </tbody>
-                </table>
-            </div>
-
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 8px; font-size: 9px; color: var(--text-muted);">
-                <span>* Uçuş sürerken her 60 saniyede bir batch SQL tablosuna yazılır; uçuş bitişini beklemeniz gerekmez.</span>
-                <button class="cod-btn" style="padding: 3px 8px; font-size: 9.5px;" onclick="refreshTelemetryTable()">
-                    🔄 TABLOYU YENİLE
-                </button>
-            </div>
-        </div>
-    </div>
-
     <!-- ==================== DIŞ TETİKLEYİCİ BUTONLAR ==================== -->
     <!-- Sol Açma Butonları (Üst & Alt) -->
     <button id="btn-toggle-left-top" class="drawer-toggle-btn" onclick="toggleLeftDrawer()" title="Sol Filo Panelini Aç/Kapat">
         <span>◀</span> FİLO ARAÇLARI
     </button>
     <button id="btn-toggle-left-bottom" class="drawer-toggle-btn" onclick="toggleLeftDrawer()" title="Sol Filo Panelini Aç/Kapat">
-        <span>◀</span> [3 ARAÇ]
+        <span>◀</span> <span id="btn-fleet-count">[0 ARAÇ]</span>
     </button>
 
     <!-- Sağ Açma Butonları (Üst & Alt) -->
@@ -542,10 +431,10 @@
         <div class="beacon-pulse-icon"></div>
         <div style="display: flex; flex-direction: column;">
             <div style="font-size: 10px; font-weight: 800; color: #ffffff;">
-                ⚡ YENİ DONANIM BULUNDU (BEACON): <span id="beacon-dev-name" style="color:var(--accent-color);">Raspberry Pi 5</span>
+                ⚡ YENİ DONANIM BULUNDU (BEACON): <span id="beacon-dev-name" style="color:var(--accent-color);">--</span>
             </div>
             <div style="font-size: 9px; color: var(--text-muted);">
-                IP: <span id="beacon-dev-ip">192.168.1.105:7400</span> (Gecikme: 1.8 ms • LAN)
+                IP: <span id="beacon-dev-ip">--</span>
             </div>
         </div>
         <button class="cod-btn cod-btn-accent" style="padding: 4px 10px; font-size: 10px;" onclick="pairDiscoveredBeacon()">
@@ -563,65 +452,55 @@
                 // FİLO ARAÇLARI
             </div>
             <div style="display: flex; gap: 4px; align-items: center;">
-                <span style="font-size: 10px; color: var(--accent-color); font-weight: 700;">[3 AKTİF]</span>
+                <span id="fleet-count-tag" style="font-size: 10px; color: var(--accent-color); font-weight: 700;">[0 AKTİF]</span>
                 <button class="cod-btn" style="padding: 2px 6px; font-size: 10px;" onclick="toggleLeftDrawer()">✕</button>
             </div>
         </div>
 
-        <div class="vehicle-list" id="vehicle-cards-container" style="margin-top: 8px;">
-            <!-- ARAÇ 1 -->
-            <div class="vehicle-card active" onclick="selectVehicle(1)">
-                <div class="vehicle-card-header">
-                    <span class="vehicle-card-title">Araç 1 [İHA-ALPHA]</span>
-                    <span class="status-indicator online">● AKTİF</span>
-                </div>
-                <div class="vehicle-card-body">
-                    <span>Durum:</span>
-                    <span style="color: #ffffff; font-weight: 700;">Havada %70</span>
-                    <span>Hız:</span>
-                    <span style="color: var(--accent-color); font-weight: 800;">20 km/s</span>
-                    <span>Cihaz:</span>
-                    <span id="card-v1-dev" style="color: #00e5ff; font-weight: 700;">Pi 5 (192.168.1.105)</span>
-                </div>
-            </div>
-
-            <!-- ARAÇ 2 -->
-            <div class="vehicle-card" onclick="selectVehicle(2)">
-                <div class="vehicle-card-header">
-                    <span class="vehicle-card-title">Araç 2 [ROVER-BETA]</span>
-                    <span class="status-indicator returning">● DÖNÜŞTE</span>
-                </div>
-                <div class="vehicle-card-body">
-                    <span>Durum:</span>
-                    <span style="color: #ffffff; font-weight: 700;">Devriye</span>
-                    <span>Hız:</span>
-                    <span style="color: var(--accent-color); font-weight: 800;">12 km/s</span>
-                    <span>Cihaz:</span>
-                    <span id="card-v2-dev" style="color: #ffaa00; font-weight: 700;">SITL (127.0.0.1:9012)</span>
-                </div>
-            </div>
-
-            <!-- ARAÇ 3 -->
-            <div class="vehicle-card" onclick="selectVehicle(3)">
-                <div class="vehicle-card-header">
-                    <span class="vehicle-card-title">Araç 3 [QUAD-GAMMA]</span>
-                    <span class="status-indicator online">● BEKLEMEDE</span>
-                </div>
-                <div class="vehicle-card-body">
-                    <span>Durum:</span>
-                    <span style="color: #ffffff; font-weight: 700;">Pistte [RTL]</span>
-                    <span>Hız:</span>
-                    <span style="color: var(--accent-color); font-weight: 800;">0 km/s</span>
-                    <span>Cihaz:</span>
-                    <span id="card-v3-dev" style="color: var(--text-muted); font-weight: 700;">Bağlanmadı</span>
+        <div class="vehicle-list" id="vehicle-cards-container" style="margin-top: 8px; flex: 1; overflow-y: auto;">
+            <div id="no-vehicles-msg" style="padding: 24px 12px; text-align: center; color: var(--text-muted); font-size: 10px;">
+                <div style="font-size: 24px; margin-bottom: 8px; opacity: 0.6;">🛸</div>
+                <div style="font-weight: 800; color: #ffffff; margin-bottom: 4px;">AKTİF ARAÇ BULUNMUYOR</div>
+                <div style="font-size: 8.5px; color: var(--text-dark); line-height: 1.4;">
+                    Filonuzda şu an konuşlandırılmış bir araç yok. Aşağıdaki butona tıklayarak kayıtlı araçlarınızdan birini sahneye ekleyebilirsiniz.
                 </div>
             </div>
         </div>
 
         <div style="margin-top: auto; padding-top: 8px; border-top: 1px solid var(--mono-border);">
-            <button class="cod-btn cod-btn-accent" style="width: 100%; padding: 8px; font-size: 11px; font-weight: 800;" onclick="openAddVehicleModal()">
+            <button class="cod-btn cod-btn-accent" style="width: 100%; padding: 8px; font-size: 11px; font-weight: 800;" onclick="toggleAddVehiclePanel()">
                 ➕ FİLOYA ARAÇ EKLE
             </button>
+        </div>
+    </aside>
+
+    <!-- =========================================================================
+         SOL TAKTİK ARAÇ EKLEME MENÜSÜ (.drawer-add-vehicle .cod-panel)
+         Diğer tüm sağ, sol ve alt pencerelerle birebir aynı taktik stildedir.
+         ========================================================================= -->
+    <aside id="drawer-add-vehicle-panel" class="drawer-add-vehicle cod-panel">
+        <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--mono-border); padding-bottom: 6px;">
+            <div style="font-size: 11px; font-weight: 800; color: #ffffff; letter-spacing: 0.5px;">
+                // YENİ ARAÇ EKLE (SAVED/VARSAYILAN)
+            </div>
+            <button class="cod-btn" style="padding: 2px 6px; font-size: 10px;" onclick="closeAddVehiclePanel()">✕</button>
+        </div>
+
+        <div style="font-size: 8.5px; color: var(--text-muted); margin: 6px 0 4px 0;">
+            Kayıtlı veya varsayılan araç şablonlarından birini seçerek haritaya konuşlandırın:
+        </div>
+
+        <div class="saved-vehicle-list" id="saved-vehicle-list-container" style="flex: 1; overflow-y: auto;">
+            <!-- Dinamik araç listesi populateSavedProfilesList() ile oluşturulur -->
+        </div>
+
+        <div style="margin-top: auto; padding-top: 8px; border-top: 1px solid var(--mono-border); display: flex; flex-direction: column; gap: 4px;">
+            <button class="cod-btn cod-btn-accent" style="width: 100%; padding: 8px; font-size: 10px; font-weight: 800;" onclick="navigateToGarage()">
+                🛠️ YENİ ARAÇ TASARLA / DÜZENLE (GARAJA GİT)
+            </button>
+            <div style="font-size: 8px; color: var(--text-dark); text-align: center;">
+                * Garajda tasarlayıp 'KAYDET' yaptığınız araçlar bu menüye eklenir.
+            </div>
         </div>
     </aside>
 
@@ -635,7 +514,7 @@
                     // SEÇİLİ ARAÇ & ROTA
                 </div>
                 <div id="detail-vehicle-title" style="color: var(--accent-color); font-size: 13px; font-weight: 900; margin-top: 2px;">
-                    Araç 1 [İHA-ALPHA]
+                    [ARAÇ SEÇİLMEDİ]
                 </div>
             </div>
             <button class="cod-btn" style="padding: 2px 6px; font-size: 10px;" onclick="toggleRightDrawer()">✕</button>
@@ -645,14 +524,14 @@
         <div class="device-routing-card">
             <div style="display: flex; justify-content: space-between; align-items: center;">
                 <span style="font-size: 10px; font-weight: 800; color: #ffffff;">BAĞLI DONANIM / SİMÜLASYON:</span>
-                <span id="routing-status-badge" style="background: var(--accent-dim); color: var(--accent-color); font-size: 8.5px; padding: 1px 5px; border: 1px solid var(--accent-color); font-weight: 800;">
-                    EŞLEŞTİ
+                <span id="routing-status-badge" style="background: var(--mono-dark); color: var(--text-dark); font-size: 8.5px; padding: 1px 5px; border: 1px solid var(--mono-border); font-weight: 800;">
+                    BEKLEMEDE
                 </span>
             </div>
 
             <!-- Seçilebilir Donanım Hapları -->
             <div style="display: flex; flex-direction: column; gap: 4px; margin-top: 2px;">
-                <div class="target-device-pill selected" id="pill-dev-pi5" onclick="setRoutingDevice('pi5')">
+                <div class="target-device-pill" id="pill-dev-pi5" onclick="setRoutingDevice('pi5')">
                     <span>🟢 Raspberry Pi 5 [Fiziksel / LAN]</span>
                     <span style="color: var(--accent-color);">192.168.1.105:7400</span>
                 </div>
@@ -668,9 +547,9 @@
 
             <!-- Özel IP ve Port Giriş Alanı -->
             <div id="custom-ip-input-row" style="display: flex; gap: 6px; margin-top: 4px;">
-                <input type="text" id="input-custom-ip" value="192.168.1.105" placeholder="Hedef IP (örn: 192.168.1.50)" 
+                <input type="text" id="input-custom-ip" value="127.0.0.1" placeholder="Hedef IP (örn: 192.168.1.50)" 
                        style="flex: 2; background: #06090c; border: 1px solid var(--mono-border); color: #ffffff; font-family: var(--font-mono); font-size: 10px; padding: 4px 6px;">
-                <input type="number" id="input-custom-port" value="7400" placeholder="Port" 
+                <input type="number" id="input-custom-port" value="9002" placeholder="Port" 
                        style="flex: 1; background: #06090c; border: 1px solid var(--mono-border); color: var(--accent-color); font-family: var(--font-mono); font-size: 10px; padding: 4px 6px;">
                 <button class="cod-btn cod-btn-accent" style="padding: 3px 8px; font-size: 9px;" onclick="applyCustomRouting()">
                     UYGULA
@@ -685,7 +564,7 @@
         <div class="camera-preview-frame" style="height: 110px;">
             <div style="display: flex; justify-content: space-between; font-size: 9px; color: var(--accent-color); font-weight: 800;">
                 <span>[CANLI SENSÖR / FLIR]</span>
-                <span id="cam-telemetry-overlay">FOV: 85° • EO/IR</span>
+                <span id="cam-telemetry-overlay">FOV: --° • EO/IR</span>
             </div>
 
             <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 24px; height: 24px; border: 1px solid var(--accent-color); border-radius: 50%; display: flex; align-items: center; justify-content: center; pointer-events: none;">
@@ -693,8 +572,8 @@
             </div>
 
             <div style="display: flex; justify-content: space-between; font-size: 9px; color: var(--text-muted);">
-                <span id="detail-coords">39.9255° N, 32.8662° E</span>
-                <span>ALT: 450m</span>
+                <span id="detail-coords">--° N, --° E</span>
+                <span>ALT: --m</span>
             </div>
         </div>
 
@@ -702,7 +581,7 @@
         <div style="background: rgba(0,0,0,0.5); border: 1px solid var(--mono-border); padding: 6px; margin-top: 4px; display: flex; flex-direction: column; gap: 4px;">
             <div style="display: flex; justify-content: space-between; align-items: center;">
                 <span style="font-size: 9px; font-weight: 800; color: #ffffff;">İSTEĞE BAĞLI VİDEO AKIŞI:</span>
-                <span id="video-stream-badge" style="font-size: 8px; font-weight: 800; padding: 1px 5px; border: 1px solid #555; color: var(--text-muted);">
+                <span id="video-stream-badge" style="font-size: 8px; font-weight: 800; padding: 1px 5px; border: 1px solid var(--mono-border); color: var(--text-muted);">
                     BEKLEMEDE (AĞ TASARRUFU)
                 </span>
             </div>
@@ -718,19 +597,19 @@
         <div class="telemetry-module-grid">
             <div class="module-stat-card">
                 <div class="label">HIZ VE İRTİFA:</div>
-                <div class="val" id="detail-speed-val">20 km/s</div>
+                <div class="val" id="detail-speed-val">-- km/s</div>
             </div>
             <div class="module-stat-card">
                 <div class="label">BATARYA / GÜÇ:</div>
-                <div class="val" id="detail-battery-val" style="color: var(--accent-color);">24.8V (%92)</div>
+                <div class="val" id="detail-battery-val" style="color: var(--accent-color);">-- V (--%)</div>
             </div>
             <div class="module-stat-card">
                 <div class="label">GÖREV AŞAMASI:</div>
-                <div class="val" id="detail-mission-val">Rota %70</div>
+                <div class="val" id="detail-mission-val">--</div>
             </div>
             <div class="module-stat-card">
                 <div class="label">LİDAR / GNSS:</div>
-                <div class="val" id="detail-sensors-val">14 Uydu [FIX]</div>
+                <div class="val" id="detail-sensors-val">-- Uydu</div>
             </div>
         </div>
 
@@ -754,9 +633,6 @@
                 <span style="cursor: pointer; color: var(--accent-color);" onclick="clearLogs()">TEMİZLE</span>
             </div>
             <div id="system-log-terminal" style="height: 80px; background: var(--mono-dark); border: 1px solid var(--mono-border); font-size: 9px; font-family: var(--font-mono); padding: 4px 6px; overflow-y: auto; color: var(--text-muted); line-height: 1.4;">
-                <div>[20:15:02] Unreal Viewport bağlandı.</div>
-                <div>[20:15:03] Beacon Discovery servisi aktif (Port 7499).</div>
-                <div style="color: var(--accent-color);">[20:15:05] Sistem nominal.</div>
             </div>
         </div>
     </aside>
@@ -844,10 +720,7 @@
                             <span style="font-size: 8px; color: var(--text-dark);">AUTO-SCROLL</span>
                         </div>
                         <div id="packet-stream-lines">
-                            <div>[20:18:10.12] <b style="color:var(--accent-color);">TX → SITL</b> | UDP_PACKET_INPUT (steer: -12.4°, throttle: 0.78)</div>
-                            <div>[20:18:10.28] <b style="color:#00e5ff;">RX ← SITL</b> | GLOBAL_POSITION_INT (lat: 39.925, lon: 32.866)</div>
-                            <div>[20:18:10.45] <b style="color:#00e5ff;">RX ← SITL</b> | ATTITUDE (roll: +0.4°, pitch: -0.1°, yaw: 045°)</div>
-                            <div>[20:18:10.60] <b style="color:var(--accent-color);">TX → SITL</b> | HEARTBEAT (type: MAV_TYPE_QUADROTOR, mode: AUTO)</div>
+                            <div style="color: var(--text-dark); font-size: 8.5px; padding: 12px; text-align: center;">[Canlı MAVLink / JSON paket akışı bekleniyor...]</div>
                         </div>
                     </div>
 
@@ -859,19 +732,19 @@
                         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 3px;">
                             <div class="net-stat-item" style="padding: 2px 4px;">
                                 <span class="tag">GİDEN (TX):</span>
-                                <span class="val" style="color: var(--accent-color); font-size: 10px;">42.8 KB/s</span>
+                                <span class="val" id="net-tx-val" style="color: var(--accent-color); font-size: 10px;">-- KB/s</span>
                             </div>
                             <div class="net-stat-item" style="padding: 2px 4px;">
                                 <span class="tag">GELEN (RX):</span>
-                                <span class="val" style="color: #00e5ff; font-size: 10px;">138.4 KB/s</span>
+                                <span class="val" id="net-rx-val" style="color: #00e5ff; font-size: 10px;">-- KB/s</span>
                             </div>
                             <div class="net-stat-item" style="padding: 2px 4px;">
                                 <span class="tag">JITTER:</span>
-                                <span class="val" style="color: #00dfb6; font-size: 10px;">1.2 ms</span>
+                                <span class="val" id="net-jitter-val" style="color: #00dfb6; font-size: 10px;">-- ms</span>
                             </div>
                             <div class="net-stat-item" style="padding: 2px 4px;">
                                 <span class="tag">PAKET KAYBI:</span>
-                                <span class="val" style="color: #00dfb6; font-size: 10px;">%0.00</span>
+                                <span class="val" id="net-loss-val" style="color: #00dfb6; font-size: 10px;">-- %</span>
                             </div>
                         </div>
                         <div class="net-stat-item" style="padding: 2px 4px; display: flex; justify-content: space-between; align-items: center;">
@@ -884,34 +757,13 @@
                     <div class="beacon-radar-box">
                         <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--mono-border); padding-bottom: 2px;">
                             <span style="color: #ffffff; font-size: 8.5px; font-weight: 800;">// DİĞER CİHAZLAR (BEACON)</span>
-                            <span style="font-size: 8px; color: var(--accent-color);">[SCANNING]</span>
+                            <span id="beacon-radar-status" style="font-size: 8px; color: var(--text-muted);">[BEKLEMEDE]</span>
                         </div>
-
-                        <!-- Cihaz 1: Raspberry Pi 5 -->
-                        <div class="beacon-device-item active-paired" onclick="quickSelectDevice('pi5')">
-                            <div>
-                                <div class="dev-name">🟢 Raspberry Pi 5</div>
-                                <div class="dev-ip">192.168.1.105 (LAN ETH0)</div>
+                        <div id="beacon-device-list" style="display: flex; flex-direction: column; gap: 4px; overflow-y: auto; flex: 1;">
+                            <div style="padding: 12px 6px; color: var(--text-dark); font-size: 8.5px; text-align: center;">
+                                Ağda kayıtlı cihaz aranıyor...<br>
+                                <span style="color:var(--accent-color); font-size:8px;">[📡 CİHAZ KEŞFİ YAP]</span> ile tarayın.
                             </div>
-                            <div class="dev-ping">1.8 ms</div>
-                        </div>
-
-                        <!-- Cihaz 2: Ground PC (Wi-Fi) -->
-                        <div class="beacon-device-item" onclick="quickSelectDevice('ground_pc')">
-                            <div>
-                                <div class="dev-name">🟢 Ground Station PC</div>
-                                <div class="dev-ip">192.168.1.42 (Wi-Fi 5G)</div>
-                            </div>
-                            <div class="dev-ping">3.5 ms</div>
-                        </div>
-
-                        <!-- Cihaz 3: SITL Yerel -->
-                        <div class="beacon-device-item" onclick="quickSelectDevice('sitl')">
-                            <div>
-                                <div class="dev-name">🟡 ArduPilot SITL</div>
-                                <div class="dev-ip">127.0.0.1:9002 (Local)</div>
-                            </div>
-                            <div class="dev-ping">0.1 ms</div>
                         </div>
                     </div>
 
@@ -926,6 +778,7 @@
         let isLeftDrawerOpen = false;
         let isRightDrawerOpen = false;
         let isBottomBridgeOpen = false;
+        let isAddVehicleOpen = false;
 
         function toggleLeftDrawer() {
             isLeftDrawerOpen = !isLeftDrawerOpen;
@@ -941,6 +794,7 @@
                 drawer.classList.remove('open');
                 btnTop.classList.remove('active');
                 btnBottom.classList.remove('active');
+                closeAddVehiclePanel();
             }
         }
 
@@ -977,13 +831,142 @@
             }
         }
 
-        // Araç Veritabanı
-        let currentVehicleId = 1;
-        const fleetData = {
-            1: { name: "Araç 1 [İHA-ALPHA]", speed: "20 km/s", battery: "24.8V (%92)", mission: "Havada %70", targetDevice: "pi5", targetIp: "192.168.1.105", targetPort: 7400 },
-            2: { name: "Araç 2 [ROVER-BETA]", speed: "12 km/s", battery: "12.6V (%84)", mission: "Devriye", targetDevice: "sitl", targetIp: "127.0.0.1", targetPort: 9012 },
-            3: { name: "Araç 3 [QUAD-GAMMA]", speed: "0 km/s", battery: "22.2V (%100)", mission: "Pistte [RTL]", targetDevice: "custom", targetIp: "192.168.1.50", targetPort: 7400 }
-        };
+        // ==================== SOL TAKTİK ARAÇ EKLEME ÇEKMECESİ ====================
+        function toggleAddVehiclePanel() {
+            isAddVehicleOpen = !isAddVehicleOpen;
+            const panel = document.getElementById('drawer-add-vehicle-panel');
+            if (!panel) return;
+
+            if (isAddVehicleOpen) {
+                panel.classList.add('open');
+                populateSavedProfilesList();
+                addLog("📂 Araç Seçim Menüsü Açıldı (Kayıtlı profiller taranıyor).");
+            } else {
+                panel.classList.remove('open');
+            }
+        }
+
+        function closeAddVehiclePanel() {
+            isAddVehicleOpen = false;
+            const panel = document.getElementById('drawer-add-vehicle-panel');
+            if (panel) panel.classList.remove('open');
+        }
+
+        // ==================== DİNAMİK FİLO VE ARAÇ YÖNETİMİ ====================
+        let currentVehicleId = null;
+        let fleetData = {};
+
+        function syncFleetWithBackend() {
+            let jsonStr = "";
+            if (window.garage && window.garage.GetActiveFleetJson) {
+                jsonStr = window.garage.GetActiveFleetJson();
+            } else if (window.ue && window.ue.garage && window.ue.garage.getactivefleetjson) {
+                jsonStr = window.ue.garage.getactivefleetjson();
+            }
+
+            if (jsonStr && jsonStr.length > 2) {
+                try {
+                    const backendFleet = JSON.parse(jsonStr);
+                    if (Array.isArray(backendFleet) && backendFleet.length > 0) {
+                        fleetData = {};
+                        backendFleet.forEach(item => {
+                            const uiId = Number(item.id) + 1;
+                            fleetData[uiId] = {
+                                id: uiId,
+                                backendId: item.id,
+                                name: item.name || `Araç ${uiId}`,
+                                speed: item.speed ? `${item.speed} km/s` : `-- km/s`,
+                                battery: item.battery ? `${item.battery}%` : `--%`,
+                                mission: item.flight_mode || "BEKLEMEDE",
+                                targetDevice: "sitl",
+                                targetIp: "127.0.0.1",
+                                targetPort: 9002 + (item.id * 10),
+                                isFocused: !!item.is_focused
+                            };
+                        });
+                    }
+                } catch (err) {
+                    console.warn("[PiSim UI] Filo JSON parse hatası:", err);
+                }
+            }
+            renderVehicleCards();
+        }
+
+        function renderVehicleCards() {
+            const container = document.getElementById('vehicle-cards-container');
+            const countTag = document.getElementById('fleet-count-tag');
+            const btnCountTag = document.getElementById('btn-fleet-count');
+            if (!container) return;
+
+            const ids = Object.keys(fleetData);
+            const count = ids.length;
+
+            if (countTag) countTag.innerText = `[${count} AKTİF]`;
+            if (btnCountTag) btnCountTag.innerText = `[${count} ARAÇ]`;
+
+            container.innerHTML = '';
+
+            if (count === 0) {
+                container.innerHTML = `
+                    <div id="no-vehicles-msg" style="padding: 24px 12px; text-align: center; color: var(--text-muted); font-size: 10px;">
+                        <div style="font-size: 24px; margin-bottom: 8px; opacity: 0.6;">🛸</div>
+                        <div style="font-weight: 800; color: #ffffff; margin-bottom: 4px;">AKTİF ARAÇ BULUNMUYOR</div>
+                        <div style="font-size: 8.5px; color: var(--text-dark); line-height: 1.4;">
+                            Filonuzda şu an konuşlandırılmış bir araç yok. Aşağıdaki butona tıklayarak kayıtlı araçlarınızdan birini sahneye ekleyebilirsiniz.
+                        </div>
+                    </div>
+                `;
+                resetVehicleDetailView();
+                return;
+            }
+
+            ids.forEach(idStr => {
+                const id = Number(idStr);
+                const v = fleetData[id];
+                const isSelected = (currentVehicleId === id);
+
+                const card = document.createElement('div');
+                card.className = `vehicle-card ${isSelected ? 'active' : ''}`;
+                card.onclick = () => selectVehicle(id);
+                card.innerHTML = `
+                    <div class="vehicle-card-header">
+                        <span class="vehicle-card-title">${v.name}</span>
+                        <span class="status-indicator online">● AKTİF</span>
+                    </div>
+                    <div class="vehicle-card-body">
+                        <span>Durum:</span>
+                        <span style="color: #ffffff; font-weight: 700;">${v.mission}</span>
+                        <span>Hız:</span>
+                        <span style="color: var(--accent-color); font-weight: 800;">${v.speed}</span>
+                        <span>Port:</span>
+                        <span style="color: #00e5ff; font-weight: 700;">UDP ${v.targetPort}</span>
+                    </div>
+                `;
+                container.appendChild(card);
+            });
+
+            if (currentVehicleId === null && ids.length > 0) {
+                selectVehicle(Number(ids[0]));
+            }
+        }
+
+        function resetVehicleDetailView() {
+            currentVehicleId = null;
+            document.getElementById('active-vehicle-tag').innerText = "ODAK: [ARAÇ SEÇİLMEDİ]";
+            document.getElementById('active-port-tag').innerText = "UDP --";
+            document.getElementById('active-status-badge').innerText = "BEKLEMEDE";
+            document.getElementById('active-status-badge').style.color = "var(--text-muted)";
+            document.getElementById('detail-vehicle-title').innerText = "[ARAÇ SEÇİLMEDİ]";
+            document.getElementById('routing-status-badge').innerText = "BEKLEMEDE";
+            document.getElementById('routing-status-badge').style.color = "var(--text-dark)";
+            document.getElementById('routing-status-badge').style.background = "var(--mono-dark)";
+            document.getElementById('detail-speed-val').innerText = "-- km/s";
+            document.getElementById('detail-battery-val').innerText = "-- V (--%)";
+            document.getElementById('detail-mission-val').innerText = "--";
+            document.getElementById('detail-sensors-val').innerText = "-- Uydu";
+            document.getElementById('detail-coords').innerText = "--° N, --° E";
+            updateVideoSubscriptionUI();
+        }
 
         function selectVehicle(id) {
             currentVehicleId = id;
@@ -991,24 +974,27 @@
             if (!v) return;
 
             document.querySelectorAll('.vehicle-card').forEach((c, idx) => {
-                c.classList.toggle('active', (idx + 1) === id);
+                c.classList.toggle('active', Object.keys(fleetData)[idx] == id);
             });
 
             document.getElementById('active-vehicle-tag').innerText = `ODAK: ${v.name}`;
+            document.getElementById('active-port-tag').innerText = `UDP ${v.targetPort}`;
+            document.getElementById('active-status-badge').innerText = "AKTİF";
+            document.getElementById('active-status-badge').style.color = "var(--accent-color)";
+
             document.getElementById('detail-vehicle-title').innerText = v.name;
             document.getElementById('detail-speed-val').innerText = v.speed;
             document.getElementById('detail-battery-val').innerText = v.battery;
             document.getElementById('detail-mission-val').innerText = v.mission;
 
-            setRoutingDevice(v.targetDevice, false);
-            document.getElementById('input-custom-ip').value = v.targetIp;
-            document.getElementById('input-custom-port').value = v.targetPort;
+            setRoutingDevice(v.targetDevice || 'sitl', false);
+            document.getElementById('input-custom-ip').value = v.targetIp || "127.0.0.1";
+            document.getElementById('input-custom-port').value = v.targetPort || 9002;
 
             addLog(`Odaklanan Araç Değişti: ${v.name}`);
             updateVideoSubscriptionUI();
 
-            // Unreal C++ Köprüsü Varsa Tetikle (Kamera ve kontrol odağını aktar)
-            const backendVehicleId = id - 1;
+            const backendVehicleId = (v.backendId !== undefined) ? v.backendId : (id - 1);
             if (window.garage && window.garage.FocusVehicle) {
                 window.garage.FocusVehicle(backendVehicleId);
             } else if (window.ue && window.ue.garage && window.ue.garage.focusvehicle) {
@@ -1016,8 +1002,10 @@
             }
         }
 
-        // Cihaz ve Simülasyon Eşleştirme (Target Routing)
+        // ==================== CİHAZ VE HEDEF ROTA YÖNLENDİRME ====================
         function setRoutingDevice(devKey, logIt = true) {
+            if (!currentVehicleId || !fleetData[currentVehicleId]) return;
+
             fleetData[currentVehicleId].targetDevice = devKey;
 
             document.getElementById('pill-dev-pi5').classList.toggle('selected', devKey === 'pi5');
@@ -1025,27 +1013,33 @@
             document.getElementById('pill-dev-custom').classList.toggle('selected', devKey === 'custom');
 
             const badge = document.getElementById('routing-status-badge');
+            const v = fleetData[currentVehicleId];
 
             if (devKey === 'pi5') {
                 document.getElementById('input-custom-ip').value = "192.168.1.105";
                 document.getElementById('input-custom-port').value = "7400";
                 badge.innerText = "PI5 EŞLEŞTİ";
                 badge.style.color = "var(--accent-color)";
+                badge.style.background = "var(--accent-dim)";
                 if (logIt) addLog(`Araç ${currentVehicleId} -> Raspberry Pi 5 donanımına bağlandı.`);
             } else if (devKey === 'sitl') {
                 document.getElementById('input-custom-ip').value = "127.0.0.1";
-                document.getElementById('input-custom-port').value = (currentVehicleId === 2) ? "9012" : "9002";
+                document.getElementById('input-custom-port').value = v.targetPort || 9002;
                 badge.innerText = "SITL AKTİF";
                 badge.style.color = "#ffaa00";
+                badge.style.background = "rgba(255, 170, 0, 0.15)";
                 if (logIt) addLog(`Araç ${currentVehicleId} -> ArduPilot SITL simülatörüne bağlandı.`);
             } else {
                 badge.innerText = "CUSTOM IP";
                 badge.style.color = "#00e5ff";
+                badge.style.background = "rgba(0, 229, 255, 0.15)";
                 if (logIt) addLog(`Araç ${currentVehicleId} -> Özel IP hedefine bağlandı.`);
             }
         }
 
         function applyCustomRouting() {
+            if (!currentVehicleId || !fleetData[currentVehicleId]) return;
+
             const ip = document.getElementById('input-custom-ip').value;
             const port = parseInt(document.getElementById('input-custom-port').value);
             fleetData[currentVehicleId].targetIp = ip;
@@ -1054,62 +1048,74 @@
             addLog(`Rota Güncellendi: Araç ${currentVehicleId} ──► ${ip}:${port}`);
             addPacketLog(`ROUTING_OVERRIDE_APPLIED: ${ip}:${port}`);
 
-            // Unreal C++'a Rota Bildirimi
-            if (window.ue && window.ue.garage) {
-                if (window.ue.garage.settargetip) {
-                    window.ue.garage.settargetip(ip, port);
-                }
+            if (window.ue && window.ue.garage && window.ue.garage.settargetip) {
+                window.ue.garage.settargetip(ip, port);
             }
         }
 
-        // ==================== BEACON AUTO-DISCOVERY SİSTEMİ ====================
-        let lastDiscoveredBeacon = null;
+        // ==================== GERÇEK BEACON KEŞİF SİSTEMİ ====================
+        function triggerBeaconProbe() {
+            addLog("📡 UDP Cihaz Keşfi (Probe) Başlatıldı (Port 7499)...");
+            addPacketLog("PISIM_DISCOVERY_PROBE_TX: target=UDP 7499 (Broadcast)");
+            const statusTag = document.getElementById('beacon-radar-status');
+            if (statusTag) statusTag.innerText = "[TARANIYOR...]";
 
-        function triggerBeaconSimulation() {
-            // Rastgele veya Raspberry Pi 5 Beacon Paketi Üret
-            const mockIps = ["192.168.1.105", "192.168.1.108", "192.168.1.77"];
-            const chosenIp = mockIps[Math.floor(Math.random() * mockIps.length)];
-            
-            lastDiscoveredBeacon = {
-                deviceName: "Raspberry Pi 5 (Companion)",
-                ip: chosenIp,
-                port: 7400,
-                pingMs: 1.8
-            };
+            if (window.garage && window.garage.TriggerBeaconProbe) {
+                window.garage.TriggerBeaconProbe();
+            } else if (window.ue && window.ue.garage && window.ue.garage.triggerbeaconprobe) {
+                window.ue.garage.triggerbeaconprobe();
+            }
+        }
 
-            document.getElementById('beacon-dev-name').innerText = lastDiscoveredBeacon.deviceName;
-            document.getElementById('beacon-dev-ip').innerText = `${lastDiscoveredBeacon.ip}:${lastDiscoveredBeacon.port}`;
-            
-            const toast = document.getElementById('beacon-toast');
-            toast.classList.add('show');
+        function onBeaconDeviceDiscovered(deviceJson) {
+            try {
+                const dev = (typeof deviceJson === 'string') ? JSON.parse(deviceJson) : deviceJson;
+                if (!dev || !dev.ip) return;
 
-            addLog(`📡 Yeni UDP Beacon Duyurusu Alındı: ${lastDiscoveredBeacon.deviceName} (${lastDiscoveredBeacon.ip})`);
-            addPacketLog(`BEACON_ANNOUNCEMENT_RX: [${lastDiscoveredBeacon.deviceName}] ip=${lastDiscoveredBeacon.ip} port=${lastDiscoveredBeacon.port}`);
+                const list = document.getElementById('beacon-device-list');
+                if (list) {
+                    const placeholder = list.querySelector('div');
+                    if (placeholder && placeholder.innerText.includes('aranıyor')) {
+                        list.innerHTML = '';
+                    }
+
+                    const item = document.createElement('div');
+                    item.className = 'beacon-device-item';
+                    item.onclick = () => {
+                        document.getElementById('input-custom-ip').value = dev.ip;
+                        document.getElementById('input-custom-port').value = dev.port || 7400;
+                        setRoutingDevice('custom');
+                        applyCustomRouting();
+                    };
+                    item.innerHTML = `
+                        <div>
+                            <div class="dev-name">🟢 ${dev.name || 'Bilinmeyen Cihaz'}</div>
+                            <div class="dev-ip">${dev.ip}:${dev.port || 7400}</div>
+                        </div>
+                        <div class="dev-ping">${dev.ping || 'LAN'}</div>
+                    `;
+                    list.appendChild(item);
+                }
+
+                const statusTag = document.getElementById('beacon-radar-status');
+                if (statusTag) statusTag.innerText = "[BULUNDU]";
+
+                addLog(`⚡ Cihaz Keşfedildi: ${dev.name || 'Cihaz'} (${dev.ip})`);
+                addPacketLog(`BEACON_DISCOVERED: ${dev.ip}:${dev.port || 7400}`);
+            } catch (e) {
+                console.error("[PiSim UI] Beacon parse hatası:", e);
+            }
         }
 
         function pairDiscoveredBeacon() {
-            if (!lastDiscoveredBeacon) return;
-
-            document.getElementById('input-custom-ip').value = lastDiscoveredBeacon.ip;
-            document.getElementById('input-custom-port').value = lastDiscoveredBeacon.port;
-            setRoutingDevice('pi5');
-            applyCustomRouting();
-
             hideBeaconToast();
-            addLog(`✅ EŞLEŞTİRİLDİ: ${lastDiscoveredBeacon.deviceName} başarıyla Araç ${currentVehicleId}'e kilitlendi.`);
-            addPacketLog(`BEACON_PAIR_SUCCESS: ${lastDiscoveredBeacon.ip} is now primary telemetry route.`);
         }
 
         function hideBeaconToast() {
             document.getElementById('beacon-toast').classList.remove('show');
         }
 
-        function quickSelectDevice(devType) {
-            setRoutingDevice(devType);
-            applyCustomRouting();
-        }
-
-        // Canlı Paket Akışı ve Sistem Logu
+        // ==================== CANLI PAKET AKIŞI VE SİSTEM LOGU ====================
         function addLog(msg) {
             const term = document.getElementById('system-log-terminal');
             if (!term) return;
@@ -1123,6 +1129,10 @@
         function addPacketLog(line) {
             const stream = document.getElementById('packet-stream-lines');
             if (!stream) return;
+            // Clear placeholder if first real line
+            if (stream.innerText.includes('bekleniyor')) {
+                stream.innerHTML = '';
+            }
             const time = new Date().toTimeString().split(' ')[0];
             const div = document.createElement('div');
             div.innerHTML = `[${time}] <b style="color:var(--accent-color);">UDP</b> | ${line}`;
@@ -1131,25 +1141,35 @@
         }
 
         function clearLogs() {
-            document.getElementById('system-log-terminal').innerHTML = '';
+            const term = document.getElementById('system-log-terminal');
+            if (term) term.innerHTML = '';
         }
 
         function armCurrentVehicle() {
+            if (!currentVehicleId) {
+                addLog("⚠️ Komut iptal: Seçili araç bulunmuyor.");
+                return;
+            }
             addLog(`⚠️ ARM Komutu Gönderildi: Araç ${currentVehicleId}`);
             addPacketLog(`MAV_CMD_COMPONENT_ARM_DISARM: param1=1 (ARM)`);
         }
 
         function sendWaypointMission() {
+            if (!currentVehicleId) {
+                addLog("⚠️ Komut iptal: Seçili araç bulunmuyor.");
+                return;
+            }
             addLog(`📍 Yeni Waypoint Rotası Yüklendi -> Araç ${currentVehicleId}`);
             addPacketLog(`MISSION_ITEM_INT: seq=1 lat=39.9255 lon=32.8662 alt=450m`);
         }
 
         function emergencyStopCurrentVehicle() {
-            addLog(`🛑 ACİL DURDURMA [E-STOP] TETİKLENDİ!`);
+            if (!currentVehicleId) return;
+            addLog(`🛑 ACİL DURDURMA [E-STOP] TETİKLENDİ! -> Araç ${currentVehicleId}`);
             addPacketLog(`EMERGENCY_STOP_DISARM_IMMEDIATE: kill_switch=TRUE`);
         }
 
-        // ==================== ARAÇ SEÇİM MODALI & HARİTAYA IŞINLAMA SİSTEMİ ====================
+        // ==================== SOL ÇEKMECE ARAÇ LİSTESİ & HARİTAYA KONUŞLANDIRMA ====================
         let pendingPlacementProfile = null;
 
         const defaultVehicleDescriptions = {
@@ -1158,14 +1178,13 @@
             "Tarla_Rover_4x4": { icon: "🚙", desc: "4x4 Otonom Tarla ve Arazi İKA Robotu (Hazır Model)" }
         };
 
-        function openAddVehicleModal() {
-            const modal = document.getElementById('vehicle-select-modal');
+        function populateSavedProfilesList() {
             const listContainer = document.getElementById('saved-vehicle-list-container');
+            if (!listContainer) return;
             listContainer.innerHTML = '';
 
             let profiles = ["Quadcopter_X4", "Sabit_Kanat_Delta", "Tarla_Rover_4x4"];
 
-            // Unreal C++'tan Saved/Vehicles/ klasöründeki kayıtlı araçları oku
             if (window.ue && window.ue.garage && window.ue.garage.getsavedprofilesjson) {
                 try {
                     const ueProfilesJson = window.ue.garage.getsavedprofilesjson();
@@ -1178,10 +1197,22 @@
                 } catch (err) {
                     console.warn("[PiSim UI] C++ profilleri okunurken hata:", err);
                 }
+            } else if (window.garage && window.garage.GetSavedProfilesJson) {
+                try {
+                    const gProfilesJson = window.garage.GetSavedProfilesJson();
+                    if (gProfilesJson) {
+                        const parsed = JSON.parse(gProfilesJson);
+                        if (Array.isArray(parsed) && parsed.length > 0) {
+                            profiles = parsed;
+                        }
+                    }
+                } catch (err) {
+                    console.warn("[PiSim UI] C++ profilleri okunurken hata:", err);
+                }
             }
 
             profiles.forEach(pName => {
-                const info = defaultVehicleDescriptions[pName] || { icon: "🤖", desc: "Kullanıcı Tarafından Garajda Kaydedilmiş Özel Profil" };
+                const info = defaultVehicleDescriptions[pName] || { icon: "🤖", desc: "Garajda Kaydedilmiş Özel Araç Profili" };
                 const row = document.createElement('div');
                 row.className = 'saved-vehicle-row';
                 row.onclick = () => startVehiclePlacement(pName);
@@ -1199,23 +1230,10 @@
                 `;
                 listContainer.appendChild(row);
             });
-
-            modal.classList.add('open');
-            addLog("📂 Araç Seçim Ekranı Açıldı (Saved/Vehicles kütüphanesi).");
-        }
-
-        function closeAddVehicleModal() {
-            document.getElementById('vehicle-select-modal').classList.remove('open');
-        }
-
-        function onModalOverlayClick(e) {
-            if (e.target.id === 'vehicle-select-modal') {
-                closeAddVehicleModal();
-            }
         }
 
         function navigateToGarage() {
-            closeAddVehicleModal();
+            closeAddVehiclePanel();
             addLog("🚀 Garaj Arayüzüne Geçiliyor (garage.html)...");
             if (window.ue && window.ue.garage && window.ue.garage.navigatetopage) {
                 window.ue.garage.navigatetopage('garage.html');
@@ -1226,17 +1244,15 @@
 
         function startVehiclePlacement(profileName) {
             pendingPlacementProfile = profileName;
-            closeAddVehicleModal();
+            closeAddVehiclePanel();
 
-            // Taktik Afişi Aç
             document.getElementById('placement-profile-name').innerText = profileName;
             document.getElementById('placement-banner').classList.add('show');
 
-            // 3D Viewport Tıklama Yüzeyini Aktif Et (Crosshair)
             const surface = document.getElementById('viewport-touch-surface');
             surface.classList.add('placement-active-surface');
 
-            addLog(`🎯 Konuşlandırma Modu: '${profileName}'. Haritada zemine tıklayarak ışınlayın.`);
+            addLog(`🎯 Konuşlandırma Modu: '${profileName}'. Haritada zemine tıklayarak aracı konuşlandırın.`);
             addPacketLog(`PLACEMENT_MODE_ACTIVE: profile=${profileName}`);
         }
 
@@ -1248,62 +1264,49 @@
         }
 
         function onViewportClick(e) {
-            if (!pendingPlacementProfile) {
-                return;
-            }
+            if (!pendingPlacementProfile) return;
 
             const chosenProfile = pendingPlacementProfile;
-            addLog(`📍 Harita Zemini Tıklandı! '${chosenProfile}' koordinata ışınlanıyor...`);
+            addLog(`📍 Harita Zemini Tıklandı! '${chosenProfile}' sahneye konuşlandırılıyor...`);
             addPacketLog(`SPAWN_AT_CURSOR_REQUEST: profile=${chosenProfile}`);
 
             // Unreal C++'a Işınlanma Emri Gönder
             if (window.ue && window.ue.garage && window.ue.garage.spawnvehicleatcursor) {
                 window.ue.garage.spawnvehicleatcursor(chosenProfile);
+            } else if (window.garage && window.garage.SpawnVehicleAtCursor) {
+                window.garage.SpawnVehicleAtCursor(chosenProfile);
             }
 
-            // Yeni Aracı Filo Listesine Ekle
-            const newId = Object.keys(fleetData).length + 1;
-            fleetData[newId] = {
-                name: `Araç ${newId} [${chosenProfile}]`,
+            // Yeni Aracı Yerel Listeye Ekle
+            const newUiId = Object.keys(fleetData).length + 1;
+            const backendId = newUiId - 1;
+            fleetData[newUiId] = {
+                id: newUiId,
+                backendId: backendId,
+                name: `Araç ${newUiId} [${chosenProfile}]`,
                 speed: "0 km/s",
-                battery: "24.0V (%100)",
-                mission: "Konuşlandı [Hazır]",
+                battery: "100%",
+                mission: "Pistte [Hazır]",
                 targetDevice: "sitl",
                 targetIp: "127.0.0.1",
-                targetPort: 9002 + (newId * 10)
+                targetPort: 9002 + (backendId * 10),
+                isFocused: true
             };
 
-            const container = document.getElementById('vehicle-cards-container');
-            const card = document.createElement('div');
-            card.className = 'vehicle-card active';
-            card.onclick = () => selectVehicle(newId);
-            card.innerHTML = `
-                <div class="vehicle-card-header">
-                    <span class="vehicle-card-title">${fleetData[newId].name}</span>
-                    <span class="status-indicator online">● AKTİF</span>
-                </div>
-                <div class="vehicle-card-body">
-                    <span>Durum:</span>
-                    <span style="color: #ffffff; font-weight: 700;">Konuşlandı</span>
-                    <span>Cihaz:</span>
-                    <span style="color: var(--accent-color); font-weight: 700;">SITL (${fleetData[newId].targetPort})</span>
-                </div>
-            `;
-            container.appendChild(card);
-            selectVehicle(newId);
-
+            renderVehicleCards();
+            selectVehicle(newUiId);
             cancelVehiclePlacement();
-            addLog(`✅ '${chosenProfile}' haritada seçtiğiniz noktaya başarıyla konuşlandırıldı!`);
+
+            addLog(`✅ '${chosenProfile}' haritaya başarıyla eklendi! (Port: UDP ${9002 + backendId * 10})`);
         }
 
-        // ESC Tuşu ile Modal veya Konuşlandırma İptali
+        // ESC Tuşu ile Konuşlandırma veya Panel İptali
         window.addEventListener('keydown', (e) => {
             if (e.key === 'Escape') {
                 if (pendingPlacementProfile) {
                     cancelVehiclePlacement();
-                } else {
-                    closeAddVehicleModal();
-                    closeTelemetryTableModal();
+                } else if (isAddVehicleOpen) {
+                    closeAddVehiclePanel();
                 }
             }
         });
@@ -1312,10 +1315,12 @@
         const vehicleVideoSubState = {};
 
         function toggleCurrentVehicleVideoSubscription() {
+            if (!currentVehicleId) return;
+
             const isSub = !vehicleVideoSubState[currentVehicleId];
             vehicleVideoSubState[currentVehicleId] = isSub;
 
-            const backendVehicleId = currentVehicleId - 1;
+            const backendVehicleId = (fleetData[currentVehicleId]?.backendId !== undefined) ? fleetData[currentVehicleId].backendId : (currentVehicleId - 1);
             if (window.garage && window.garage.SetVehicleVideoSubscribed) {
                 window.garage.SetVehicleVideoSubscribed(backendVehicleId, isSub);
             } else if (window.ue && window.ue.garage && window.ue.garage.setvehiclevideosubscribed) {
@@ -1323,13 +1328,12 @@
             }
 
             updateVideoSubscriptionUI();
-
             addLog(isSub ? `📹 Araç ${currentVehicleId} için canlı video aboneliği başlatıldı.` : `🛑 Araç ${currentVehicleId} video aboneliği durduruldu (Ağ tasarrufu).`);
             addPacketLog(`VIDEO_SUBSCRIPTION_UPDATE: vehicle=${currentVehicleId}, subscribed=${isSub}`);
         }
 
         function updateVideoSubscriptionUI() {
-            const isSub = !!vehicleVideoSubState[currentVehicleId];
+            const isSub = currentVehicleId ? !!vehicleVideoSubState[currentVehicleId] : false;
             const btn = document.getElementById('btn-toggle-video-sub');
             const badge = document.getElementById('video-stream-badge');
             if (btn) {
@@ -1338,125 +1342,12 @@
             }
             if (badge) {
                 badge.innerText = isSub ? "● CANLI YAYINDA" : "BEKLEMEDE (AĞ TASARRUFU)";
-                badge.style.borderColor = isSub ? "var(--accent-color)" : "#555";
+                badge.style.borderColor = isSub ? "var(--accent-color)" : "var(--mono-border)";
                 badge.style.color = isSub ? "var(--accent-color)" : "var(--text-muted)";
             }
         }
 
-        // ==================== 1 DAKİKALIK SQL TELEMETRİ TABLO MODAL SİSTEMİ ====================
-        function openTelemetryTableModal() {
-            document.getElementById('telemetry-sql-modal').classList.add('open');
-            refreshTelemetryTable();
-        }
-
-        function closeTelemetryTableModal() {
-            document.getElementById('telemetry-sql-modal').classList.remove('open');
-        }
-
-        function onSqlModalOverlayClick(e) {
-            if (e.target.id === 'telemetry-sql-modal') {
-                closeTelemetryTableModal();
-            }
-        }
-
-        let latestTelemetryRows = [];
-
-        function refreshTelemetryTable() {
-            let jsonStr = "";
-            const backendVehicleId = currentVehicleId - 1;
-
-            if (window.garage && window.garage.GetTelemetryTableJson) {
-                jsonStr = window.garage.GetTelemetryTableJson(backendVehicleId, 100);
-            } else if (window.ue && window.ue.garage && window.ue.garage.gettelemetrytablejson) {
-                jsonStr = window.ue.garage.gettelemetrytablejson(backendVehicleId, 100);
-            }
-
-            let data = null;
-            try {
-                if (jsonStr && jsonStr.length > 5) {
-                    data = JSON.parse(jsonStr);
-                }
-            } catch (e) {
-                console.error("Telemetry JSON parse error", e);
-            }
-
-            // Demo/Mock fallback if running standalone or before first tick
-            if (!data || !data.rows || data.rows.length === 0) {
-                const now = (Date.now() / 1000) % 10000;
-                data = {
-                    total_logged: 64,
-                    pending_batch_count: 8,
-                    flush_interval_sec: 60,
-                    sql_file: "Saved/Telemetry/flight_telemetry.sql",
-                    rows: [
-                        { time: (now - 14).toFixed(1), vehicle_id: backendVehicleId, roll: 2.1, pitch: -0.4, yaw: 45.2, altitude: 48.5, speed: 22.4, battery: 94.2, lat: 39.933412, lon: 32.859701, mode: "AUTO_MISSION" },
-                        { time: (now - 12).toFixed(1), vehicle_id: backendVehicleId, roll: 1.8, pitch: -0.2, yaw: 45.5, altitude: 50.1, speed: 22.8, battery: 94.0, lat: 39.933455, lon: 32.859740, mode: "AUTO_MISSION" },
-                        { time: (now - 10).toFixed(1), vehicle_id: backendVehicleId, roll: 0.5, pitch: 0.1, yaw: 45.9, altitude: 51.0, speed: 23.1, battery: 93.8, lat: 39.933498, lon: 32.859782, mode: "AUTO_MISSION" },
-                        { time: (now - 8).toFixed(1), vehicle_id: backendVehicleId, roll: -1.2, pitch: 0.3, yaw: 46.2, altitude: 51.5, speed: 23.0, battery: 93.6, lat: 39.933540, lon: 32.859820, mode: "AUTO_MISSION" },
-                        { time: (now - 6).toFixed(1), vehicle_id: backendVehicleId, roll: -0.8, pitch: -0.1, yaw: 46.0, altitude: 51.8, speed: 23.4, battery: 93.4, lat: 39.933582, lon: 32.859861, mode: "AUTO_MISSION" },
-                        { time: (now - 4).toFixed(1), vehicle_id: backendVehicleId, roll: 0.2, pitch: -0.2, yaw: 45.8, altitude: 52.0, speed: 23.5, battery: 93.2, lat: 39.933620, lon: 32.859902, mode: "AUTO_MISSION" },
-                        { time: (now - 2).toFixed(1), vehicle_id: backendVehicleId, roll: 0.0, pitch: 0.0, yaw: 45.7, altitude: 52.2, speed: 23.6, battery: 93.0, lat: 39.933660, lon: 32.859945, mode: "AUTO_MISSION" }
-                    ]
-                };
-            }
-
-            latestTelemetryRows = data.rows;
-            document.getElementById('sql-stats-summary').innerText = `Toplam Kayıtlı: ${data.total_logged} Satır | Bekleyen Batch: ${data.pending_batch_count || data.rows.length} Satır | Periyot: ${data.flush_interval_sec || 60}s`;
-
-            const tbody = document.getElementById('telemetry-table-body');
-            tbody.innerHTML = '';
-
-            data.rows.slice().reverse().forEach((r, idx) => {
-                const tr = document.createElement('tr');
-                tr.style.background = idx % 2 === 0 ? 'rgba(255,255,255,0.02)' : 'transparent';
-                tr.style.borderBottom = '1px solid rgba(255,255,255,0.05)';
-                tr.innerHTML = `
-                    <td style="padding: 4px 8px; color: var(--accent-color); font-weight: 700;">${r.time}s</td>
-                    <td style="padding: 4px 8px; color: #ffffff;">Araç ${Number(r.vehicle_id) + 1}</td>
-                    <td style="padding: 4px 8px;">${Number(r.roll).toFixed(1)}°</td>
-                    <td style="padding: 4px 8px;">${Number(r.pitch).toFixed(1)}°</td>
-                    <td style="padding: 4px 8px;">${Number(r.yaw).toFixed(1)}°</td>
-                    <td style="padding: 4px 8px; color: #00e5ff;">${Number(r.altitude).toFixed(1)} m</td>
-                    <td style="padding: 4px 8px; color: var(--accent-color);">${Number(r.speed).toFixed(1)} km/s</td>
-                    <td style="padding: 4px 8px; color: #aaff55;">%${Number(r.battery).toFixed(0)}</td>
-                    <td style="padding: 4px 8px; color: var(--text-muted); font-size: 8.5px;">${Number(r.lat).toFixed(5)}, ${Number(r.lon).toFixed(5)}</td>
-                    <td style="padding: 4px 8px;"><span style="background: rgba(0,229,255,0.1); color: #00e5ff; padding: 1px 4px; font-size: 8px;">${r.mode || 'AUTO'}</span></td>
-                `;
-                tbody.appendChild(tr);
-            });
-        }
-
-        function flushTelemetryToSqlNow() {
-            if (window.garage && window.garage.FlushTelemetryToSql) {
-                window.garage.FlushTelemetryToSql();
-            } else if (window.ue && window.ue.garage && window.ue.garage.flushtelemetrytosql) {
-                window.ue.garage.flushtelemetrytosql();
-            }
-            addLog("💾 1 Dakikalık Telemetri Batch'i anında SQL dosyasına yazıldı (Saved/Telemetry/flight_telemetry.sql).");
-            addPacketLog("SQL_FLUSH_COMMITTED: target=flight_telemetry.sql");
-            setTimeout(refreshTelemetryTable, 400);
-        }
-
-        function exportTelemetryToCsv() {
-            if (!latestTelemetryRows || latestTelemetryRows.length === 0) {
-                alert("Dışa aktarılacak telemetri satırı bulunamadı.");
-                return;
-            }
-            let csv = "TimestampSec,VehicleId,RollDeg,PitchDeg,YawDeg,AltitudeM,SpeedKmh,BatteryPct,Latitude,Longitude,FlightMode\n";
-            latestTelemetryRows.forEach(r => {
-                csv += `${r.time},${r.vehicle_id},${r.roll},${r.pitch},${r.yaw},${r.altitude},${r.speed},${r.battery},${r.lat},${r.lon},${r.mode || 'AUTO'}\n`;
-            });
-            const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `pisim_telemetry_v${currentVehicleId}_${Date.now()}.csv`;
-            a.click();
-            URL.revokeObjectURL(url);
-            addLog("📥 Telemetri CSV dosyası indirildi.");
-        }
-
-        // Tema Sistemi
+        // ==================== TEMA SİSTEMİ ====================
         const themes = [
             { id: "petronas", name: "1/5 PETRONAS F1" },
             { id: "tokyonight", name: "2/5 TOKYO NIGHT" },
@@ -1472,16 +1363,10 @@
             document.getElementById('btn-theme-switcher').innerText = `TEMA: ${themes[currentThemeIndex].name}`;
         }
 
-        // Güvenlik Kuralı: Ağ kirliliği ve güvenlik açığı olmaması için 
-        // sürekli arka planda broadcast atılmaz. Sadece Dashboard açıldığında tek seferlik
-        // 'PISIM_PROBE' keşif paketi gönderilir veya kullanıcı butona basınca tetiklenir.
+        // Sayfa Başlatma
         window.addEventListener('DOMContentLoaded', () => {
-            addLog("🛡️ Dashboard açıldı: Tek seferlik güvenli cihaz keşfi (Probe) gönderildi.");
-            addPacketLog("PISIM_DISCOVERY_PROBE_TX: target=UDP 7499 (Tek seferlik istek)");
-            // 1 saniye sonra simüle/gerçek yanıtı yakala
-            setTimeout(() => {
-                triggerBeaconSimulation();
-            }, 1000);
+            addLog("🛡️ PiSim Studio Taktik Kontrol Merkezi Başlatıldı.");
+            syncFleetWithBackend();
         });
     </script>
 </body>
