@@ -257,6 +257,7 @@ def main():
     # 1. Otomatik Keşif & Beacon Servisini Başlat (Arka plan thread)
     discovery = PiSimDiscoveryService(port=DISCOVERY_PORT, broadcast_interval=2.0)
     discovery.start()
+    send_probe_burst(count=3)
 
     # 2. UDP Telemetri Dinleyicisini Başlat (Port 7400)
     t = threading.Thread(target=run_udp_telemetry_listener, daemon=True)

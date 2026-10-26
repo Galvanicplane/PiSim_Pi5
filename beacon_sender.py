@@ -58,6 +58,17 @@ def build_beacon_payload(local_ip: str = None) -> dict:
         "timestamp": time.time()
     }
 
+def get_broadcast_targets(port: int = DISCOVERY_PORT) -> list:
+    """Yerel ağın subnet broadcast (örn: 192.168.1.255) ve global broadcast adreslerini döner."""
+    targets = [("255.255.255.255", port), ("127.0.0.1", port)]
+    local_ip = get_local_ip()
+    if local_ip and local_ip != "127.0.0.1":
+        parts = local_ip.split('.')
+        if len(parts) == 4:
+            targets.append((f"{parts[0]}.{parts[1]}.{parts[2]}.255", port))
+    return list(set(targets))
+
+
 def send_probe_burst(target_ip: str = "255.255.255.255", port: int = DISCOVERY_PORT, count: int = 3):
     """Ağa hemen keşif probu (PISIM_PROBE) fırlatır."""
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -71,18 +82,18 @@ def send_probe_burst(target_ip: str = "255.255.255.255", port: int = DISCOVERY_P
             "timestamp": time.time()
         }).encode('utf-8')
 
-        targets = [target_ip]
-        if target_ip == "255.255.255.255":
-            targets.append("127.0.0.1")
+        targets = get_broadcast_targets(port)
+        if target_ip not in ("255.255.255.255", "127.0.0.1"):
+            targets.append((target_ip, port))
 
         for _ in range(count):
-            for t in targets:
+            for t in set(targets):
                 try:
-                    sock.sendto(probe_msg, (t, port))
+                    sock.sendto(probe_msg, t)
                 except Exception:
                     pass
             time.sleep(0.05)
-        print(f"📡 [BeaconProbe] Keşif probu gönderildi -> {target_ip}:{port}")
+        print(f"📡 [BeaconProbe] Keşif probu gönderildi -> Hedefler: {set(targets)}")
     finally:
         sock.close()
 
@@ -126,10 +137,12 @@ class PiSimDiscoveryService:
                 payload = build_beacon_payload(self.local_ip)
                 data = json.dumps(payload).encode('utf-8')
 
-                # Hem ağ broadcast'ine hem de yerel loopback'e fırlat
-                sock.sendto(data, ("255.255.255.255", self.port))
-                sock.sendto(data, ("127.0.0.1", self.port))
-            except Exception as e:
+                for target in get_broadcast_targets(self.port):
+                    try:
+                        sock.sendto(data, target)
+                    except Exception:
+                        pass
+            except Exception:
                 pass
             time.sleep(self.broadcast_interval)
 
