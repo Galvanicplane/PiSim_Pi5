@@ -1,0 +1,1837 @@
+/* ==============================================================================
+   PISIM TACTICAL DESIGN SYSTEM (Call of Duty / Warzone 1 / Wardogs Monochrome)
+   Monochrome Askeri Renk Paleti + Tek Bir Patlatmalık Renk (Accent Color)
+   ============================================================================== */
+
+:root {
+    /* ==========================================================================
+       MERCEDES-AMG PETRONAS F1 TURKUAZ / YEŞİLİ (ACCENT COLOR)
+       Resmi Mercedes F1 Petronas Green: #00dfb6 / #00d2be
+       ========================================================================== */
+    --accent-color: #00dfb6;
+    --accent-glow: rgba(0, 223, 182, 0.45);
+    --accent-dim: rgba(0, 223, 182, 0.15);
+
+    /* COD WARZONE / WARDOGS MONOCHROME TONLARI */
+    --bg-dark: #07090b;
+    --bg-panel: rgba(13, 17, 21, 0.94);
+    
+    --mono-dark: #0d1115;
+    --mono-mid: #182028;
+    --mono-light: #25313d;
+    --mono-border: rgba(255, 255, 255, 0.12);
+    --mono-border-bright: rgba(255, 255, 255, 0.35);
+
+    --text-primary: #e6edf3;
+    --text-muted: #8b949e;
+    --text-dark: #485460;
+    
+    --font-mono: 'Consolas', 'Courier New', monospace;
+
+    /* Geriye dönük uyumluluk takma adları (Tek noktadan Petronas Accent'e bağlı) */
+    --border-green: var(--accent-color);
+    --border-cyan: var(--accent-color);
+    --border-amber: #ffaa00;
+    --border-red: #ff3b30;
+
+    /* PANEL ARKA PLAN DESENİ (Kullanıcı Tercihi: Noktalı Defter / Dots Deseni) */
+    --panel-pattern: radial-gradient(rgba(255, 255, 255, 0.14) 1.2px, transparent 1.2px), radial-gradient(rgba(255, 255, 255, 0.14) 1.2px, transparent 1.2px);
+    --panel-pattern-size: 18px 18px;
+}
+
+/* ==============================================================================
+   5 ADET EN POPÜLER VE ELİT GELİŞTİRİCİ TEMASI (CSS DEĞİŞKENLERİ)
+   ============================================================================== */
+/* 1. TEMA: Mercedes-AMG Petronas F1 (Varsayılan Askeri Taktik) */
+html[data-theme="petronas"] {
+    --accent-color: #00dfb6;
+    --accent-glow: rgba(0, 223, 182, 0.45);
+    --accent-dim: rgba(0, 223, 182, 0.15);
+    --bg-dark: #07090b;
+    --bg-main-gradient: radial-gradient(ellipse at center, #121820 0%, #050709 100%);
+    --bg-panel: rgba(13, 17, 21, 0.94);
+    --bg-panel-solid: #0b0f14;
+    --panel-vignette-center: rgba(16, 22, 28, 0.4);
+    --panel-vignette-edge: rgba(5, 7, 9, 0.96);
+    --mono-dark: #0d1115;
+    --mono-mid: #182028;
+    --mono-light: #25313d;
+    --mono-border: rgba(255, 255, 255, 0.12);
+    --mono-border-bright: rgba(255, 255, 255, 0.35);
+    --text-primary: #e6edf3;
+    --text-muted: #8b949e;
+    --text-dark: #485460;
+}
+
+/* 2. TEMA: Tokyo Night (Antigravity / Cyberpunk Kapalı Gece Mavisi) */
+html[data-theme="tokyonight"] {
+    --accent-color: #7aa2f7;
+    --accent-glow: rgba(122, 162, 247, 0.48);
+    --accent-dim: rgba(122, 162, 247, 0.18);
+    --bg-dark: #13141c;
+    --bg-main-gradient: radial-gradient(ellipse at center, #24283b 0%, #13141c 100%);
+    --bg-panel: rgba(26, 27, 38, 0.95);
+    --bg-panel-solid: #16161e;
+    --panel-vignette-center: rgba(36, 40, 59, 0.45);
+    --panel-vignette-edge: rgba(19, 20, 28, 0.98);
+    --mono-dark: #1a1b26;
+    --mono-mid: #24283b;
+    --mono-light: #343b58;
+    --mono-border: rgba(122, 162, 247, 0.2);
+    --mono-border-bright: rgba(122, 162, 247, 0.45);
+    --text-primary: #c0caf5;
+    --text-muted: #9aa5ce;
+    --text-dark: #565f89;
+}
+
+/* 3. TEMA: Gruvbox Amber (Warm Tactical / Askeri Sıcak Altın & Kehribar Kömürü) */
+html[data-theme="gruvbox"] {
+    --accent-color: #fe8019;
+    --accent-glow: rgba(254, 128, 25, 0.48);
+    --accent-dim: rgba(254, 128, 25, 0.18);
+    --bg-dark: #141617;
+    --bg-main-gradient: radial-gradient(ellipse at center, #282828 0%, #141617 100%);
+    --bg-panel: rgba(29, 32, 33, 0.95);
+    --bg-panel-solid: #1d2021;
+    --panel-vignette-center: rgba(40, 40, 40, 0.45);
+    --panel-vignette-edge: rgba(20, 22, 23, 0.98);
+    --mono-dark: #1d2021;
+    --mono-mid: #282828;
+    --mono-light: #3c3836;
+    --mono-border: rgba(254, 128, 25, 0.2);
+    --mono-border-bright: rgba(254, 128, 25, 0.45);
+    --text-primary: #ebdbb2;
+    --text-muted: #a89984;
+    --text-dark: #665c54;
+}
+
+/* 4. TEMA: Dracula (Synthwave / Derin Gotik Mor & Neon Pembe) */
+html[data-theme="dracula"] {
+    --accent-color: #ff79c6;
+    --accent-glow: rgba(255, 121, 198, 0.48);
+    --accent-dim: rgba(255, 121, 198, 0.18);
+    --bg-dark: #191a21;
+    --bg-main-gradient: radial-gradient(ellipse at center, #282a36 0%, #191a21 100%);
+    --bg-panel: rgba(33, 34, 44, 0.95);
+    --bg-panel-solid: #21222c;
+    --panel-vignette-center: rgba(40, 42, 54, 0.45);
+    --panel-vignette-edge: rgba(25, 26, 33, 0.98);
+    --mono-dark: #21222c;
+    --mono-mid: #282a36;
+    --mono-light: #44475a;
+    --mono-border: rgba(255, 121, 198, 0.2);
+    --mono-border-bright: rgba(255, 121, 198, 0.45);
+    --text-primary: #f8f8f2;
+    --text-muted: #bd93f9;
+    --text-dark: #6272a4;
+}
+
+/* 5. TEMA: Light Tactical (Açık Ton / Saha & Gündüz Operasyonu) */
+html[data-theme="light-tactical"] {
+    --accent-color: #00876c;
+    --accent-glow: rgba(0, 135, 108, 0.35);
+    --accent-dim: rgba(0, 135, 108, 0.15);
+    --bg-dark: #e8ecf2;
+    --bg-main-gradient: radial-gradient(ellipse at center, #f8fafc 0%, #cbd5e1 100%);
+    --bg-panel: rgba(255, 255, 255, 0.98);
+    --bg-panel-solid: #ffffff;
+    --panel-vignette-center: rgba(255, 255, 255, 0.85);
+    --panel-vignette-edge: rgba(226, 232, 240, 0.98);
+    --mono-dark: #f8fafc;
+    --mono-mid: #ffffff;
+    --mono-light: #e2e8f0;
+    --mono-border: rgba(15, 23, 42, 0.15);
+    --mono-border-bright: rgba(15, 23, 42, 0.38);
+    --text-primary: #0f172a;
+    --text-muted: #475569;
+    --text-dark: #94a3b8;
+}
+
+/* Açık Tema Özel Arayüz Override'ları (HİÇBİR KUTU SİYAH KALMAZ) */
+html[data-theme="light-tactical"] body {
+    color: #0f172a !important;
+}
+html[data-theme="light-tactical"] .cod-panel {
+    background-color: #ffffff !important;
+    background-image: 
+        radial-gradient(ellipse at center, rgba(255, 255, 255, 0.9) 0%, rgba(241, 245, 249, 0.99) 90%),
+        radial-gradient(rgba(0, 0, 0, 0.08) 1.2px, transparent 1.2px), 
+        radial-gradient(rgba(0, 0, 0, 0.08) 1.2px, transparent 1.2px) !important;
+    box-shadow: inset 0 0 50px rgba(0, 0, 0, 0.02), 0 8px 24px rgba(0, 0, 0, 0.06) !important;
+    border-color: rgba(15, 23, 42, 0.15) !important;
+}
+html[data-theme="light-tactical"] .vscode-menu-bar {
+    background: #e2e8f0 !important;
+    color: #1e293b !important;
+    border-bottom-color: rgba(15, 23, 42, 0.15) !important;
+}
+html[data-theme="light-tactical"] .vscode-menu-item {
+    color: #334155 !important;
+}
+html[data-theme="light-tactical"] .vscode-menu-item:hover {
+    background: #cbd5e1 !important;
+    color: #0f172a !important;
+}
+html[data-theme="light-tactical"] .fleet-dashboard-layout {
+    background: transparent !important;
+}
+html[data-theme="light-tactical"] .vehicle-card {
+    background: #ffffff !important;
+    border-color: rgba(15, 23, 42, 0.14) !important;
+}
+html[data-theme="light-tactical"] .vehicle-card.active {
+    background: #e6f5f2 !important;
+    border-color: var(--accent-color) !important;
+}
+html[data-theme="light-tactical"] .vehicle-card-title {
+    color: #0f172a !important;
+}
+html[data-theme="light-tactical"] .conn-bridge-card, html[data-theme="light-tactical"] .conn-card {
+    background: #cbd5e1 !important;
+}
+html[data-theme="light-tactical"] .conn-bridge-bg, html[data-theme="light-tactical"] .conn-bg {
+    background: radial-gradient(ellipse at center, rgba(255, 255, 255, 0.98) 0%, rgba(241, 245, 249, 0.99) 100%) !important;
+    box-shadow: inset 0 0 20px rgba(0, 0, 0, 0.03) !important;
+}
+html[data-theme="light-tactical"] .data-flow-container {
+    background: #f1f5f9 !important;
+    border-color: rgba(15, 23, 42, 0.15) !important;
+}
+html[data-theme="light-tactical"] .data-node,
+html[data-theme="light-tactical"] .data-node-endpoint {
+    background: #ffffff !important;
+    border-color: rgba(15, 23, 42, 0.2) !important;
+}
+html[data-theme="light-tactical"] .data-node .node-title,
+html[data-theme="light-tactical"] .data-node-endpoint .node-title {
+    color: #0f172a !important;
+}
+html[data-theme="light-tactical"] .endpoint-pins {
+    border-top-color: rgba(15, 23, 42, 0.15) !important;
+}
+html[data-theme="light-tactical"] .endpoint-pin {
+    color: #64748b !important;
+}
+html[data-theme="light-tactical"] .branch-tier.interactive-tier:hover {
+    background: rgba(15, 23, 42, 0.04) !important;
+}
+html[data-theme="light-tactical"] .branch-tier.interactive-tier.active-channel {
+    background: rgba(0, 135, 108, 0.08) !important;
+}
+html[data-theme="light-tactical"] .data-pipe {
+    background: #cbd5e1 !important;
+    border-color: rgba(15, 23, 42, 0.15) !important;
+}
+
+html[data-theme="light-tactical"] .channel-stream-log {
+    background: #f8fafc !important;
+    border-color: rgba(15, 23, 42, 0.15) !important;
+    color: #1e293b !important;
+}
+html[data-theme="light-tactical"] .network-telemetry-box {
+    background: #f8fafc !important;
+    border-color: rgba(15, 23, 42, 0.15) !important;
+}
+html[data-theme="light-tactical"] .net-stat-item {
+    background: #ffffff !important;
+    border-color: rgba(15, 23, 42, 0.1) !important;
+}
+html[data-theme="light-tactical"] .net-stat-item .val {
+    color: #0f172a !important;
+}
+html[data-theme="light-tactical"] .module-stat-card {
+    background: #ffffff !important;
+    border-color: rgba(15, 23, 42, 0.12) !important;
+}
+html[data-theme="light-tactical"] .module-stat-card .val {
+    color: #0f172a !important;
+}
+html[data-theme="light-tactical"] .camera-preview-frame {
+    background: radial-gradient(circle, #f1f5f9 0%, #e2e8f0 100%) !important;
+    border-color: rgba(15, 23, 42, 0.2) !important;
+    color: #0f172a !important;
+}
+html[data-theme="light-tactical"] #system-log-terminal {
+    background: #f8fafc !important;
+    border-color: rgba(15, 23, 42, 0.15) !important;
+    color: #334155 !important;
+}
+html[data-theme="light-tactical"] .map-blip {
+    background: #ffffff !important;
+    color: #0f172a !important;
+    border-color: rgba(15, 23, 42, 0.25) !important;
+}
+html[data-theme="light-tactical"] .radar-circle {
+    border-color: rgba(15, 23, 42, 0.15) !important;
+}
+html[data-theme="light-tactical"] .tooltip-btn .btn-inner {
+    background: #ffffff !important;
+    color: #0f172a !important;
+}
+html[data-theme="light-tactical"] .cod-btn {
+    background: #ffffff !important;
+    color: #0f172a !important;
+    border-color: rgba(15, 23, 42, 0.25) !important;
+}
+html[data-theme="light-tactical"] .cod-btn.active, html[data-theme="light-tactical"] .cod-btn-accent {
+    background: #e6f5f2 !important;
+    color: var(--accent-color) !important;
+    border-color: var(--accent-color) !important;
+}
+html[data-theme="light-tactical"] .vscode-menu-bar {
+    background: #e2e8f0;
+    color: #334155;
+    border-bottom-color: rgba(0, 0, 0, 0.12);
+}
+html[data-theme="light-tactical"] .fleet-dashboard-layout {
+    background: radial-gradient(ellipse at center, #f1f5f9 0%, #cbd5e1 100%) !important;
+}
+html[data-theme="light-tactical"] .vehicle-card {
+    background: #ffffff;
+    border-color: rgba(15, 23, 42, 0.12);
+}
+html[data-theme="light-tactical"] .vehicle-card.active {
+    background: #e6f5f2;
+}
+html[data-theme="light-tactical"] .vehicle-card-title {
+    color: #0f172a;
+}
+html[data-theme="light-tactical"] .conn-bridge-card {
+    background: #dbe2ea;
+}
+html[data-theme="light-tactical"] .conn-bridge-bg {
+    background: radial-gradient(ellipse at center, rgba(255, 255, 255, 0.98) 0%, rgba(241, 245, 249, 0.99) 100%);
+    box-shadow: inset 0 0 20px rgba(0, 0, 0, 0.04);
+}
+html[data-theme="light-tactical"] .data-node {
+    background: #f1f5f9;
+}
+html[data-theme="light-tactical"] .data-node .node-title {
+    color: #0f172a;
+}
+html[data-theme="light-tactical"] .tooltip-btn .btn-inner {
+    background: #ffffff;
+    color: #0f172a;
+}
+
+/* ==============================================================================
+   7 FARKLI TAKTİK PANEL DESENİ (VİNYETİN ALTINDA KALIR)
+   ============================================================================== */
+/* 1. Kareli Defter (Blueprint Grid) */
+html[data-pattern="grid"] {
+    --panel-pattern: linear-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 1px), linear-gradient(90deg, rgba(255, 255, 255, 0.05) 1px, transparent 1px);
+    --panel-pattern-size: 20px 20px;
+}
+
+/* 2. Çapraz / Staggered Noktalar (Dotted Notebook) */
+html[data-pattern="dots"] {
+    --panel-pattern: radial-gradient(rgba(255, 255, 255, 0.14) 1.2px, transparent 1.2px), radial-gradient(rgba(255, 255, 255, 0.14) 1.2px, transparent 1.2px);
+    --panel-pattern-size: 18px 18px;
+}
+
+/* 3. Küçük Taktik Çarpılar / Artılar (✚ Tactical Crosses) */
+html[data-pattern="crosses"] {
+    --panel-pattern: url("data:image/svg+xml,%3Csvg width='24' height='24' viewBox='0 0 24 24' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M11 8h2v8h-2zM8 11h8v2H8z' fill='rgba(255,255,255,0.09)'/%3E%3C/svg%3E");
+    --panel-pattern-size: 24px 24px;
+}
+
+/* 4. Hexagon Bal Peteği / Karbon Zırh Dokusu (Öneri 1) */
+html[data-pattern="hex"] {
+    --panel-pattern: url("data:image/svg+xml,%3Csvg width='28' height='48' viewBox='0 0 28 48' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M14 0l14 8v16l-14 8L0 24V8z' fill='none' stroke='rgba(255,255,255,0.06)' stroke-width='1'/%3E%3C/svg%3E");
+    --panel-pattern-size: 28px 48px;
+}
+
+/* 5. 45° Askeri Çapraz Taktik Çizgiler (Öneri 2) */
+html[data-pattern="stripes"] {
+    --panel-pattern: repeating-linear-gradient(45deg, rgba(255, 255, 255, 0.02) 0, rgba(255, 255, 255, 0.02) 2px, transparent 2px, transparent 10px);
+    --panel-pattern-size: auto;
+}
+
+/* 6. Topografik Radar / Yükseklik Haritası Eğrileri (Öneri 3) */
+html[data-pattern="topo"] {
+    --panel-pattern: url("data:image/svg+xml,%3Csvg width='120' height='120' viewBox='0 0 120 120' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M10 60 Q30 30 60 60 T110 60 M0 25 Q60 5 120 25 M0 95 Q60 115 120 95' fill='none' stroke='rgba(255,255,255,0.05)' stroke-width='1.2'/%3E%3C/svg%3E");
+    --panel-pattern-size: 120px 120px;
+}
+
+/* 7. Düz / Desensiz (Pure Vignette) */
+html[data-pattern="none"] {
+    --panel-pattern: none;
+    --panel-pattern-size: auto;
+}
+
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+    user-select: none;
+}
+
+html, body {
+    background: transparent !important;
+    color: var(--text-primary);
+    font-family: var(--font-mono);
+    overflow: hidden;
+    height: 100vh;
+    width: 100vw;
+}
+
+/* ==============================================================================
+   1. BLOKLAR VE PANELLER: VİNYETİN ALTINDA KALAN DESEN + KESİK KÖŞELER
+   ============================================================================== */
+.cod-panel {
+    background-color: var(--bg-panel-solid, #0b0f14);
+    /* 1. KATMAN: Üstteki Vinyet (Köşeleri ve kenarları karartır) */
+    /* 2 & 3. KATMAN: Alttaki Dinamik Seçilen Çapraz / Staggered Noktalar veya Desen */
+    background-image: 
+        radial-gradient(ellipse at center, var(--panel-vignette-center, rgba(16, 22, 28, 0.4)) 0%, var(--panel-vignette-edge, rgba(5, 7, 9, 0.96)) 90%),
+        var(--panel-pattern);
+    background-size: auto, var(--panel-pattern-size), var(--panel-pattern-size);
+    background-position: center center, 0 0, 9px 9px;
+    background-repeat: no-repeat, repeat, repeat;
+
+    border: 1px solid var(--mono-border);
+    /* 45 derece taktik kesik köşe */
+    clip-path: polygon(
+        0 0, 
+        calc(100% - 14px) 0, 
+        100% 14px, 
+        100% 100%, 
+        14px 100%, 
+        0 calc(100% - 14px)
+    );
+    box-shadow: inset 0 0 50px rgba(0, 0, 0, 0.95), 0 8px 30px rgba(0, 0, 0, 0.7);
+    padding: 16px;
+    backdrop-filter: blur(8px);
+    position: relative;
+    transition: border-color 0.25s ease, box-shadow 0.25s ease;
+}
+
+/* PANEL HOVER: KULLANICI İSTEĞİ - ÜSTÜNDE DURUNCA ÇERÇEVE ACCENT RENKTE PARLAR */
+.cod-panel:hover {
+    border-color: var(--accent-color) !important;
+    box-shadow: inset 0 0 50px rgba(0, 0, 0, 0.95), 0 0 16px var(--accent-glow) !important;
+}
+
+.cod-panel-accent {
+    border-color: var(--accent-color);
+    box-shadow: inset 0 0 50px rgba(0, 0, 0, 0.95), 0 0 20px var(--accent-dim);
+}
+
+.cod-panel-danger {
+    border-color: rgba(255, 59, 48, 0.7);
+    box-shadow: inset 0 0 50px rgba(25, 6, 8, 0.95), 0 0 15px rgba(255, 59, 48, 0.3);
+}
+
+.cod-panel-warning {
+    border-color: rgba(255, 170, 0, 0.7);
+    box-shadow: inset 0 0 50px rgba(25, 18, 5, 0.95), 0 0 15px rgba(255, 170, 0, 0.25);
+}
+
+/* ==============================================================================
+   STANDART TAKTİK BUTONLAR (.cod-btn) - KESİK KÖŞE + MONOCHROME + PATLATMALIK ACCENT
+   ============================================================================== */
+.cod-btn {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 7px 14px;
+    background: var(--mono-dark);
+    border: 1px solid var(--mono-border-bright);
+    color: var(--text-primary);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    text-decoration: none;
+    cursor: pointer;
+    clip-path: polygon(0 0, calc(100% - 8px) 0, 100% 8px, 100% 100%, 8px 100%, 0 calc(100% - 8px));
+    transition: all 0.2s ease;
+    white-space: nowrap;
+}
+
+.cod-btn:hover {
+    background: var(--mono-mid);
+    color: #ffffff;
+    border-color: var(--accent-color);
+    box-shadow: 0 0 12px var(--accent-glow);
+    transform: translateY(-1px);
+}
+
+.cod-btn:active {
+    transform: scale(0.97);
+}
+
+.cod-btn.active, .cod-btn-accent {
+    background: var(--mono-mid);
+    border-color: var(--accent-color);
+    color: var(--accent-color);
+    box-shadow: 0 0 10px var(--accent-dim);
+}
+
+.cod-btn-danger {
+    border-color: rgba(255, 59, 48, 0.6);
+    background: rgba(255, 59, 48, 0.15);
+    color: #ff6b6b;
+}
+
+.cod-btn-danger:hover {
+    background: #ff3b30 !important;
+    color: #ffffff !important;
+    border-color: #ff3b30 !important;
+    box-shadow: 0 0 16px rgba(255, 59, 48, 0.7) !important;
+}
+
+/* Taktik Navigasyon Çubuğu */
+.tac-nav {
+    display: inline-flex;
+    gap: 5px;
+    align-items: center;
+}
+
+/* ==============================================================================
+   2. 3D COLOR PALETTE SELECTOR (UIVERSE BY COBP) - RENK SEÇİCİ
+   ============================================================================== */
+.container-items {
+    display: flex;
+    transform-style: preserve-3d;
+    transform: perspective(1000px);
+    align-items: center;
+    gap: 3px;
+}
+
+.item-color {
+    position: relative;
+    flex-shrink: 0;
+    width: 22px;
+    height: 28px;
+    border: none;
+    outline: none;
+    background: transparent;
+    transition: 400ms cubic-bezier(0.175, 0.885, 0.32, 1.1);
+    cursor: pointer;
+}
+
+.item-color::after {
+    position: absolute;
+    content: "";
+    inset: 0;
+    width: 22px;
+    height: 28px;
+    background-color: var(--color);
+    border-radius: 4px;
+    clip-path: polygon(0 0, calc(100% - 4px) 0, 100% 4px, 100% 100%, 4px 100%, 0 calc(100% - 4px));
+    border: 1px solid rgba(255, 255, 255, 0.25);
+    pointer-events: none;
+    transition: 400ms cubic-bezier(0.175, 0.885, 0.32, 1.1);
+}
+
+.item-color::before {
+    position: absolute;
+    content: attr(aria-color);
+    left: 50%;
+    bottom: 34px;
+    font-size: 9px;
+    font-family: var(--font-mono);
+    line-height: 12px;
+    transform: translateX(-50%);
+    padding: 2px 6px;
+    background-color: #000;
+    border: 1px solid var(--color);
+    color: #fff;
+    border-radius: 3px;
+    pointer-events: none;
+    opacity: 0;
+    visibility: hidden;
+    white-space: nowrap;
+    transition: 300ms ease;
+    z-index: 10000;
+}
+
+.item-color:hover {
+    transform: scale(1.4) translateY(-3px);
+    z-index: 99999;
+}
+
+.item-color:hover::before {
+    opacity: 1;
+    visibility: visible;
+}
+
+.item-color:active::after {
+    transform: scale(0.95);
+}
+
+/* Komşu büyütme balık gözü efekti (Fish-eye) */
+.item-color:hover + * {
+    transform: scale(1.22);
+    z-index: 9999;
+}
+
+.item-color:hover + * + * {
+    transform: scale(1.1);
+    z-index: 999;
+}
+
+/* ==============================================================================
+   3. HIZLI AYAR TAKTİK SLIDER'I (QUICK ADJUST SLIDER)
+   ============================================================================== */
+.quick-slider-card {
+    background: var(--mono-dark);
+    border: 1px solid var(--mono-border);
+    padding: 8px 12px;
+    clip-path: polygon(0 0, calc(100% - 8px) 0, 100% 8px, 100% 100%, 8px 100%, 0 calc(100% - 8px));
+}
+
+.quick-slider-header {
+    display: flex;
+    justify-content: space-between;
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-bottom: 6px;
+}
+
+.quick-slider-header .val {
+    color: var(--accent-color);
+    font-weight: 800;
+}
+
+.quick-slider-input {
+    -webkit-appearance: none;
+    width: 100%;
+    height: 6px;
+    background: #182028;
+    border: 1px solid var(--mono-border-bright);
+    outline: none;
+    border-radius: 2px;
+}
+
+.quick-slider-input::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 16px;
+    height: 16px;
+    background: var(--accent-color);
+    clip-path: polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%);
+    box-shadow: 0 0 10px var(--accent-color);
+    cursor: pointer;
+    transition: transform 0.15s ease;
+}
+
+.quick-slider-input::-webkit-slider-thumb:hover {
+    transform: scale(1.25);
+}
+
+/* Hızlı Yüzde Presets */
+.quick-presets {
+    display: flex;
+    gap: 4px;
+    margin-top: 6px;
+}
+
+.preset-btn {
+    flex: 1;
+    background: var(--mono-mid);
+    border: 1px solid var(--mono-border);
+    color: var(--text-muted);
+    font-size: 9px;
+    font-family: var(--font-mono);
+    padding: 2px 0;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.preset-btn:hover {
+    background: var(--accent-color);
+    color: #000;
+    border-color: var(--accent-color);
+}
+
+/* ==============================================================================
+   4. NORMAL BUTONLAR: KESİK KÖŞELİ + TOOLTIP'Lİ + MONOCHROME
+   ============================================================================== */
+.tooltip-btn-wrapper {
+    position: relative;
+    display: inline-flex;
+    width: 100%;
+}
+
+.tooltip-btn {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    padding: 1px;
+    background: var(--mono-light);
+    border: none;
+    cursor: pointer;
+    text-decoration: none;
+    clip-path: polygon(0 0, calc(100% - 10px) 0, 100% 10px, 100% 100%, 10px 100%, 0 calc(100% - 10px));
+    transition: all 0.25s ease;
+}
+
+.tooltip-btn:hover {
+    background: var(--accent-color);
+    box-shadow: 0 0 15px var(--accent-glow);
+    transform: translateY(-1px);
+}
+
+.tooltip-btn .btn-inner {
+    width: 100%;
+    background: var(--mono-dark);
+    color: var(--text-primary);
+    padding: 10px 16px;
+    font-size: 13px;
+    font-weight: 700;
+    font-family: var(--font-mono);
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    clip-path: polygon(0 0, calc(100% - 9px) 0, 100% 9px, 100% 100%, 9px 100%, 0 calc(100% - 9px));
+    transition: all 0.2s ease;
+}
+
+.tooltip-btn:hover .btn-inner {
+    background: var(--mono-mid);
+    color: #ffffff;
+}
+
+.tooltip-popup {
+    position: absolute;
+    bottom: calc(100% + 10px);
+    left: 50%;
+    transform: translateX(-50%) translateY(6px);
+    background: #000000;
+    border: 1px solid var(--accent-color);
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.9);
+    color: var(--text-primary);
+    font-size: 11px;
+    font-family: var(--font-mono);
+    padding: 6px 12px;
+    white-space: nowrap;
+    opacity: 0;
+    visibility: hidden;
+    clip-path: polygon(0 0, calc(100% - 6px) 0, 100% 6px, 100% 100%, 6px 100%, 0 calc(100% - 6px));
+    transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+    pointer-events: none;
+    z-index: 1000;
+}
+
+.tooltip-popup::after {
+    content: '';
+    position: absolute;
+    top: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    border-width: 5px;
+    border-style: solid;
+    border-color: var(--accent-color) transparent transparent transparent;
+}
+
+.tooltip-btn-wrapper:hover .tooltip-popup {
+    opacity: 1;
+    visibility: visible;
+    transform: translateX(-50%) translateY(0);
+}
+
+/* ACİL DURDURMA [E-STOP] KIRMIZI OVERRIDE KURALI */
+.tooltip-btn.btn-danger-override {
+    background: rgba(255, 59, 48, 0.45);
+    border: 1px solid rgba(255, 59, 48, 0.6);
+}
+
+.tooltip-btn.btn-danger-override .btn-inner {
+    background: #140709;
+    color: #ff6b6b;
+    border: 1px solid rgba(255, 59, 48, 0.35);
+}
+
+.tooltip-btn.btn-danger-override:hover {
+    background: #ff3b30 !important;
+    box-shadow: 0 0 20px rgba(255, 59, 48, 0.7) !important;
+    border-color: #ff3b30 !important;
+}
+
+.tooltip-btn.btn-danger-override:hover .btn-inner {
+    background: rgba(255, 59, 48, 0.25) !important;
+    color: #ffffff !important;
+}
+
+.tooltip-btn-wrapper:has(.btn-danger-override) .tooltip-popup {
+    border-color: #ff3b30 !important;
+    color: #ffb3b3 !important;
+}
+
+.tooltip-btn-wrapper:has(.btn-danger-override) .tooltip-popup::after {
+    border-color: #ff3b30 transparent transparent transparent !important;
+}
+
+/* GEÇİCİ RASTGELE ACCENT RENK BUTONU */
+.btn-random-accent {
+    background: var(--mono-mid);
+    border: 1px solid var(--mono-border-bright);
+    color: var(--text-primary);
+    font-size: 10px;
+    font-family: var(--font-mono);
+    font-weight: 700;
+    padding: 5px 9px;
+    cursor: pointer;
+    clip-path: polygon(0 0, calc(100% - 5px) 0, 100% 5px, 100% 100%, 5px 100%, 0 calc(100% - 5px));
+    transition: all 0.25s ease;
+    margin-left: 6px;
+    letter-spacing: 1px;
+}
+
+.btn-random-accent:hover {
+    background: var(--accent-color);
+    color: #000;
+    border-color: var(--accent-color);
+    box-shadow: 0 0 12px var(--accent-glow);
+    transform: translateY(-1px);
+}
+
+/* ==============================================================================
+   5. ÖZEL AKSİYON BUTONU (FİZİĞİ AKTİVE ET): MONOCHROME + PATLATMALIK İÇ GÖLGE
+   ============================================================================== */
+.btn-action-glow {
+    width: 100%;
+    height: 48px;
+    font-size: 14px;
+    font-weight: 800;
+    font-family: var(--font-mono);
+    background: var(--mono-mid);
+    border: 1px solid var(--mono-border-bright);
+    color: var(--text-primary);
+    outline: none;
+    cursor: pointer;
+    clip-path: polygon(0 0, calc(100% - 12px) 0, 100% 12px, 100% 100%, 12px 100%, 0 calc(100% - 12px));
+    transition: all 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+    letter-spacing: 2px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    text-transform: uppercase;
+}
+
+.btn-action-glow:hover {
+    box-shadow: inset 0 0 0 3px #1f2732, 
+                inset 0 0 0 6px #303c4c, 
+                inset 0 0 0 9px #495a70,
+                inset 0 0 0 12px var(--accent-color);
+    background: var(--bg-dark);
+    color: #ffffff;
+    border-color: var(--accent-color);
+    text-shadow: 0 0 10px var(--accent-color);
+    transform: translateY(-1px);
+}
+
+.btn-action-glow:active {
+    transform: scale(0.98);
+}
+
+/* ==============================================================================
+   6. DÖNER MOD SEÇME PANELİ (WHEEL SELECTOR) - YAZI ODAKLI & MERKEZDE
+   ============================================================================== */
+.wheel-selector {
+    position: relative;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    margin: 10px 0 4px 0;
+}
+
+.hint-pop {
+    position: absolute;
+    top: -20px;
+    font-family: var(--font-mono);
+    font-weight: 800;
+    font-size: 0.65rem;
+    letter-spacing: 2px;
+    color: var(--accent-color);
+    text-transform: uppercase;
+    animation: pulseHint 2s infinite ease-in-out;
+    pointer-events: none;
+}
+
+@keyframes pulseHint {
+    0%, 100% { opacity: 0.7; transform: translateY(0); }
+    50% { opacity: 1; transform: translateY(-2px); }
+}
+
+.radio-input {
+    position: relative;
+    height: 140px;
+    width: 100%;
+    background: var(--mono-dark);
+    border: 1px solid var(--mono-border);
+    clip-path: polygon(0 0, calc(100% - 12px) 0, 100% 12px, 100% 100%, 12px 100%, 0 calc(100% - 12px));
+    box-shadow: inset 0 0 35px rgba(0, 0, 0, 0.95);
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+}
+
+.radio-input::after {
+    content: "";
+    position: absolute;
+    right: -170px;
+    width: 250px;
+    height: 250px;
+    background: repeating-conic-gradient(from 0deg, #1c242d 0deg 10deg, #131920 10deg 20deg);
+    border-radius: 50%;
+    z-index: 1;
+    opacity: 0.22;
+}
+
+.radio-input::before {
+    content: "";
+    position: absolute;
+    left: 14px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 4px;
+    height: 26px;
+    background: var(--accent-color);
+    border-radius: 2px;
+    z-index: 30;
+    box-shadow: 0 0 12px var(--accent-color);
+    pointer-events: none;
+}
+
+.radio-input input {
+    display: none;
+}
+
+.glass-overlay {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.04) 0%, rgba(255, 255, 255, 0) 50%, rgba(0, 0, 0, 0.4) 100%);
+    z-index: 25;
+    pointer-events: none;
+}
+
+.wheel-label {
+    position: absolute;
+    left: 32px;
+    right: 20px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    transition: all 0.6s cubic-bezier(0.19, 1, 0.22, 1);
+    transform-origin: 220px center;
+    transform: rotate(var(--angle));
+    filter: blur(1.5px);
+    opacity: 0.18;
+    z-index: 5;
+    cursor: pointer;
+}
+
+.wheel-label .num {
+    font-family: var(--font-mono);
+    font-weight: 800;
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    letter-spacing: 2px;
+}
+
+.wheel-label .label {
+    font-family: var(--font-mono);
+    font-weight: 900;
+    font-size: 1.9rem;
+    color: var(--text-primary);
+    letter-spacing: 2px;
+    text-transform: uppercase;
+}
+
+.radio-input:has(#value-1:checked) .wheel-label { transform: rotate(calc(var(--angle) + 26deg)); }
+.radio-input:has(#value-2:checked) .wheel-label { transform: rotate(calc(var(--angle) + 0deg)); }
+.radio-input:has(#value-3:checked) .wheel-label { transform: rotate(calc(var(--angle) - 26deg)); }
+
+.radio-input input:checked + .wheel-label {
+    opacity: 1;
+    filter: blur(0);
+    transform: rotate(0deg) translateX(6px);
+    z-index: 10;
+}
+
+.radio-input input:checked + .wheel-label .num {
+    color: var(--accent-color);
+}
+
+.radio-input input:checked + .wheel-label .label {
+    color: #ffffff;
+    text-shadow: 0 0 15px rgba(255, 255, 255, 0.3), 0 0 30px var(--accent-dim);
+}
+
+.next-trigger {
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    cursor: pointer;
+}
+.radio-input:has(#value-1:checked) #trigger-for-1,
+.radio-input:has(#value-2:checked) #trigger-for-2,
+.radio-input:has(#value-3:checked) #trigger-for-3 {
+    z-index: 100;
+}
+
+/* ==============================================================================
+   7. BAĞLANTI PENCERESİ: KÖŞELİ + VİNYETLİ + PATLATMALIK IŞIK
+   ============================================================================== */
+.conn-card {
+    position: relative;
+    width: 100%;
+    height: 115px;
+    clip-path: polygon(0 0, calc(100% - 10px) 0, 100% 10px, 100% 100%, 10px 100%, 0 calc(100% - 10px));
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background: #050709;
+    border: 1px solid var(--mono-border);
+}
+
+.conn-bg {
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    right: 2px;
+    bottom: 2px;
+    z-index: 2;
+    background: radial-gradient(ellipse at center, rgba(18, 24, 30, 0.94) 0%, rgba(6, 8, 10, 0.99) 100%);
+    clip-path: polygon(0 0, calc(100% - 9px) 0, 100% 9px, 100% 100%, 9px 100%, 0 calc(100% - 9px));
+    backdrop-filter: blur(16px);
+    box-shadow: inset 0 0 30px rgba(0, 0, 0, 0.95);
+    padding: 10px 12px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+}
+
+.conn-blob {
+    position: absolute;
+    z-index: 1;
+    top: 50%;
+    left: 50%;
+    width: 130px;
+    height: 130px;
+    border-radius: 50%;
+    background: var(--accent-color);
+    opacity: 0.85;
+    filter: blur(20px);
+    animation: blob-bounce 4s infinite ease-in-out;
+}
+
+@keyframes blob-bounce {
+    0%   { transform: translate(-100%, -100%); }
+    25%  { transform: translate(10%, -100%); }
+    50%  { transform: translate(10%, 10%); }
+    75%  { transform: translate(-100%, 10%); }
+    100% { transform: translate(-100%, -100%); }
+}
+
+/* ==============================================================================
+   8. METİN GİRİŞİ (INPUT): MONOCHROME + PATLATMALIK ÇİZGİ
+   ============================================================================== */
+.form {
+    --timing: 0.3s;
+    --width-of-input: 100%;
+    --height-of-input: 36px;
+    --border-height: 2px;
+    position: relative;
+    width: var(--width-of-input);
+    height: var(--height-of-input);
+    display: flex;
+    align-items: center;
+    padding-inline: 0.8em;
+    background: var(--mono-dark);
+    clip-path: polygon(0 0, calc(100% - 8px) 0, 100% 8px, 100% 100%, 8px 100%, 0 calc(100% - 8px));
+    border: 1px solid var(--mono-border);
+    transition: border-color 0.3s ease;
+}
+
+.form .input {
+    font-size: 0.85rem;
+    background-color: transparent;
+    width: 100%;
+    height: 100%;
+    padding-inline: 0.4em;
+    border: none;
+    color: var(--text-primary);
+    font-family: var(--font-mono);
+}
+
+.form .input::placeholder {
+    color: var(--text-dark);
+}
+
+.form:before {
+    content: "";
+    position: absolute;
+    background: var(--accent-color);
+    transform: scaleX(0);
+    transform-origin: center;
+    width: 100%;
+    height: var(--border-height);
+    left: 0;
+    bottom: 0;
+    transition: transform var(--timing) ease;
+}
+
+.form:focus-within {
+    border-color: var(--mono-border-bright);
+}
+
+.form .input:focus {
+    outline: none;
+}
+
+.form:focus-within:before {
+    transform: scale(1);
+    box-shadow: 0 0 10px var(--accent-color);
+}
+
+.form .reset {
+    border: none;
+    background: none;
+    cursor: pointer;
+    color: var(--text-muted);
+    opacity: 0;
+    visibility: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s ease;
+}
+
+.form .input:not(:placeholder-shown) ~ .reset {
+    opacity: 1;
+    visibility: visible;
+}
+
+.form .reset:hover {
+    color: var(--accent-color);
+}
+
+.form svg {
+    width: 16px;
+    height: 16px;
+}
+
+/* ==============================================================================
+   9. ANİMASYONLU CHECKBOX VE TOGGLE
+   ============================================================================== */
+.animated-checkbox-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    font-size: 11px;
+    font-family: var(--font-mono);
+    color: var(--text-muted);
+}
+
+.animated-checkbox-label input {
+    display: none;
+}
+
+.custom-checkbox-box {
+    width: 18px;
+    height: 18px;
+    border: 1px solid var(--mono-border-bright);
+    clip-path: polygon(0 0, calc(100% - 4px) 0, 100% 4px, 100% 100%, 4px 100%, 0 calc(100% - 4px));
+    background: var(--mono-dark);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.25s ease;
+}
+
+.custom-checkbox-box svg {
+    width: 11px;
+    height: 11px;
+    stroke: #000000;
+    stroke-width: 3.5;
+    fill: none;
+    transform: scale(0);
+    transition: transform 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+.animated-checkbox-label input:checked + .custom-checkbox-box {
+    background: var(--accent-color);
+    box-shadow: 0 0 10px var(--accent-glow);
+    border-color: var(--accent-color);
+}
+
+.animated-checkbox-label input:checked + .custom-checkbox-box svg {
+    transform: scale(1);
+}
+
+.toggle-switch-label {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    font-size: 11px;
+    font-family: var(--font-mono);
+    color: var(--text-muted);
+}
+
+.toggle-switch-label input {
+    display: none;
+}
+
+.toggle-slider {
+    width: 40px;
+    height: 20px;
+    background: var(--mono-dark);
+    border: 1px solid var(--mono-border-bright);
+    clip-path: polygon(0 0, calc(100% - 6px) 0, 100% 6px, 100% 100%, 6px 100%, 0 calc(100% - 6px));
+    position: relative;
+    transition: all 0.3s ease;
+}
+
+.toggle-slider::after {
+    content: '';
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 14px;
+    height: 14px;
+    background: var(--text-muted);
+    clip-path: polygon(0 0, calc(100% - 3px) 0, 100% 3px, 100% 100%, 3px 100%, 0 calc(100% - 3px));
+    transition: all 0.25s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+.toggle-switch-label input:checked + .toggle-slider {
+    border-color: var(--accent-color);
+    box-shadow: 0 0 10px var(--accent-dim);
+}
+
+.toggle-switch-label input:checked + .toggle-slider::after {
+    left: 22px;
+    background: var(--accent-color);
+    box-shadow: 0 0 8px var(--accent-color);
+}
+
+/* ==============================================================================
+   10. HUD ÇAPRAZ ÇİZGİLER & TARAMA ÇİZGİSİ EFEKTİ (SCANLINES)
+   ============================================================================== */
+.scanlines {
+    display: none !important;
+}
+
+/* ==============================================================================
+   11. PISIM FLEET DASHBOARD LAYOUT & KOMPONENTLERİ (VS CODE BAR + HARİTA + KÖPRÜ)
+   ============================================================================== */
+/* Hafif VS Code Tarzı Üst Menü Çubuğu */
+.vscode-menu-bar {
+    height: 34px;
+    background: #090d12;
+    border-bottom: 1px solid var(--mono-border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 12px;
+    font-size: 11px;
+    color: var(--text-muted);
+}
+
+.vscode-menu-group {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.vscode-menu-item {
+    padding: 4px 9px;
+    color: var(--text-muted);
+    cursor: pointer;
+    border-radius: 2px;
+    transition: all 0.15s ease;
+    user-select: none;
+}
+
+.vscode-menu-item:hover {
+    background: var(--mono-mid);
+    color: #ffffff;
+}
+
+/* 3 Sütunlu Ana Grid Düzeni */
+.fleet-dashboard-layout {
+    display: flex;
+    height: calc(100vh - 34px);
+    padding: 10px;
+    gap: 10px;
+    overflow: hidden;
+    background: radial-gradient(ellipse at center, rgba(16, 22, 28, 0.4) 0%, rgba(5, 7, 9, 0.98) 100%);
+}
+
+/* Sol Panel: Araçlar Listesi */
+.fleet-sidebar {
+    width: 290px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    height: 100%;
+}
+
+.vehicle-list {
+    flex: 1;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding-right: 2px;
+}
+
+.vehicle-card {
+    background: var(--mono-dark);
+    border: 1px solid var(--mono-border);
+    border-left: 3px solid var(--mono-border-bright);
+    padding: 10px 12px;
+    cursor: pointer;
+    clip-path: polygon(0 0, calc(100% - 8px) 0, 100% 8px, 100% 100%, 8px 100%, 0 calc(100% - 8px));
+    transition: all 0.2s ease;
+}
+
+.vehicle-card:hover {
+    background: var(--mono-mid);
+    border-color: var(--mono-border-bright);
+    transform: translateX(2px);
+}
+
+.vehicle-card.active {
+    background: #0f161e;
+    border-left-color: var(--accent-color);
+    border-color: var(--accent-color);
+    box-shadow: inset 0 0 15px var(--accent-dim), 0 0 12px var(--accent-dim);
+}
+
+.vehicle-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 6px;
+}
+
+.vehicle-card-title {
+    font-size: 13px;
+    font-weight: 800;
+    color: #ffffff;
+    letter-spacing: 0.5px;
+}
+
+.status-indicator {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 11px;
+    font-weight: 800;
+}
+
+.status-indicator.online { color: var(--accent-color); text-shadow: 0 0 6px var(--accent-color); }
+.status-indicator.returning { color: #00e5ff; text-shadow: 0 0 6px rgba(0, 229, 255, 0.6); }
+.status-indicator.standby { color: #ffd166; text-shadow: 0 0 6px rgba(255, 209, 102, 0.6); }
+.status-indicator.offline { color: #ff3b30; text-shadow: 0 0 6px rgba(255, 59, 48, 0.6); }
+
+.vehicle-card-body {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    font-size: 11px;
+    color: var(--text-muted);
+    row-gap: 3px;
+}
+
+/* Orta Sütun: Harita (Dots) + Alt Köprü */
+.fleet-center-area {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    height: 100%;
+}
+
+.tactical-map-viewport {
+    flex: 1;
+    min-height: 0;
+    position: relative;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+
+.map-radar-grid {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+}
+
+.radar-circle {
+    position: absolute;
+    border: 1px dashed rgba(255, 255, 255, 0.12);
+    border-radius: 50%;
+}
+
+.radar-crosshair-x {
+    position: absolute;
+    width: 100%;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.15) 30%, rgba(255, 255, 255, 0.15) 70%, transparent);
+}
+
+.radar-crosshair-y {
+    position: absolute;
+    height: 100%;
+    width: 1px;
+    background: linear-gradient(180deg, transparent, rgba(255, 255, 255, 0.15) 30%, rgba(255, 255, 255, 0.15) 70%, transparent);
+}
+
+/* Harita Üzerindeki Araç İşaretçileri (Blips) */
+.map-blip {
+    position: absolute;
+    padding: 3px 7px;
+    background: rgba(10, 15, 20, 0.88);
+    border: 1px solid var(--mono-border-bright);
+    clip-path: polygon(0 0, calc(100% - 4px) 0, 100% 4px, 100% 100%, 4px 100%, 0 calc(100% - 4px));
+    font-size: 10px;
+    font-weight: 800;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    cursor: pointer;
+    transition: transform 0.2s ease, border-color 0.2s ease;
+    z-index: 10;
+}
+
+.map-blip:hover, .map-blip.active {
+    border-color: var(--accent-color);
+    box-shadow: 0 0 12px var(--accent-dim);
+    transform: scale(1.15);
+}
+
+/* Alt Simülasyon Bağlantı / Köprü Paneli (Dışından Işık Dönen Pencere - Conn Card) */
+.conn-bridge-card, .conn-card {
+    position: relative;
+    width: 100%;
+    clip-path: polygon(0 0, calc(100% - 12px) 0, 100% 12px, 100% 100%, 12px 100%, 0 calc(100% - 12px));
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    background: #050709;
+    border: 1px solid var(--mono-border);
+    transition: border-color 0.25s ease;
+}
+
+.conn-bridge-card {
+    height: 300px; /* Daha yüksek ve ferah */
+}
+
+/* YÜKLEME BARI GİBİ ÇERÇEVENİN ETRAFINDA SÜREKLİ DÖNEN IŞIK DEMETİ (CONIC BEAM) */
+.conn-bridge-card::before, .conn-card::before {
+    content: '';
+    position: absolute;
+    width: 250%;
+    height: 250%;
+    top: -75%;
+    left: -75%;
+    background: conic-gradient(
+        from 0deg,
+        transparent 0deg,
+        transparent 250deg,
+        var(--accent-dim) 300deg,
+        var(--accent-color) 360deg
+    );
+    animation: rotateBorderBeam 3.5s linear infinite;
+    z-index: 1;
+    pointer-events: none;
+}
+
+@keyframes rotateBorderBeam {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+.conn-bridge-card:hover, .conn-card:hover {
+    border-color: var(--accent-color) !important;
+    box-shadow: 0 0 20px var(--accent-dim) !important;
+}
+
+/* Dışarıdan Dönen Hareketli Parlayan Işık (Blob) */
+.conn-bridge-blob, .conn-blob {
+    position: absolute;
+    z-index: 1;
+    top: 50%;
+    left: 50%;
+    width: 220px;
+    height: 220px;
+    border-radius: 50%;
+    background: var(--accent-color);
+    opacity: 0.85;
+    filter: blur(28px);
+    animation: blob-bounce 6s infinite ease-in-out;
+    pointer-events: none;
+}
+
+@keyframes blob-bounce {
+    0%   { transform: translate(-100%, -100%); }
+    25%  { transform: translate(10%, -100%); }
+    50%  { transform: translate(10%, 10%); }
+    75%  { transform: translate(-100%, 10%); }
+    100% { transform: translate(-100%, -100%); }
+}
+
+.conn-bridge-bg {
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    right: 2px;
+    bottom: 2px;
+    z-index: 2;
+    background: radial-gradient(ellipse at center, rgba(16, 22, 28, 0.96) 0%, rgba(5, 7, 9, 0.99) 100%);
+    clip-path: polygon(0 0, calc(100% - 11px) 0, 100% 11px, 100% 100%, 11px 100%, 0 calc(100% - 11px));
+    backdrop-filter: blur(16px);
+    box-shadow: inset 0 0 35px rgba(0, 0, 0, 0.95);
+    padding: 10px 14px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    gap: 6px;
+}
+
+/* Birleşik 3 Düğümlü & Çift Katmanlı Veri Akışı Şeması (Diyagramın İçi) */
+.data-flow-container {
+    display: flex;
+    align-items: stretch;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 7px 10px;
+    background: #080c10;
+    border: 1px solid var(--mono-border);
+    clip-path: polygon(0 0, calc(100% - 8px) 0, 100% 8px, 100% 100%, 8px 100%, 0 calc(100% - 8px));
+}
+
+/* Sol (PiSim) ve Sağ (UE5) Ana Uç Düğümleri */
+.data-node-endpoint {
+    width: 135px;
+    background: var(--mono-mid);
+    border: 1px solid var(--mono-border-bright);
+    text-align: center;
+    clip-path: polygon(0 0, calc(100% - 6px) 0, 100% 6px, 100% 100%, 6px 100%, 0 calc(100% - 6px));
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    padding: 6px 8px;
+    user-select: none;
+    transition: all 0.2s ease;
+}
+
+.data-node-endpoint:hover, .data-node-endpoint.active-node {
+    border-color: var(--accent-color);
+    box-shadow: 0 0 10px var(--accent-dim);
+}
+
+.data-node-endpoint .node-title {
+    font-size: 11px;
+    font-weight: 800;
+    color: #ffffff;
+}
+
+.data-node-endpoint .node-sub {
+    font-size: 9px;
+    color: var(--accent-color);
+    margin-top: 1px;
+}
+
+/* Orta Kısım: Üstte SITL Yolu, Altta Doğrudan Bypass Yolu */
+.data-flow-center-branches {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    gap: 6px;
+}
+
+/* Katmanlar: Üstte SITL Otonomi Yolu, Altta Doğrudan Bypass Yolu (Tamamen Diyagrama Entegre) */
+.branch-tier {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 2px 2px;
+    border-radius: 2px;
+    transition: all 0.2s ease;
+    user-select: none;
+}
+
+.branch-tier.interactive-tier {
+    cursor: pointer;
+}
+
+.branch-tier.interactive-tier:hover {
+    background: rgba(255, 255, 255, 0.03);
+}
+
+.branch-tier.interactive-tier.active-channel {
+    background: rgba(0, 223, 182, 0.06);
+}
+
+.branch-tier.interactive-tier.active-channel .pipe-lane .data-pipe {
+    border-color: var(--accent-color);
+    box-shadow: 0 0 8px var(--accent-dim);
+}
+
+.branch-tier.interactive-tier.active-channel .data-node {
+    border-color: var(--accent-color);
+    box-shadow: 0 0 10px var(--accent-dim);
+}
+
+.endpoint-pins {
+    display: flex;
+    justify-content: space-between;
+    width: 100%;
+    margin-top: 4px;
+    padding-top: 3px;
+    border-top: 1px dashed rgba(255, 255, 255, 0.08);
+}
+
+.endpoint-pin {
+    font-size: 7.5px;
+    font-weight: 800;
+    color: var(--text-dark);
+    letter-spacing: 0.5px;
+}
+
+.data-node {
+    padding: 4px 10px;
+    background: var(--mono-mid);
+    border: 1px solid var(--mono-border-bright);
+    text-align: center;
+    clip-path: polygon(0 0, calc(100% - 6px) 0, 100% 6px, 100% 100%, 6px 100%, 0 calc(100% - 6px));
+    transition: all 0.2s ease;
+    user-select: none;
+}
+
+.data-node:hover, .data-node.active-node {
+    border-color: var(--accent-color);
+    box-shadow: 0 0 10px var(--accent-dim);
+}
+
+.data-node .node-title {
+    font-size: 10px;
+    font-weight: 800;
+    color: #ffffff;
+}
+
+.data-node .node-sub {
+    font-size: 8.5px;
+    color: var(--accent-color);
+    margin-top: 1px;
+}
+
+/* Çift Yönlü Kanal Borusu (Giden TX ve Gelen RX) */
+.two-way-pipe-group {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    padding: 0 4px;
+    cursor: pointer;
+    position: relative;
+    border-radius: 2px;
+    transition: all 0.2s ease;
+}
+
+.two-way-pipe-group:hover, .two-way-pipe-group.active-channel {
+    background: rgba(255, 255, 255, 0.04);
+}
+
+.two-way-pipe-group.active-channel .pipe-lane .data-pipe {
+    border-color: var(--accent-color);
+    box-shadow: 0 0 8px var(--accent-dim);
+}
+
+.pipe-lane {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.pipe-lane .pipe-dir-tag {
+    font-size: 8px;
+    font-weight: 800;
+    color: var(--text-dark);
+    width: 14px;
+    user-select: none;
+}
+
+.data-pipe {
+    flex: 1;
+    position: relative;
+    height: 4px;
+    background: #141c24;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    overflow: hidden;
+}
+
+.data-pipe.tx .data-pipe-packet {
+    position: absolute;
+    width: 20px;
+    height: 100%;
+    background: var(--accent-color);
+    box-shadow: 0 0 8px var(--accent-color);
+    animation: pipeFlowTX 1.5s infinite linear;
+}
+
+.data-pipe.rx .data-pipe-packet {
+    position: absolute;
+    width: 20px;
+    height: 100%;
+    background: #00e5ff;
+    box-shadow: 0 0 8px rgba(0, 229, 255, 0.7);
+    animation: pipeFlowRX 1.5s infinite linear;
+}
+
+@keyframes pipeFlowTX {
+    0% { left: -25px; }
+    100% { left: 100%; }
+}
+
+@keyframes pipeFlowRX {
+    0% { left: 100%; }
+    100% { left: -25px; }
+}
+
+/* Cihaz (PiSim) ile Simülasyon (UE5) Arasındaki Doğrudan Bypass Yolu (Çift Yönlü TX / RX) */
+.direct-bypass-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: rgba(8, 12, 16, 0.85);
+    border: 1px dashed var(--mono-border-bright);
+    padding: 4px 10px;
+    clip-path: polygon(0 0, calc(100% - 6px) 0, 100% 6px, 100% 100%, 6px 100%, 0 calc(100% - 6px));
+    cursor: pointer;
+    transition: all 0.2s ease;
+    user-select: none;
+    gap: 8px;
+}
+
+.direct-bypass-bar:hover, .direct-bypass-bar.active-channel {
+    border-color: var(--accent-color);
+    border-style: solid;
+    background: rgba(0, 223, 182, 0.08);
+    box-shadow: 0 0 10px var(--accent-dim);
+}
+
+.direct-bypass-bar.active-channel .pipe-lane .data-pipe {
+    border-color: var(--accent-color);
+    box-shadow: 0 0 8px var(--accent-dim);
+}
+
+/* Alt İki Yarı: Sol Canlı Paket Logu, Sağ Ağ Metrikleri */
+.bridge-bottom-split {
+    display: grid;
+    grid-template-columns: 1.2fr 1fr;
+    gap: 8px;
+    height: 110px;
+    margin-top: 2px;
+}
+
+.channel-stream-log {
+    background: #06090c;
+    border: 1px solid var(--mono-border);
+    padding: 6px 8px;
+    font-size: 9.5px;
+    font-family: var(--font-mono);
+    color: var(--text-muted);
+    overflow-y: auto;
+    line-height: 1.5;
+    clip-path: polygon(0 0, calc(100% - 6px) 0, 100% 6px, 100% 100%, 6px 100%, 0 calc(100% - 6px));
+}
+
+.network-telemetry-box {
+    background: #06090c;
+    border: 1px solid var(--mono-border);
+    padding: 6px 8px;
+    font-size: 10px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 4px;
+    clip-path: polygon(0 0, calc(100% - 6px) 0, 100% 6px, 100% 100%, 6px 100%, 0 calc(100% - 6px));
+}
+
+.net-stat-item {
+    background: var(--mono-dark);
+    padding: 3px 6px;
+    border: 1px solid var(--mono-border);
+}
+
+.net-stat-item .tag {
+    font-size: 8px;
+    color: var(--text-dark);
+    display: block;
+}
+
+.net-stat-item .val {
+    font-size: 11px;
+    font-weight: 800;
+    color: #ffffff;
+}
+
+/* Sağ Sütun: Seçili Araç Detayları ve Loglar */
+.fleet-detail-sidebar {
+    width: 360px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    height: 100%;
+}
+
+.camera-preview-frame {
+    height: 140px;
+    background: radial-gradient(circle, #0e151d 0%, #05070a 100%);
+    border: 1px solid var(--mono-border-bright);
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    padding: 8px;
+    clip-path: polygon(0 0, calc(100% - 8px) 0, 100% 8px, 100% 100%, 8px 100%, 0 calc(100% - 8px));
+}
+
+.telemetry-module-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+}
+
+.module-stat-card {
+    background: var(--mono-dark);
+    border: 1px solid var(--mono-border);
+    padding: 6px 8px;
+    clip-path: polygon(0 0, calc(100% - 5px) 0, 100% 5px, 100% 100%, 5px 100%, 0 calc(100% - 5px));
+}
+
+.module-stat-card .label {
+    font-size: 9px;
+    color: var(--text-muted);
+}
+
+.module-stat-card .val {
+    font-size: 13px;
+    font-weight: 800;
+    color: #ffffff;
+    margin-top: 2px;
+}

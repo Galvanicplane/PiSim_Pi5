@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="tr" data-pattern="dots">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PiSim - F-35 / Askeri Uçak Aviyonik HUD</title>
+    <link rel="stylesheet" href="style.css">
+    <style>
+        .hud-wrapper {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            padding: 12px 20px;
+            overflow: hidden;
+            background: transparent;
+        }
+
+        /* Üst Taktik Menü ve Navigasyon Çubuğu */
+        .hud-top-bar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px 16px;
+            z-index: 100;
+        }
+
+        /* HUD Gövdesi (Sol Bant - Orta Ufuk - Sağ Bant) */
+        .hud-main-body {
+            position: relative;
+            flex: 1;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin: 10px 0;
+        }
+
+        /* Sol Hız Şeridi (Airspeed Tape) */
+        .tape-left {
+            width: 110px;
+            height: 420px;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            align-items: center;
+            border-right: 2px solid var(--accent-color);
+            background: linear-gradient(to right, var(--accent-dim), transparent);
+            padding: 14px 8px;
+            clip-path: polygon(0 0, 100% 0, 100% 100%, 0 calc(100% - 10px));
+        }
+
+        /* Sağ İrtifa Şeridi (Altitude Tape) */
+        .tape-right {
+            width: 110px;
+            height: 420px;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            align-items: center;
+            border-left: 2px solid var(--accent-color);
+            background: linear-gradient(to left, var(--accent-dim), transparent);
+            padding: 14px 8px;
+            clip-path: polygon(0 0, 100% 0, 100% calc(100% - 10px), 0 100%);
+        }
+
+        .tape-markings {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            font-size: 10px;
+            color: var(--text-dark);
+            width: 100%;
+            padding-left: 10px;
+        }
+
+        .tape-markings.right {
+            padding-left: 0;
+            padding-right: 10px;
+            text-align: right;
+        }
+
+        .tape-markings .active-mark {
+            color: var(--accent-color);
+            font-weight: 800;
+            font-size: 12px;
+        }
+
+        /* Merkez Yapay Ufuk & Aviyonik Nişangah (Artificial Horizon) */
+        .horizon-center {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 380px;
+            height: 380px;
+            pointer-events: none;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .pitch-ladder {
+            width: 150px;
+            height: 2px;
+            background: var(--accent-color);
+            box-shadow: 0 0 10px var(--accent-glow);
+            position: relative;
+        }
+
+        .pitch-ladder::before, .pitch-ladder::after {
+            content: '';
+            position: absolute;
+            width: 2px;
+            height: 12px;
+            background: var(--accent-color);
+        }
+        .pitch-ladder::before { left: 0; }
+        .pitch-ladder::after { right: 0; }
+
+        .aircraft-crosshair {
+            width: 32px;
+            height: 32px;
+            border: 2px solid var(--accent-color);
+            border-radius: 50%;
+            margin: 22px 0;
+            position: relative;
+            box-shadow: 0 0 12px var(--accent-dim);
+        }
+
+        .aircraft-crosshair::before {
+            content: '';
+            position: absolute;
+            width: 8px;
+            height: 8px;
+            background: var(--accent-color);
+            border-radius: 50%;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+        }
+
+        .roll-arc {
+            position: absolute;
+            width: 280px;
+            height: 280px;
+            border: 1px dashed rgba(255, 255, 255, 0.2);
+            border-radius: 50%;
+            pointer-events: none;
+        }
+
+        /* Üst Pusula Gülü (Heading Ribbon) */
+        .heading-ribbon {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            padding: 6px 20px;
+            border-bottom: 2px solid var(--accent-color);
+            background: var(--mono-dark);
+            clip-path: polygon(0 0, calc(100% - 10px) 0, 100% 10px, 100% 100%, 10px 100%, 0 calc(100% - 10px));
+        }
+
+        /* Alt Aviyonik Kontrol & Durum Paneli */
+        .bottom-avionics-deck {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 12px;
+            z-index: 100;
+        }
+    </style>
+</head>
+<body>
+    <div class="hud-wrapper">
+        <!-- 1. ÜST NAVİGASYON & TELEMETRİ ŞERİDİ -->
+        <header class="hud-top-bar cod-panel">
+            <div style="display: flex; align-items: center; gap: 12px;">
+                <span style="color:var(--accent-color); font-weight:900; letter-spacing:1px;">// HUD [F-35 AVIYONIK]</span>
+                <span style="font-size:10px; background:var(--accent-dim); color:var(--accent-color); padding:2px 8px; border:1px solid var(--accent-color);">NAV/FLIGHT</span>
+            </div>
+
+            <!-- MERKEZ PUSULA ŞERİDİ -->
+            <div class="heading-ribbon">
+                <span style="color:var(--text-muted); font-size:11px;">HDG:</span>
+                <span id="val-hdg" style="color:var(--accent-color); font-size:15px; font-weight:900; letter-spacing:1px;">045°</span>
+                <span style="color:var(--text-primary); font-size:11px; font-weight:700;">[ NE ]</span>
+                <span style="color:var(--text-dark); font-size:10px;">| WPT-01: 12.4 NM</span>
+            </div>
+
+        </header>
+
+        <!-- 2. ANA HUD VİTRİNİ -->
+        <main class="hud-main-body">
+            <!-- SOL HIZ ŞERİDİ (AIRSPEED) -->
+            <div class="tape-left">
+                <div style="font-size: 10px; color: var(--text-muted); letter-spacing: 1px;">IAS (KTS)</div>
+                <div class="tape-markings">
+                    <div>160 ─</div>
+                    <div>150 ─</div>
+                    <div class="active-mark">► 142 ──</div>
+                    <div>130 ─</div>
+                    <div>120 ─</div>
+                </div>
+                <div>
+                    <div style="font-size: 28px; font-weight: 900; color: #ffffff;" id="val-speed">142</div>
+                    <div style="font-size: 10px; color: var(--accent-color); margin-top: 2px;">MACH 0.22</div>
+                    <div style="font-size: 9px; color: var(--text-dark);">GS: 155 KTS</div>
+                </div>
+            </div>
+
+            <!-- MERKEZ SUNİ UFUK / AVİYONİK PITCH MERDİVENİ -->
+            <div class="horizon-center" id="horizon-element">
+                <div class="roll-arc"></div>
+                <div style="font-size: 9px; color: var(--text-muted); margin-bottom: 8px;">+10° ────</div>
+                <div class="pitch-ladder"></div>
+                <div class="aircraft-crosshair"></div>
+                <div class="pitch-ladder"></div>
+                <div style="font-size: 9px; color: var(--text-muted); margin-top: 8px;">-10° ────</div>
+            </div>
+
+            <!-- SAĞ İRTİFA ŞERİDİ (ALTITUDE) -->
+            <div class="tape-right">
+                <div style="font-size: 10px; color: var(--text-muted); letter-spacing: 1px;">ALT (FT)</div>
+                <div class="tape-markings right">
+                    <div>─ 4,500</div>
+                    <div>─ 4,400</div>
+                    <div class="active-mark">── 4,250 ◄</div>
+                    <div>─ 4,100</div>
+                    <div>─ 4,000</div>
+                </div>
+                <div>
+                    <div style="font-size: 28px; font-weight: 900; color: #ffffff;" id="val-alt">4,250</div>
+                    <div style="font-size: 10px; color: var(--accent-color); margin-top: 2px;">R-ALT: 1,840 FT</div>
+                    <div style="font-size: 9px; color: var(--text-dark);">VVI: +500 FPM</div>
+                </div>
+            </div>
+        </main>
+
+        <!-- 3. ALT AVİYONİK VE MOTOR KONTROL PANELİ -->
+        <footer class="bottom-avionics-deck">
+            <!-- MOTOR & GAZ TELEMETRİSİ -->
+            <div class="cod-panel" style="padding: 8px 16px; display: flex; gap: 20px; align-items: center;">
+                <div>
+                    <span style="color:var(--text-muted); font-size:10px; display:block;">GAZ (THROTTLE):</span>
+                    <span id="val-throttle" style="color:#ffffff; font-size:18px; font-weight:900;">78%</span>
+                </div>
+                <div>
+                    <span style="color:var(--text-muted); font-size:10px; display:block;">G-LOAD:</span>
+                    <span style="color:var(--accent-color); font-size:18px; font-weight:900;">+1.2 G</span>
+                </div>
+                <div>
+                    <span style="color:var(--text-muted); font-size:10px; display:block;">BATARYA:</span>
+                    <span style="color:#ffffff; font-size:14px; font-weight:700;">24.2V (92%)</span>
+                </div>
+            </div>
+
+            <!-- MODÜL VE OTONOMİ DURUMU -->
+            <div class="cod-panel" style="padding: 8px 16px; display: flex; gap: 16px; align-items: center;">
+                <div>
+                    <span style="color:var(--text-muted); font-size:10px; display:block;">AVİYONİK MOD:</span>
+                    <span style="color:var(--accent-color); font-size:13px; font-weight:800;">FBWA / ARDUPILOT</span>
+                </div>
+                <div style="font-size:11px; color:var(--text-dark);">|</div>
+                <div>
+                    <span style="color:var(--text-muted); font-size:10px; display:block;">FLAPS:</span>
+                    <span style="color:#ffffff; font-size:13px; font-weight:700;">AUTO [0°]</span>
+                </div>
+            </div>
+
+            <!-- HIZLI EYLEM VE SİLAH/KONTROL BUTONLARI -->
+            <div style="display: flex; gap: 8px; align-items: center;">
+                <div class="tooltip-btn-wrapper" style="width: auto;">
+                    <button class="tooltip-btn">
+                        <span class="btn-inner" style="padding: 8px 14px; font-size: 11px;">[ARM] SİSTEMİ KUR</span>
+                    </button>
+                    <div class="tooltip-popup"><span>Uçuş bilgisayarı ve servo aktüatörleri aktif eder.</span></div>
+                </div>
+
+                <div class="tooltip-btn-wrapper" style="width: auto;">
+                    <button class="tooltip-btn">
+                        <span class="btn-inner" style="padding: 8px 14px; font-size: 11px;">FLIR / GECE GÖRÜŞÜ</span>
+                    </button>
+                    <div class="tooltip-popup"><span>Kızılötesi termal kamera katmanını açar.</span></div>
+                </div>
+
+                <div class="tooltip-btn-wrapper" style="width: auto;">
+                    <button class="tooltip-btn btn-danger-override">
+                        <span class="btn-inner" style="padding: 8px 14px; font-size: 11px;">[E-STOP] ACİL DURDUR</span>
+                    </button>
+                    <div class="tooltip-popup"><span>Tüm itkiyi keser ve paraşüt/kurtarma sistemini tetikler!</span></div>
+                </div>
+            </div>
+        </footer>
+    </div>
+
+    <!-- UNREAL ENGINE C++ KÖPRÜSÜ VE 3D KAMERA KONTROLÜ (ORBIT / PAN / ZOOM) -->
+    <script>
+        function callUE(fnName, ...args) {
+            if (window.ue && window.ue.garage && typeof window.ue.garage[fnName] === 'function') {
+                window.ue.garage[fnName](...args);
+                return true;
+            }
+            return false;
+        }
+
+        let isLeftDown = false;
+        let isRightDown = false;
+
+        window.addEventListener('mousedown', (e) => {
+            if (e.target.closest('button, input, select, a, .cod-panel, .tape-left, .tape-right, .tooltip-popup')) {
+                return;
+            }
+            if (e.button === 0) isLeftDown = true;
+            if (e.button === 2) isRightDown = true;
+        });
+
+        window.addEventListener('mouseup', (e) => {
+            if (e.button === 0) isLeftDown = false;
+            if (e.button === 2) isRightDown = false;
+        });
+
+        window.addEventListener('mousemove', (e) => {
+            if (isLeftDown) {
+                callUE('mousedelta', e.movementX, e.movementY, 0); // 0 = Orbit
+            } else if (isRightDown) {
+                callUE('mousedelta', e.movementX, e.movementY, 1); // 1 = Pan
+            }
+        });
+
+        window.addEventListener('wheel', (e) => {
+            callUE('mousezoom', e.deltaY > 0 ? 1 : -1);
+        }, { passive: true });
+
+        window.addEventListener('contextmenu', (e) => {
+            if (!e.target.closest('input, textarea')) {
+                e.preventDefault();
+            }
+        });
+    </script>
+</body>
+</html>
