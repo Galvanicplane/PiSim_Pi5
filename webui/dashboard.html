@@ -594,43 +594,104 @@
             return now.toTimeString().split(' ')[0] + '.' + Math.floor(now.getMilliseconds() / 100);
         }
 
-        // Simülasyon Bağlantısını Aç / Kapat
+        // Simülasyon Bağlantısını Aç / Kapat / Keşif Yap
         function toggleBridgeConnection() {
-            isBridgeConnected = !isBridgeConnected;
-            const tag = document.getElementById('bridge-status-tag');
-            const btn = document.getElementById('btn-toggle-connection');
-
-            if (isBridgeConnected) {
-                tag.innerText = "BAĞLI [UE5 CHAOS]";
-                tag.style.background = "var(--accent-dim)";
-                tag.style.color = "var(--accent-color)";
-                tag.style.borderColor = "var(--accent-color)";
-                btn.innerText = "YENİLE";
-                addLog("Köprü: UE5 ve SITL bağlantısı aktif edildi (Port 9002)");
-            } else {
-                tag.innerText = "KOPUK [OFFLINE]";
-                tag.style.background = "rgba(255, 59, 48, 0.2)";
-                tag.style.color = "#ff6b6b";
-                tag.style.borderColor = "#ff3b30";
-                btn.innerText = "BAĞLAN";
-                addLog("Köprü: Simülasyon bağlantısı kesildi!");
-            }
+            triggerProbeFromDashboard();
         }
 
         // Taktik Buton Aksiyonları
         function armCurrentVehicle() {
-            const v = vehiclesData[currentSelectedId];
-            addLog(`[KOMUT] ${v.name}: MOTOR KURULDU [ARM OK]`);
+            sendCommandToBackend('arm');
         }
 
         function sendWaypointMission() {
-            const v = vehiclesData[currentSelectedId];
-            addLog(`[KOMUT] ${v.name}: Yeni rota görevi gönderildi`);
+            sendCommandToBackend('waypoint');
         }
 
         function emergencyStopCurrentVehicle() {
-            const v = vehiclesData[currentSelectedId];
-            addLog(`[ACİL DURDUR] ${v.name}: E-STOP AKTİF! Motorlar kilitlendi!`);
+            sendCommandToBackend('estop');
+        }
+
+        // ==================== CANLI REST TELEMETRİ VE KOMUT KÖPRÜSÜ ====================
+        let lastLoggedSec = 0;
+        async function syncLiveTelemetry() {
+            try {
+                const res = await fetch('/api/telemetry');
+                if (!res.ok) return;
+                const data = await res.json();
+                if (!data) return;
+
+                const isConnected = data.connected || ((Date.now() / 1000 - (data.timestamp || 0)) < 3.0);
+                const tag = document.getElementById('bridge-status-tag');
+                const btn = document.getElementById('btn-toggle-connection');
+
+                if (isConnected) {
+                    if (tag) {
+                        tag.innerText = `CANLI [UE5 - 7400]`;
+                        tag.style.background = "var(--accent-dim)";
+                        tag.style.color = "var(--accent-color)";
+                        tag.style.borderColor = "var(--accent-color)";
+                    }
+                    if (btn) btn.innerText = "YENİLE";
+
+                    // Sağ paneldeki telemetri değerlerini güncelle
+                    const speedEl = document.getElementById('detail-speed-val');
+                    if (speedEl && data.speed !== undefined) speedEl.innerText = `${data.speed} km/s`;
+
+                    const batEl = document.getElementById('detail-battery-val');
+                    if (batEl && data.battery !== undefined) batEl.innerText = `% ${data.battery}`;
+
+                    const missionEl = document.getElementById('detail-mission-val');
+                    if (missionEl) missionEl.innerText = `Mod: ${data.flight_mode || 'AKTİF'}`;
+
+                    const coordsEl = document.getElementById('detail-coords');
+                    if (coordsEl) coordsEl.innerText = `${data.lat?.toFixed(4) || '39.9334'}° K, ${data.lon?.toFixed(4) || '32.8597'}° D (İrtifa: ${data.altitude || 0}m)`;
+
+                    const camOverlay = document.getElementById('cam-telemetry-overlay');
+                    if (camOverlay) {
+                        camOverlay.innerText = `PISIM TACTICAL LIVE | R:${data.roll || 0}° P:${data.pitch || 0}° Y:${data.yaw || 0}° | ALT:${data.altitude || 0}m | SPD:${data.speed || 0} km/s`;
+                    }
+
+                    // Periyodik log akışı (her 2 saniyede bir)
+                    const nowSec = Math.floor(Date.now() / 1000);
+                    if (nowSec - lastLoggedSec >= 2) {
+                        lastLoggedSec = nowSec;
+                        addLog(`Telemetri RX: R:${data.roll}° P:${data.pitch}° İrtifa:${data.altitude}m Hız:${data.speed}km/s`);
+                    }
+                } else {
+                    if (tag) {
+                        tag.innerText = "BEKLİYOR [UDP 7400]";
+                        tag.style.background = "rgba(255, 170, 0, 0.15)";
+                        tag.style.color = "#ffaa00";
+                        tag.style.borderColor = "#ffaa00";
+                    }
+                }
+            } catch (err) {
+                // Ağ hatalarını yoksay
+            }
+        }
+        setInterval(syncLiveTelemetry, 200);
+
+        async function triggerProbeFromDashboard() {
+            try {
+                addLog("📡 UDP Cihaz Keşfi Başlatıldı (Port 7499)...");
+                const res = await fetch('/api/probe');
+                const data = await res.json();
+                addLog(`Keşif Probu Gönderildi: Yerel IP ${data.local_ip}`);
+            } catch (err) {
+                addLog("Keşif probu gönderilemedi.");
+            }
+        }
+
+        async function sendCommandToBackend(cmd) {
+            try {
+                addLog(`[KOMUT] Gönderiliyor: ${cmd.toUpperCase()}`);
+                const res = await fetch(`/api/command?cmd=${encodeURIComponent(cmd)}`);
+                const data = await res.json();
+                addLog(`[KOMUT ACK] ${cmd.toUpperCase()} -> ${data.target}`);
+            } catch (err) {
+                addLog(`[HATA] Komut iletilemedi: ${cmd}`);
+            }
         }
 
         function centerMap() {

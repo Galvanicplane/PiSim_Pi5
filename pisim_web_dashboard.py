@@ -5,7 +5,9 @@ Universal GCS (Ground Control Station) runner for PiSim Platform.
 
 Runs the HTML5/CSS/JS tactical dashboard on Raspberry Pi 5 (Linux ARM64), Windows, or Jetson:
 - Serves local WebUI files on http://localhost:8080 (also accessible from phone/tablet on same LAN)
-- Listens for UDP Telemetry (Port 7400/7401) and feeds live state
+- Bases on pure dashboard.html (Tactical Ground Control Station)
+- Automatically broadcasts UDP Beacons (Port 7499) so Unreal Engine instantly discovers this Pi 5
+- Listens for UDP Telemetry (Port 7400/7401) and feeds live state via /api/telemetry
 - Launches Chromium / Chrome in standalone App Mode (No URL bar, looks 100% like a native desktop app)
 - Pulls updates directly via 'git pull' with zero compiling!
 """
@@ -21,11 +23,17 @@ import os
 import subprocess
 import webbrowser
 from pathlib import Path
+from urllib.parse import urlparse, parse_qs
+
+# Import discovery service from beacon_sender
+from beacon_sender import PiSimDiscoveryService, get_local_ip, send_probe_burst, DISCOVERY_PORT
 
 # Ensure UTF-8 output on all consoles
 try:
     if hasattr(sys.stdout, 'reconfigure'):
         sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+    if hasattr(sys.stderr, 'reconfigure'):
+        sys.stderr.reconfigure(encoding='utf-8', errors='replace')
 except Exception:
     pass
 
@@ -33,9 +41,10 @@ PORT = 8080
 WEBUI_DIR = Path(__file__).parent / "webui"
 TELEMETRY_PORT = 7400
 VIDEO_PORT = 7401
+UE5_CONTROL_PORT = 9002
 
 latest_telemetry = {
-    "timestamp": time.time(),
+    "timestamp": 0.0,
     "vehicle_id": 0,
     "roll": 0.0,
     "pitch": 0.0,
@@ -45,51 +54,103 @@ latest_telemetry = {
     "battery": 98.0,
     "lat": 39.9334,
     "lon": 32.8597,
-    "flight_mode": "READY"
+    "flight_mode": "BEKLİYOR",
+    "connected": False,
+    "ue5_ip": None
 }
 telemetry_lock = threading.Lock()
+discovered_ue5_ip = "127.0.0.1"
+
 
 class PiSimRequestHandler(http.server.SimpleHTTPRequestHandler):
-    """Custom HTTP handler serving webui and providing live REST telemetry APIs"""
+    """Custom HTTP handler serving webui and providing live REST telemetry & command APIs"""
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=str(WEBUI_DIR), **kwargs)
 
     def do_GET(self):
-        # Redirect root to dashboardUnreal.html
-        if self.path in ('/', '/index.html'):
+        parsed_url = urlparse(self.path)
+        clean_path = parsed_url.path
+
+        # 1. Kök dizini doğrudan dashboard.html sayfasına yönlendir
+        if clean_path in ('/', '/index.html'):
             self.send_response(302)
-            self.send_header('Location', '/dashboardUnreal.html')
+            self.send_header('Location', '/dashboard.html')
             self.end_headers()
             return
 
-        # Live telemetry API endpoint
-        if self.path == '/api/telemetry':
+        # 2. Canlı telemetri REST API uç noktası
+        if clean_path == '/api/telemetry':
             self.send_response(200)
             self.send_header('Content-Type', 'application/json')
             self.send_header('Access-Control-Allow-Origin', '*')
+            self.send_header('Cache-Control', 'no-cache, no-store, must-revalidate')
             self.end_headers()
             with telemetry_lock:
                 payload = json.dumps(latest_telemetry).encode('utf-8')
             self.wfile.write(payload)
             return
 
+        # 3. Anlık keşif probu fırlatma REST API uç noktası
+        if clean_path == '/api/probe':
+            target_ip = "255.255.255.255"
+            qs = parse_qs(parsed_url.query)
+            if 'ip' in qs:
+                target_ip = qs['ip'][0]
+            send_probe_burst(target_ip=target_ip, port=DISCOVERY_PORT)
+
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.end_headers()
+            res = {
+                "status": "PROBE_SENT",
+                "target": target_ip,
+                "local_ip": get_local_ip(),
+                "timestamp": time.time()
+            }
+            self.wfile.write(json.dumps(res).encode('utf-8'))
+            return
+
+        # 4. Araç komut fırlatma REST API (ARM, DISARM, ESTOP)
+        if clean_path == '/api/command':
+            qs = parse_qs(parsed_url.query)
+            cmd = qs.get('cmd', [''])[0]
+            target_host = discovered_ue5_ip or "127.0.0.1"
+
+            # UDP komut paketi gönder (Port 9002 veya 7400)
+            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            try:
+                cmd_payload = json.dumps({"command": cmd, "timestamp": time.time()}).encode('utf-8')
+                sock.sendto(cmd_payload, (target_host, UE5_CONTROL_PORT))
+            except Exception:
+                pass
+            finally:
+                sock.close()
+
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.end_headers()
+            self.wfile.write(json.dumps({"status": "OK", "command": cmd, "target": target_host}).encode('utf-8'))
+            return
+
         return super().do_GET()
 
     def log_message(self, format, *args):
-        # Quiet logger for static asset requests
-        if args and any(ext in args[0] for ext in ('.css', '.js', '.png', '.jpg', '.ico')):
+        # Statik dosya istekleri için konsolu sessiz tut
+        if args and any(ext in args[0] for ext in ('.css', '.js', '.png', '.jpg', '.ico', '/api/telemetry')):
             return
         super().log_message(format, *args)
 
 
 def run_udp_telemetry_listener():
-    """Listens for UDP telemetry packets from Unreal Engine or SITL"""
-    global latest_telemetry
+    """Unreal Engine (PiSim) veya SITL'den gelen UDP telemetri paketlerini dinler"""
+    global latest_telemetry, discovered_ue5_ip
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     try:
         sock.bind(("0.0.0.0", TELEMETRY_PORT))
-        print(f"[TelemetryListener] 📡 UDP Port {TELEMETRY_PORT} dinleniyor...")
+        print(f"[TelemetryListener] 📡 UDP Port {TELEMETRY_PORT} dinleniyor (Telemetri RX)...")
     except Exception as e:
         print(f"[TelemetryListener] ⚠️ UDP Port {TELEMETRY_PORT} bağlanamadı: {e}")
         return
@@ -100,29 +161,40 @@ def run_udp_telemetry_listener():
             if not data:
                 continue
 
+            discovered_ue5_ip = addr[0]
             text = data.decode('utf-8', errors='ignore')
             try:
                 msg = json.loads(text)
                 with telemetry_lock:
                     latest_telemetry["timestamp"] = msg.get("timestamp", time.time())
                     latest_telemetry["vehicle_id"] = msg.get("vehicle_id", 0)
+                    latest_telemetry["connected"] = True
+                    latest_telemetry["ue5_ip"] = addr[0]
 
-                    # ArduPilot SITL JSON Parsing
-                    if "imu" in msg:
-                        gyro = msg["imu"].get("gyro", [0, 0, 0])
-                        accel = msg["imu"].get("accel_body", [0, 0, 0])
+                    # ArduPilot SITL / PiSim JSON Veri Formatı
                     if "attitude" in msg:
                         att = msg["attitude"]
                         if len(att) >= 3:
                             latest_telemetry["roll"] = round(att[0] * 57.2958, 2)
                             latest_telemetry["pitch"] = round(att[1] * 57.2958, 2)
                             latest_telemetry["yaw"] = round(att[2] * 57.2958, 2)
+
                     if "airspeed" in msg:
                         latest_telemetry["speed"] = round(msg["airspeed"] * 3.6, 1)
+
                     if "position" in msg:
                         pos = msg["position"]
                         if len(pos) >= 3:
                             latest_telemetry["altitude"] = round(-pos[2], 1)
+
+                    if "battery" in msg:
+                        latest_telemetry["battery"] = round(msg["battery"], 1)
+
+                    if "flight_mode" in msg:
+                        latest_telemetry["flight_mode"] = str(msg["flight_mode"])
+                    else:
+                        latest_telemetry["flight_mode"] = "AKTİF"
+
             except json.JSONDecodeError:
                 pass
         except Exception:
@@ -131,12 +203,12 @@ def run_udp_telemetry_listener():
 
 def launch_in_app_mode(url: str):
     """
-    Opens the URL in native App Mode (Borderless, standalone window, no URL bar).
-    Compatible with Raspberry Pi 5 (Chromium), Linux, and Windows.
+    Sayfayı native Uygulama Modunda (Kenarlıksız, adres çubuğu olmadan) açar.
+    Raspberry Pi 5 (Chromium), Linux ve Windows ile tam uyumludur.
     """
     app_launched = False
 
-    # 1. Raspberry Pi 5 / Linux: chromium-browser or chromium
+    # 1. Raspberry Pi 5 / Linux: chromium-browser veya chromium
     linux_browsers = ["chromium-browser", "chromium", "google-chrome"]
     for b in linux_browsers:
         try:
@@ -148,7 +220,7 @@ def launch_in_app_mode(url: str):
         except FileNotFoundError:
             continue
 
-    # 2. Windows fallback
+    # 2. Windows Fallback
     if not app_launched and sys.platform.startswith("win"):
         win_candidates = [
             r"C:\Program Files\Google\Chrome\Application\chrome.exe",
@@ -163,26 +235,34 @@ def launch_in_app_mode(url: str):
                 app_launched = True
                 break
 
-    # 3. Universal Fallback: Default Browser
+    # 3. Genel Fallback: Varsayılan tarayıcı
     if not app_launched:
         print("[Launcher] 🌐 Standart web tarayıcısında açılıyor...")
         webbrowser.open(url)
 
 
 def main():
+    local_ip = get_local_ip()
     print("=================================================================")
-    print("  🚀 PiSim Studio - Raspberry Pi 5 & Universal Web Dashboard GCS ")
+    print("  🚀 PiSim Studio - Raspberry Pi 5 Tactical Web Dashboard GCS    ")
     print("=================================================================")
     print(f" [+] WebUI Klasörü : {WEBUI_DIR}")
-    print(f" [+] Yerel Adres   : http://localhost:{PORT}/dashboardUnreal.html")
-    print(f" [+] Ağ Adresi     : http://<PI5_IP_ADRESI>:{PORT}/dashboardUnreal.html")
+    print(f" [+] Sayfa         : dashboard.html (Taktik Kokpit)")
+    print(f" [+] Yerel Adres   : http://localhost:{PORT}/dashboard.html")
+    print(f" [+] Ağ Adresi     : http://{local_ip}:{PORT}/dashboard.html")
+    print(f" [+] Keşif Radarı  : UDP Port {DISCOVERY_PORT} (Aktif Beacon & Prob)")
+    print(f" [+] Telemetri RX  : UDP Port {TELEMETRY_PORT}")
     print("=================================================================")
 
-    # Start UDP telemetry background listener
+    # 1. Otomatik Keşif & Beacon Servisini Başlat (Arka plan thread)
+    discovery = PiSimDiscoveryService(port=DISCOVERY_PORT, broadcast_interval=2.0)
+    discovery.start()
+
+    # 2. UDP Telemetri Dinleyicisini Başlat (Port 7400)
     t = threading.Thread(target=run_udp_telemetry_listener, daemon=True)
     t.start()
 
-    # Start Local HTTP Server
+    # 3. Yerel HTTP Sunucusunu Başlat (Port 8080)
     class ThreadedTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
         allow_reuse_address = True
 
@@ -190,9 +270,9 @@ def main():
     server_thread = threading.Thread(target=server.serve_forever, daemon=True)
     server_thread.start()
 
-    # Automatically launch native-looking dashboard window
+    # 4. Tarayıcıyı Taktik Dashboard Modunda Aç
     time.sleep(0.5)
-    url = f"http://localhost:{PORT}/dashboardUnreal.html"
+    url = f"http://localhost:{PORT}/dashboard.html"
     launch_in_app_mode(url)
 
     print("\n💡 İpucu: Dashboard'u kapatmak için bu terminalde Ctrl+C tuşlarına basın.")
@@ -201,9 +281,11 @@ def main():
             time.sleep(1)
     except KeyboardInterrupt:
         print("\n[PiSim] Dashboard sunucusu kapatılıyor...")
+        discovery.stop()
         server.shutdown()
         server.server_close()
         print("[PiSim] Kapatıldı. İyi uçuşlar!")
+
 
 if __name__ == "__main__":
     main()
