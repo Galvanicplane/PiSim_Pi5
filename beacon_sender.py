@@ -133,42 +133,96 @@ def send_probe_burst(target_ip: str = "255.255.255.255", port: int = DISCOVERY_P
         sock.close()
 
 class PiSimDiscoveryService:
-    """Sadece yerel ağa (UDP 7499) periyodik 'Ben Pi 5'im' sinyali basar. Dinleme yapmaz, çakışmaz."""
-    def __init__(self, port: int = DISCOVERY_PORT, broadcast_interval: float = 2.0):
+    """Pi 5 durur ve dinler (Port 7499). Unreal Engine probe attığında anında ve sürekli 'HI FROM PI5' döner."""
+    def __init__(self, port: int = DISCOVERY_PORT):
         self.port = port
-        self.broadcast_interval = broadcast_interval
         self.local_ip = get_local_ip()
         self.running = False
-        self.broadcast_thread = None
+        self.listener_thread = None
+        self.heartbeat_thread = None
+        self.target_ue5_ip = None
+        self.on_probe_received = None
 
     def start(self):
         self.running = True
         self.local_ip = get_local_ip()
-        self.broadcast_thread = threading.Thread(target=self._broadcast_loop, daemon=True)
-        self.broadcast_thread.start()
-        print(f"[Keşif Servisi] 📡 Pi 5 Sinyali Başlatıldı (Yerel IP: {self.local_ip} -> Hedef: UDP {self.port} Broadcast)")
+        self.listener_thread = threading.Thread(target=self._listener_loop, daemon=True)
+        self.listener_thread.start()
+        self.heartbeat_thread = threading.Thread(target=self._heartbeat_loop, daemon=True)
+        self.heartbeat_thread.start()
+        print(f"[Keşif Servisi] 🎧 Pi 5 dinlemede (UDP Port {self.port} - Unreal Engine probe'u bekleniyor...)")
 
     def stop(self):
         self.running = False
 
-    def _broadcast_loop(self):
-        """Yerel ağa periyodik 'Ben buradayım' beacon paketi basar."""
+    def _heartbeat_loop(self):
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+        while self.running:
+            if self.target_ue5_ip and self.target_ue5_ip not in ("127.0.0.1", self.local_ip):
+                try:
+                    hb_msg = json.dumps({
+                        "magic": "PISIM_HEARTBEAT",
+                        "device": "Raspberry Pi 5",
+                        "name": "Raspberry Pi 5 (Companion)",
+                        "ip": self.local_ip,
+                        "telemetry_port": TELEMETRY_PORT,
+                        "msg": "HI FROM PI5",
+                        "status": "ONLINE",
+                        "timestamp": time.time()
+                    }).encode('utf-8')
+                    sock.sendto(hb_msg, (self.target_ue5_ip, self.port))
+                except Exception:
+                    pass
+            time.sleep(1.5)
+        sock.close()
 
+    def _listener_loop(self):
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        try:
+            sock.bind(("0.0.0.0", self.port))
+        except Exception as e:
+            print(f"⚠️ [Keşif Servisi] UDP Port {self.port} bağlanamadı: {e}")
+            return
+
+        sock.settimeout(1.0)
         while self.running:
             try:
-                payload = build_beacon_payload(self.local_ip)
-                data = json.dumps(payload).encode('utf-8')
+                data, addr = sock.recvfrom(2048)
+                if not data:
+                    continue
 
-                for target in get_broadcast_targets(self.port):
-                    try:
-                        sock.sendto(data, target)
-                    except Exception:
-                        pass
+                sender_ip = addr[0]
+                if sender_ip == "127.0.0.1" or sender_ip == self.local_ip:
+                    continue
+
+                text = data.decode('utf-8', errors='ignore').strip()
+                try:
+                    msg = json.loads(text)
+                except Exception:
+                    msg = {"raw": text}
+
+                # Unreal Engine probe veya heartbeat isteği yakalandığında
+                if msg.get("magic") in ("PISIM_PROBE", "PISIM_HEARTBEAT") or "UE5" in msg.get("source", "") or "UNREAL" in str(msg):
+                    self.target_ue5_ip = sender_ip
+                    resp = {
+                        "magic": "PISIM_BEACON",
+                        "device": "Raspberry Pi 5",
+                        "name": "Raspberry Pi 5 (Companion)",
+                        "ip": self.local_ip,
+                        "telemetry_port": TELEMETRY_PORT,
+                        "msg": "HI FROM PI5",
+                        "status": "ONLINE",
+                        "timestamp": time.time()
+                    }
+                    sock.sendto(json.dumps(resp).encode('utf-8'), addr)
+                    if self.on_probe_received:
+                        self.on_probe_received(sender_ip)
+
+            except socket.timeout:
+                continue
             except Exception:
                 pass
-            time.sleep(self.broadcast_interval)
 
         sock.close()
 

@@ -119,13 +119,13 @@
                                 // SİMÜLASYON VERİ VE PROTOKOL KÖPRÜSÜ
                             </span>
                             <span id="bridge-status-tag" class="bridge-status-badge" style="background: rgba(255, 170, 0, 0.15); color: #ffaa00; border-color: #ffaa00;">
-                                BEKLİYOR [UDP 7400]
+                                DİNLENİYOR [UDP 7499 / 7400]
                             </span>
                         </div>
-                        <div style="display: flex; gap: 6px;">
-                            <button id="btn-toggle-connection" class="cod-btn" style="padding: 2px 8px; font-size: 10px;" onclick="toggleBridgeConnection()">
-                                📡 KEŞİF YAP
-                            </button>
+                        <div style="display: flex; align-items: center; gap: 6px;">
+                            <span style="font-size: 9.5px; color: var(--accent-color); font-weight: 700;">
+                                ● PASİF DİNLEME AKTİF
+                            </span>
                         </div>
                     </div>
 
@@ -173,33 +173,28 @@
                         </div>
                     </div>
 
-                    <!-- MANUEL HEDEF IP & PORT AYARI VE KENDİ IP BİLGİSİ (ALT PANEL) -->
+                    <!-- KENDİ IP BİLGİSİ VE HEDEF UNREAL IP BİLGİSİ (ALT PANEL) -->
                     <div class="manual-connection-bar" style="display: flex; justify-content: space-between; align-items: center; background: rgba(0, 0, 0, 0.45); border: 1px solid var(--mono-border); padding: 5px 10px; margin-bottom: 4px; font-family: var(--font-mono); font-size: 10px; clip-path: polygon(0 0, calc(100% - 6px) 0, 100% 6px, 100% 100%, 6px 100%, 0 calc(100% - 6px));">
                         <div style="display: flex; align-items: center; gap: 8px;">
                             <span style="color: var(--text-muted); font-weight: 700;">📡 BU CİHAZ (PI 5) IP:</span>
                             <span id="label-local-ip" style="color: #00e5ff; font-weight: 800; background: rgba(0, 229, 255, 0.1); padding: 1px 6px; border: 1px solid rgba(0, 229, 255, 0.3);">YÜKLENİYOR...</span>
                         </div>
                         
-                        <div style="display: flex; align-items: center; gap: 6px;">
-                            <span style="color: var(--text-muted); font-weight: 700;">HEDEF (UNREAL) IP:</span>
-                            <input type="text" id="input-manual-target-ip" placeholder="192.168.1.X" style="width: 110px; background: #06090c; border: 1px solid var(--mono-border); color: #ffffff; padding: 2px 6px; font-size: 10px; font-family: var(--font-mono);">
-                            <span style="color: var(--text-muted); font-weight: 700;">PORT:</span>
-                            <input type="number" id="input-manual-target-port" value="7400" style="width: 55px; background: #06090c; border: 1px solid var(--mono-border); color: var(--accent-color); padding: 2px 6px; font-size: 10px; font-family: var(--font-mono);">
-                            <button class="cod-btn cod-btn-accent" style="padding: 2px 8px; font-size: 9.5px;" onclick="applyManualTargetConnection()">
-                                BAĞLAN / PROB AT
-                            </button>
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <span style="color: var(--text-muted); font-weight: 700;">HEDEF (UNREAL ENGINE) IP:</span>
+                            <span id="label-target-ue5-ip" style="color: var(--accent-color); font-weight: 800; background: rgba(0, 223, 182, 0.1); padding: 1px 8px; border: 1px solid rgba(0, 223, 182, 0.3);">DİNLENİYOR (PROBE BEKLENİYOR)...</span>
                         </div>
                     </div>
 
-                    <!-- GERÇEK PAKET AKIŞI BİLGİ PENCERESİ -->
-                    <div class="channel-stream-log" id="channel-packet-log">
-                        <div style="color: var(--accent-color); font-weight: 800; margin-bottom: 2px; border-bottom: 1px solid var(--mono-border); padding-bottom: 2px; display: flex; justify-content: space-between;">
-                            <span>// CANLI PAKET AKIŞI: <span id="inspected-channel-name">Pi5 ⇄ UE5 (Port 7400)</span></span>
+                    <!-- GERÇEK PAKET AKIŞI BİLGİ PENCERESİ (GENİŞLETİLMİŞ LOG ALANI) -->
+                    <div class="channel-stream-log" id="channel-packet-log" style="height: 180px; min-height: 180px;">
+                        <div style="color: var(--accent-color); font-weight: 800; margin-bottom: 4px; border-bottom: 1px solid var(--mono-border); padding-bottom: 3px; display: flex; justify-content: space-between;">
+                            <span>// CANLI PAKET AKIŞI: <span id="inspected-channel-name">Pi5 ⇄ UE5 (Port 7400 / 7499)</span></span>
                             <span style="font-size: 9px; color: var(--text-muted); cursor: pointer;" onclick="clearPacketLogs()">TEMİZLE</span>
                         </div>
-                        <div id="packet-stream-lines" class="packet-lines-box">
+                        <div id="packet-stream-lines" class="packet-lines-box" style="height: calc(100% - 24px); overflow-y: auto;">
                             <div id="packet-placeholder" style="color: var(--text-dark); font-size: 9.5px; padding: 4px;">
-                                [DİNLENİYOR] Henüz gelen UDP paketi yok (Port 7400 dinleniyor, Unreal'da Play'e basınız)...
+                                [DİNLENİYOR] Port 7499 & 7400 dinleniyor (Unreal Engine probe bekleniyor)...
                             </div>
                         </div>
                     </div>
@@ -424,11 +419,20 @@
                     document.getElementById('detail-alt-tag').innerText = `ALT: ${data.altitude} m`;
                     document.getElementById('cam-telemetry-overlay').innerText = `R:${data.roll}° P:${data.pitch}° Y:${data.yaw}° • SPD:${data.speed}km/s`;
 
-                    // 6. Gerçek Paket Akışı Terminali (Sallama Değil, Gelen Gerçek Paket)
+                    // 6. Hedef IP Bilgisi Güncelleme
+                    const targetIpEl = document.getElementById('label-target-ue5-ip');
+                    if (targetIpEl && data.ue5_ip) {
+                        targetIpEl.innerText = `${data.ue5_ip}:7400 [EŞLEŞTİ]`;
+                        targetIpEl.style.color = "#00e5ff";
+                    }
+
+                    // 7. Gerçek Paket Akışı Terminali: "HI FROM UNREAL" ve "HI FROM PI5"
                     const nowSec = Math.floor(Date.now() / 1000);
-                    if (nowSec - lastLoggedSec >= 2) {
+                    if (nowSec - lastLoggedSec >= 1.5) {
                         lastLoggedSec = nowSec;
-                        addPacketLog(`RX ← UE5 | ATTITUDE: roll=${data.roll}°, pitch=${data.pitch}°, yaw=${data.yaw}° | SPEED=${data.speed} km/s | ALT=${data.altitude}m`);
+                        const rxMsg = data.msg || "HI FROM UNREAL";
+                        addPacketLog(`RX ← UE5 (${data.ue5_ip || 'Unreal'}) | <b style="color:#00e5ff;">${rxMsg}</b> | R:${data.roll}° P:${data.pitch}° | SPD:${data.speed}km/s`);
+                        addPacketLog(`TX → UE5 (${data.ue5_ip || 'Unreal'}) | <b style="color:var(--accent-color);">HI FROM PI5</b> [Port 7499 Heartbeat]`);
                     }
 
                 } else {
@@ -540,7 +544,7 @@
             div.innerHTML = `[${time}] <b style="color:var(--accent-color);">UDP</b> | ${line}`;
             stream.appendChild(div);
 
-            if (stream.children.length > 8) {
+            if (stream.children.length > 30) {
                 stream.removeChild(stream.children[0]);
             }
             stream.scrollTop = stream.scrollHeight;

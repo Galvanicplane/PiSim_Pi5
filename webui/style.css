@@ -1436,7 +1436,7 @@ html, body {
 }
 
 .conn-bridge-card {
-    height: 300px; /* Daha yüksek ve ferah */
+    height: 380px; /* Daha yüksek ve ferah (Log alanı büyütüldü) */
 }
 
 /* YÜKLEME BARI GİBİ ÇERÇEVENİN ETRAFINDA SÜREKLİ DÖNEN IŞIK DEMETİ (CONIC BEAM) */

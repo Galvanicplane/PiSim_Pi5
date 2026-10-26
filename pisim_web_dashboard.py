@@ -56,10 +56,12 @@ latest_telemetry = {
     "lon": 32.8597,
     "flight_mode": "BEKLİYOR",
     "connected": False,
-    "ue5_ip": None
+    "ue5_ip": None,
+    "msg": "HI FROM UNREAL"
 }
 telemetry_lock = threading.Lock()
 discovered_ue5_ip = None
+discovery_service_ref = None
 
 
 class PiSimRequestHandler(http.server.SimpleHTTPRequestHandler):
@@ -195,6 +197,9 @@ def run_udp_telemetry_listener():
                 continue
 
             discovered_ue5_ip = sender_ip
+            if discovery_service_ref and discovery_service_ref.target_ue5_ip != sender_ip:
+                discovery_service_ref.target_ue5_ip = sender_ip
+
             text = data.decode('utf-8', errors='ignore')
             try:
                 msg = json.loads(text)
@@ -203,6 +208,10 @@ def run_udp_telemetry_listener():
                     latest_telemetry["vehicle_id"] = msg.get("vehicle_id", 0)
                     latest_telemetry["connected"] = True
                     latest_telemetry["ue5_ip"] = addr[0]
+                    if "msg" in msg:
+                        latest_telemetry["msg"] = str(msg["msg"])
+                    else:
+                        latest_telemetry["msg"] = "HI FROM UNREAL"
 
                     if not was_connected:
                         was_connected = True
@@ -296,10 +305,20 @@ def main():
     print(f" [+] Telemetri RX  : UDP Port {TELEMETRY_PORT}")
     print("=================================================================")
 
-    # 1. Otomatik Keşif & Beacon Servisini Başlat (Arka plan thread)
-    discovery = PiSimDiscoveryService(port=DISCOVERY_PORT, broadcast_interval=2.0)
+    global discovery_service_ref
+    # 1. Otomatik Keşif Dinleyici Servisini Başlat (Pi 5 durur, dinler, probe atmaz)
+    discovery = PiSimDiscoveryService(port=DISCOVERY_PORT)
+    discovery_service_ref = discovery
+
+    def on_probe_discovered(ue_ip):
+        global discovered_ue5_ip
+        discovered_ue5_ip = ue_ip
+        with telemetry_lock:
+            latest_telemetry["ue5_ip"] = ue_ip
+            latest_telemetry["connected"] = True
+
+    discovery.on_probe_received = on_probe_discovered
     discovery.start()
-    send_probe_burst(count=3)
 
     # 2. UDP Telemetri Dinleyicisini Başlat (Port 7400)
     t = threading.Thread(target=run_udp_telemetry_listener, daemon=True)
