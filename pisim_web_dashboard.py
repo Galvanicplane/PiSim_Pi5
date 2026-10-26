@@ -75,6 +75,7 @@ class PiSimRequestHandler(http.server.SimpleHTTPRequestHandler):
         super().end_headers()
 
     def do_GET(self):
+        global discovered_ue5_ip
         parsed_url = urlparse(self.path)
         clean_path = parsed_url.path
 

@@ -500,6 +500,7 @@
                 // Ağ geçiş hatalarını yoksay
             }
         }
+        syncLiveTelemetry();
         setInterval(syncLiveTelemetry, 250);
 
         function applyManualTargetConnection() {
