@@ -46,6 +46,7 @@ UE5_CONTROL_PORT = 9002
 
 latest_telemetry = {
     "timestamp": 0.0,
+    "last_rx_time": 0.0,
     "vehicle_id": 0,
     "roll": 0.0,
     "pitch": 0.0,
@@ -99,6 +100,11 @@ class PiSimRequestHandler(http.server.SimpleHTTPRequestHandler):
             with telemetry_lock:
                 latest_telemetry["local_ip"] = get_local_ip()
                 latest_telemetry["ue5_ip"] = discovered_ue5_ip
+                now = time.time()
+                latest_telemetry["now"] = now
+                last_rx = float(latest_telemetry.get("last_rx_time", 0.0))
+                # Son 4 saniye içinde paket geldiyse canlı bağlıdır
+                latest_telemetry["connected"] = (now - last_rx < 4.0) and (last_rx > 0.0)
                 payload = json.dumps(latest_telemetry).encode('utf-8')
             self.wfile.write(payload)
             return
@@ -227,7 +233,9 @@ def run_udp_telemetry_listener():
             try:
                 msg = json.loads(text)
                 with telemetry_lock:
-                    latest_telemetry["timestamp"] = msg.get("timestamp", time.time())
+                    now_ts = time.time()
+                    latest_telemetry["last_rx_time"] = now_ts
+                    latest_telemetry["timestamp"] = msg.get("timestamp", now_ts)
                     latest_telemetry["vehicle_id"] = msg.get("vehicle_id", 0)
                     latest_telemetry["connected"] = True
                     latest_telemetry["ue5_ip"] = addr[0]

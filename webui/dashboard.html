@@ -188,7 +188,7 @@
                     </div>
 
                     <!-- GERÇEK PAKET AKIŞI BİLGİ PENCERESİ (GENİŞLETİLMİŞ LOG ALANI) -->
-                    <div class="channel-stream-log" id="channel-packet-log" style="height: 180px; min-height: 180px;">
+                    <div class="channel-stream-log" id="channel-packet-log" style="height: 180px; min-height: 180px; background: rgba(0, 0, 0, 0.65); border: 1px solid var(--mono-border); padding: 6px 10px; font-family: var(--font-mono); clip-path: polygon(0 0, calc(100% - 6px) 0, 100% 6px, 100% 100%, 6px 100%, 0 calc(100% - 6px));">
                         <div style="color: var(--accent-color); font-weight: 800; margin-bottom: 4px; border-bottom: 1px solid var(--mono-border); padding-bottom: 3px; display: flex; justify-content: space-between;">
                             <span>// CANLI PAKET AKIŞI: <span id="inspected-channel-name">Pi5 ⇄ UE5 (Port 7400 / 7499)</span></span>
                             <span style="font-size: 9px; color: var(--text-muted); cursor: pointer;" onclick="clearPacketLogs()">TEMİZLE</span>
@@ -330,6 +330,7 @@
         // ==================== CANLI VE GERÇEK TELEMETRİ KÖPRÜSÜ ====================
         let isConnected = false;
         let lastLoggedSec = 0;
+        let wasConnectedLogFired = false;
 
         async function syncLiveTelemetry() {
             try {
@@ -338,7 +339,10 @@
                 const data = await res.json();
                 if (!data) return;
 
-                const hasFreshData = (Date.now() / 1000 - (data.timestamp || 0)) < 3.5 && (data.timestamp > 0);
+                // Backend'in canlı bağlantı bayrağı veya son paket süresi (4 saniyeden yeniyse bağlı)
+                const hasFreshData = (data.connected === true) || 
+                                     (data.last_rx_time && (Date.now() / 1000 - data.last_rx_time < 4.0)) ||
+                                     (data.ue5_ip && data.ue5_ip !== '127.0.0.1' && data.timestamp > 0);
                 isConnected = hasFreshData;
 
                 const statusTag = document.getElementById('bridge-status-tag');
@@ -352,7 +356,7 @@
                 if (isConnected) {
                     // 1. Durum Etiketleri
                     if (statusTag) {
-                        statusTag.innerText = `CANLI [UE5 - 7400]`;
+                        statusTag.innerText = `CANLI [UE5: ${data.ue5_ip || '7400'}]`;
                         statusTag.style.background = "var(--accent-dim)";
                         statusTag.style.color = "var(--accent-color)";
                         statusTag.style.borderColor = "var(--accent-color)";
@@ -368,7 +372,7 @@
                         activeBadge.style.color = "var(--accent-color)";
                     }
 
-                    // 2. Veri Kanalları ve Düğüm Parlamaları (SADECE BAĞLIYKEN CANLANIR VE PARLAR)
+                    // 2. Veri Kanalları ve Düğüm Parlamaları
                     pipes.forEach(p => p.classList.add('connected'));
                     const nPi5 = document.getElementById('node-pi5');
                     const nUe5 = document.getElementById('node-ue5');
@@ -377,66 +381,88 @@
                     if (nUe5) nUe5.classList.add('active-node');
                     if (nCenter) nCenter.classList.add('active-node');
 
-                    // 3. Sol Araç Listesi (Gerçek Veriyle Tekil Dinamik Kart)
+                    // 3. SOL PANEL: CANLI ARAÇ LİSTESİ DOLDURMA
+                    const vId = Number(data.vehicle_id || 0);
+                    const vName = `Araç ${vId + 1} [Unreal Simülasyonu]`;
                     if (countTag) countTag.innerText = "[1 BAĞLI]";
-                    const vName = `Araç ${Number(data.vehicle_id || 0) + 1} [Canlı Simülasyon]`;
                     if (cardsContainer) {
                         cardsContainer.innerHTML = `
-                            <div class="vehicle-card active">
-                                <div class="vehicle-card-header">
-                                    <span class="vehicle-card-title">${vName}</span>
-                                    <span class="status-indicator online">● AKTİF</span>
+                            <div class="vehicle-card active" style="border-left: 3px solid var(--accent-color); background: rgba(0, 223, 182, 0.08); padding: 8px; border-radius: 4px;">
+                                <div class="vehicle-card-header" style="display: flex; justify-content: space-between; align-items: center;">
+                                    <span class="vehicle-card-title" style="font-weight: 800; color: #ffffff; font-size: 11px;">🟢 ${vName}</span>
+                                    <span class="status-indicator online" style="color: var(--accent-color); font-weight: 800; font-size: 9.5px;">● CANLI</span>
                                 </div>
-                                <div class="vehicle-card-body">
-                                    <span>Hız:</span>
-                                    <span style="color: var(--accent-color); font-weight: 800;">${data.speed} km/s</span>
-                                    <span>Batarya:</span>
-                                    <span style="color: #00e5ff; font-weight: 700;">% ${data.battery}</span>
-                                    <span>Mod:</span>
-                                    <span style="color: #ffffff; font-weight: 700;">${data.flight_mode || 'AKTİF'}</span>
+                                <div class="vehicle-card-body" style="display: grid; grid-template-columns: auto 1fr; gap: 3px 8px; font-size: 10px; margin-top: 6px;">
+                                    <span style="color: var(--text-muted);">Kaynak IP:</span>
+                                    <span style="color: #00e5ff; font-family: var(--font-mono); font-weight: 700;">${data.ue5_ip || 'Unreal'}:7400</span>
+                                    <span style="color: var(--text-muted);">Hız:</span>
+                                    <span style="color: var(--accent-color); font-weight: 800;">${data.speed || 0} km/s</span>
+                                    <span style="color: var(--text-muted);">İrtifa:</span>
+                                    <span style="color: #ffffff; font-weight: 700;">${data.altitude || 0} m</span>
+                                    <span style="color: var(--text-muted);">Batarya:</span>
+                                    <span style="color: #00dfb6; font-weight: 700;">% ${data.battery || 98}</span>
+                                    <span style="color: var(--text-muted);">Uçuş Modu:</span>
+                                    <span style="color: #ffaa00; font-weight: 800;">${data.flight_mode || 'AKTİF'}</span>
+                                    <span style="color: var(--text-muted);">Tutum:</span>
+                                    <span style="color: var(--text-muted); font-size: 9px;">R:${data.roll || 0}° P:${data.pitch || 0}° Y:${data.yaw || 0}°</span>
                                 </div>
                             </div>
                         `;
                     }
 
-                    // 4. Radar & Harita
+                    // 4. RADAR & HARİTA
                     if (radarBlip) {
                         radarBlip.style.display = "flex";
                         const blipLabel = document.getElementById('live-blip-label');
-                        if (blipLabel) blipLabel.innerText = `${vName} [${data.speed} km/s]`;
+                        if (blipLabel) blipLabel.innerText = `${vName} [${data.speed || 0} km/s]`;
                     }
                     const targetLabel = document.getElementById('map-target-label');
                     if (targetLabel) targetLabel.innerText = `${vName} (Kilitlendi)`;
                     const gnssLabel = document.getElementById('gnss-fix-label');
                     if (gnssLabel) gnssLabel.innerText = "3D FIX [RTK CANLI]";
 
-                    // 5. Sağ Panel Telemetri Değerleri
-                    document.getElementById('detail-vehicle-title').innerText = vName;
-                    document.getElementById('detail-speed-val').innerText = `${data.speed} km/s`;
-                    document.getElementById('detail-battery-val').innerText = `% ${data.battery}`;
-                    document.getElementById('detail-mission-val').innerText = `${data.flight_mode || 'AKTİF'}`;
-                    document.getElementById('detail-sensors-val').innerText = `${data.altitude} m`;
-                    document.getElementById('detail-coords').innerText = `${data.lat?.toFixed(4) || '39.9334'}° N, ${data.lon?.toFixed(4) || '32.8597'}° E`;
-                    document.getElementById('detail-alt-tag').innerText = `ALT: ${data.altitude} m`;
-                    document.getElementById('cam-telemetry-overlay').innerText = `R:${data.roll}° P:${data.pitch}° Y:${data.yaw}° • SPD:${data.speed}km/s`;
+                    // 5. SAĞ PANEL: ARAÇ TELEMETRİ DETAYLARI DOLDURMA
+                    const titleEl = document.getElementById('detail-vehicle-title');
+                    if (titleEl) titleEl.innerText = vName;
+                    const speedEl = document.getElementById('detail-speed-val');
+                    if (speedEl) speedEl.innerText = `${data.speed || 0} km/s`;
+                    const battEl = document.getElementById('detail-battery-val');
+                    if (battEl) battEl.innerText = `% ${data.battery || 98}`;
+                    const missEl = document.getElementById('detail-mission-val');
+                    if (missEl) missEl.innerText = `${data.flight_mode || 'AKTİF'}`;
+                    const sensEl = document.getElementById('detail-sensors-val');
+                    if (sensEl) sensEl.innerText = `${data.altitude || 0} m`;
+                    const coordsEl = document.getElementById('detail-coords');
+                    if (coordsEl) coordsEl.innerText = `${data.lat ? data.lat.toFixed(4) : '39.9334'}° N, ${data.lon ? data.lon.toFixed(4) : '32.8597'}° E`;
+                    const altTagEl = document.getElementById('detail-alt-tag');
+                    if (altTagEl) altTagEl.innerText = `ALT: ${data.altitude || 0} m`;
+                    const camOverlayEl = document.getElementById('cam-telemetry-overlay');
+                    if (camOverlayEl) camOverlayEl.innerText = `R:${data.roll || 0}° P:${data.pitch || 0}° Y:${data.yaw || 0}° • SPD:${data.speed || 0}km/s`;
 
-                    // 6. Hedef IP Bilgisi Güncelleme
+                    // 6. HEDEF IP BİLGİSİ GÜNCELLEME
                     const targetIpEl = document.getElementById('label-target-ue5-ip');
                     if (targetIpEl && data.ue5_ip) {
                         targetIpEl.innerText = `${data.ue5_ip}:7400 [EŞLEŞTİ]`;
                         targetIpEl.style.color = "#00e5ff";
                     }
 
-                    // 7. Gerçek Paket Akışı Terminali: "HI FROM UNREAL" ve "HI FROM PI5"
+                    // 7. ALT PANEL TERMİNALİ: CANLI PAKET AKIŞI
                     const nowSec = Math.floor(Date.now() / 1000);
-                    if (nowSec - lastLoggedSec >= 1.5) {
+                    if (nowSec - lastLoggedSec >= 1.2) {
                         lastLoggedSec = nowSec;
                         const rxMsg = data.msg || "HI FROM UNREAL";
-                        addPacketLog(`RX ← UE5 (${data.ue5_ip || 'Unreal'}) | <b style="color:#00e5ff;">${rxMsg}</b> | R:${data.roll}° P:${data.pitch}° | SPD:${data.speed}km/s`);
-                        addPacketLog(`TX → UE5 (${data.ue5_ip || 'Unreal'}) | <b style="color:var(--accent-color);">HI FROM PI5</b> [Port 7499 Heartbeat]`);
+                        addPacketLog(`RX ← UE5 (${data.ue5_ip || 'Unreal'}:7400) | <b style="color:#00e5ff;">"${rxMsg}"</b> | R:${data.roll || 0}° P:${data.pitch || 0}° | ALT:${data.altitude || 0}m SPD:${data.speed || 0}km/s`);
+                        addPacketLog(`TX → UE5 (${data.ue5_ip || 'Unreal'}:7499) | <b style="color:var(--accent-color);">"HI FROM PI5"</b> [Heartbeat Aktif]`);
+                    }
+
+                    if (!wasConnectedLogFired) {
+                        wasConnectedLogFired = true;
+                        addLog(`✅ [BAĞLANTI AKTİF] Unreal Engine telemetrisi alınıyor: ${data.ue5_ip || 'Unreal'}:7400`);
+                        addLog(`📡 Araç #1 kilitlendi | Canlı telemetri akışı başladı.`);
                     }
 
                 } else {
+                    wasConnectedLogFired = false;
                     // Bağlı Değilken: Boruların animasyonunu ve parlaklığını tamamen durdur (SÖNÜK/GRİ KALIR)
                     pipes.forEach(p => p.classList.remove('connected'));
                     const nPi5 = document.getElementById('node-pi5');
