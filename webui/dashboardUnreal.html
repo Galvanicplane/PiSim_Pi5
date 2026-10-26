@@ -199,29 +199,7 @@
             font-weight: 700;
         }
 
-        /* ==================== BEACON KEŞİF BİLDİRİM TOAST'I ==================== */
-        .beacon-discovery-toast {
-            position: fixed;
-            top: 50px;
-            left: 50%;
-            transform: translateX(-50%) translateY(-150%);
-            z-index: 100;
-            background: rgba(7, 9, 11, 0.96);
-            border: 1px solid var(--accent-color);
-            box-shadow: 0 0 25px var(--accent-glow);
-            padding: 8px 16px;
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            clip-path: polygon(0 0, calc(100% - 8px) 0, 100% 8px, 100% 100%, 8px 100%, 0 calc(100% - 8px));
-            transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
-            backdrop-filter: blur(12px);
-            pointer-events: auto;
-        }
 
-        .beacon-discovery-toast.show {
-            transform: translateX(-50%) translateY(0);
-        }
 
         .beacon-pulse-icon {
             width: 10px;
@@ -425,23 +403,6 @@
     <button id="btn-toggle-bottom-bridge" class="drawer-toggle-btn" onclick="toggleBottomBridge()" title="Alt Simülasyon Köprüsü ve Donanım Radarını Aç/Kapat">
         <span>▲</span> SİMÜLASYON KÖPRÜSÜ & AĞ RADARI (3 SÜTUN) <span>▲</span>
     </button>
-
-    <!-- ==================== BEACON KEŞİF BİLDİRİMİ (TOAST) ==================== -->
-    <div id="beacon-toast" class="beacon-discovery-toast">
-        <div class="beacon-pulse-icon"></div>
-        <div style="display: flex; flex-direction: column;">
-            <div style="font-size: 10px; font-weight: 800; color: #ffffff;">
-                ⚡ YENİ DONANIM BULUNDU (BEACON): <span id="beacon-dev-name" style="color:var(--accent-color);">--</span>
-            </div>
-            <div style="font-size: 9px; color: var(--text-muted);">
-                IP: <span id="beacon-dev-ip">--</span>
-            </div>
-        </div>
-        <button class="cod-btn cod-btn-accent" style="padding: 4px 10px; font-size: 10px;" onclick="pairDiscoveredBeacon()">
-            🔗 SEÇİLİ ARACA BAĞLA
-        </button>
-        <span style="cursor: pointer; color: var(--text-dark); font-size: 12px; margin-left: 4px;" onclick="hideBeaconToast()">✕</span>
-    </div>
 
     <!-- =========================================================================
          B PANELİ: SOL ÇEKMECE (FİLO VE ARAÇ LİSTESİ)
@@ -1108,11 +1069,11 @@
         }
 
         function pairDiscoveredBeacon() {
-            hideBeaconToast();
+            // Toast kaldırıldı, eşleştirme alt radardan veya IP girişinden yapılır
         }
 
         function hideBeaconToast() {
-            document.getElementById('beacon-toast').classList.remove('show');
+            // Toast kaldırıldı
         }
 
         // ==================== CANLI PAKET AKIŞI VE SİSTEM LOGU ====================
@@ -1178,37 +1139,13 @@
             "Tarla_Rover_4x4": { icon: "🚙", desc: "4x4 Otonom Tarla ve Arazi İKA Robotu (Hazır Model)" }
         };
 
-        function populateSavedProfilesList() {
+        function renderProfilesList(profiles) {
             const listContainer = document.getElementById('saved-vehicle-list-container');
             if (!listContainer) return;
             listContainer.innerHTML = '';
 
-            let profiles = ["Quadcopter_X4", "Sabit_Kanat_Delta", "Tarla_Rover_4x4"];
-
-            if (window.ue && window.ue.garage && window.ue.garage.getsavedprofilesjson) {
-                try {
-                    const ueProfilesJson = window.ue.garage.getsavedprofilesjson();
-                    if (ueProfilesJson) {
-                        const parsed = JSON.parse(ueProfilesJson);
-                        if (Array.isArray(parsed) && parsed.length > 0) {
-                            profiles = parsed;
-                        }
-                    }
-                } catch (err) {
-                    console.warn("[PiSim UI] C++ profilleri okunurken hata:", err);
-                }
-            } else if (window.garage && window.garage.GetSavedProfilesJson) {
-                try {
-                    const gProfilesJson = window.garage.GetSavedProfilesJson();
-                    if (gProfilesJson) {
-                        const parsed = JSON.parse(gProfilesJson);
-                        if (Array.isArray(parsed) && parsed.length > 0) {
-                            profiles = parsed;
-                        }
-                    }
-                } catch (err) {
-                    console.warn("[PiSim UI] C++ profilleri okunurken hata:", err);
-                }
+            if (!Array.isArray(profiles) || profiles.length === 0) {
+                profiles = ["Quadcopter_X4", "Sabit_Kanat_Delta", "Tarla_Rover_4x4"];
             }
 
             profiles.forEach(pName => {
@@ -1231,6 +1168,55 @@
                 listContainer.appendChild(row);
             });
         }
+
+        async function populateSavedProfilesList() {
+            let profiles = ["Quadcopter_X4", "Sabit_Kanat_Delta", "Tarla_Rover_4x4"];
+
+            if (window.ue && window.ue.garage && window.ue.garage.getsavedprofilesjson) {
+                try {
+                    let ueResult = window.ue.garage.getsavedprofilesjson();
+                    if (ueResult && typeof ueResult.then === 'function') {
+                        ueResult = await ueResult;
+                    }
+                    if (ueResult) {
+                        const parsed = (typeof ueResult === 'string') ? JSON.parse(ueResult) : ueResult;
+                        if (Array.isArray(parsed) && parsed.length > 0) {
+                            profiles = parsed;
+                        }
+                    }
+                } catch (err) {
+                    console.warn("[PiSim UI] C++ profilleri okunurken hata:", err);
+                }
+            } else if (window.garage && window.garage.GetSavedProfilesJson) {
+                try {
+                    let gResult = window.garage.GetSavedProfilesJson();
+                    if (gResult && typeof gResult.then === 'function') {
+                        gResult = await gResult;
+                    }
+                    if (gResult) {
+                        const parsed = (typeof gResult === 'string') ? JSON.parse(gResult) : gResult;
+                        if (Array.isArray(parsed) && parsed.length > 0) {
+                            profiles = parsed;
+                        }
+                    }
+                } catch (err) {
+                    console.warn("[PiSim UI] C++ profilleri okunurken hata:", err);
+                }
+            }
+
+            renderProfilesList(profiles);
+        }
+
+        window.onSavedProfilesLoaded = function(jsonPayload) {
+            try {
+                const parsed = (typeof jsonPayload === 'string') ? JSON.parse(jsonPayload) : jsonPayload;
+                if (Array.isArray(parsed) && parsed.length > 0) {
+                    renderProfilesList(parsed);
+                }
+            } catch (e) {
+                console.error("[PiSim UI] onSavedProfilesLoaded hatası:", e);
+            }
+        };
 
         function navigateToGarage() {
             closeAddVehiclePanel();
@@ -1367,6 +1353,7 @@
         window.addEventListener('DOMContentLoaded', () => {
             addLog("🛡️ PiSim Studio Taktik Kontrol Merkezi Başlatıldı.");
             syncFleetWithBackend();
+            populateSavedProfilesList();
         });
     </script>
 </body>

@@ -327,11 +327,15 @@
 
             <div style="flex: 1;"></div>
 
-            <div class="tooltip-btn-wrapper" style="width: auto;">
-                <button id="btn-save" class="tooltip-btn">
-                    <span class="btn-inner" style="padding: 6px 12px; font-size: 11px;">KAYDET</span>
-                </button>
-                <div class="tooltip-popup"><span>Yapılandırmayı JSON olarak kaydeder.</span></div>
+            <div style="display: flex; align-items: center; gap: 8px;">
+                <input type="text" id="input-profile-name" placeholder="Profil Adı (örn: Ozel_Drone_1)" 
+                    style="background: rgba(10, 15, 25, 0.85); border: 1px solid var(--border-color); color: var(--text-primary); padding: 5px 10px; font-size: 11px; border-radius: 4px; font-family: monospace; width: 180px; outline: none;" />
+                <div class="tooltip-btn-wrapper" style="width: auto;">
+                    <button id="btn-save" class="tooltip-btn" onclick="saveCurrentProfile()">
+                        <span class="btn-inner" style="padding: 6px 14px; font-size: 11px; color: #10b981; font-weight: 800;">💾 KAYDET</span>
+                    </button>
+                    <div class="tooltip-popup"><span>Yapılandırmayı bu isimle JSON profili olarak kaydeder.</span></div>
+                </div>
             </div>
 
             <div class="tooltip-btn-wrapper" style="width: auto;">
@@ -640,8 +644,29 @@
         document.getElementById('btn-reimport')?.addEventListener('click', () => callUE('reimportmodel'));
         document.getElementById('btn-auto-role')?.addEventListener('click', () => callUE('autoassignmotors'));
         document.getElementById('btn-debug-toggle')?.addEventListener('click', () => callUE('toggledebugdraw'));
-        document.getElementById('btn-save')?.addEventListener('click', () => callUE('saveprofile'));
         document.getElementById('btn-bake')?.addEventListener('click', () => callUE('bakemodel'));
+
+        function saveCurrentProfile() {
+            const input = document.getElementById('input-profile-name');
+            let pName = input ? input.value.trim() : '';
+            if (!pName) {
+                pName = prompt('Lütfen kaydedilecek araç profili için bir isim girin:', 'Ozel_Arac_' + Math.floor(Math.random() * 900 + 100));
+                if (!pName) return;
+                if (input) input.value = pName;
+            }
+            pName = pName.replace(/\s+/g, '_');
+            callUE('saveprofile', pName);
+        }
+        document.getElementById('btn-save')?.addEventListener('click', saveCurrentProfile);
+
+        window.onProfileSaved = function(pName, bSuccess, msg) {
+            console.log('[Garage] Profil Kaydedildi:', pName, bSuccess, msg);
+            const statusEl = document.getElementById('debug-status-text');
+            if (statusEl) {
+                statusEl.textContent = (bSuccess ? '✅ Profil Kaydedildi: ' : '❌ Kayıt Hatası: ') + pName;
+            }
+            alert((bSuccess ? '✅ Araç Başarıyla Kaydedildi:\n' : '❌ Kayıt Başarısız:\n') + pName + (msg ? ('\n' + msg) : ''));
+        };
 
         // =========================================================================
         // 3D DÜNYA VE ARAÇ KAMERA KONTROLÜ (ORBIT / PAN / ZOOM)
