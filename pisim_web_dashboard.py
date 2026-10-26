@@ -27,6 +27,7 @@ from urllib.parse import urlparse, parse_qs
 
 # Import discovery service from beacon_sender
 from beacon_sender import PiSimDiscoveryService, get_local_ip, get_all_local_ips, send_probe_burst, DISCOVERY_PORT
+import telemetry_db
 
 # Ensure UTF-8 output on all consoles
 try:
@@ -100,6 +101,27 @@ class PiSimRequestHandler(http.server.SimpleHTTPRequestHandler):
                 latest_telemetry["ue5_ip"] = discovered_ue5_ip
                 payload = json.dumps(latest_telemetry).encode('utf-8')
             self.wfile.write(payload)
+            return
+
+        # 2b. Canlı SQL Telemetri Tablosu REST API uç noktası
+        if clean_path == '/api/sql_table':
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.send_header('Cache-Control', 'no-cache, no-store, must-revalidate')
+            self.end_headers()
+            qs = parse_qs(parsed_url.query)
+            max_rows = int(qs.get('max_rows', [50])[0])
+            stats = telemetry_db.get_stats()
+            rows = telemetry_db.get_recent_rows(max_rows)
+            res = {
+                "status": "OK",
+                "total_logged": stats["total_logged"],
+                "db_path": stats["db_path"],
+                "sql_dump_path": stats["sql_dump_path"],
+                "rows": rows
+            }
+            self.wfile.write(json.dumps(res).encode('utf-8'))
             return
 
         # 3. Anlık keşif probu fırlatma REST API uç noktası
@@ -220,12 +242,6 @@ def run_udp_telemetry_listener():
                         print(f"     Gelen Mesaj: \"{rx_msg_content}\"")
                         print(f"========================================================\n")
 
-                    current_time = time.time()
-                    if current_time - last_print_time >= 1.5:
-                        last_print_time = current_time
-                        print(f"📩 [RX ← UE5 ({sender_ip})]: \"{rx_msg_content}\" (Port {TELEMETRY_PORT})")
-                        print(f"📤 [TX → UE5 ({sender_ip})]: \"HI FROM PI5\" (Port {DISCOVERY_PORT} Heartbeat)")
-
                     # ArduPilot SITL / PiSim JSON Veri Formatı
                     if "attitude" in msg:
                         att = msg["attitude"]
@@ -249,6 +265,17 @@ def run_udp_telemetry_listener():
                         latest_telemetry["flight_mode"] = str(msg["flight_mode"])
                     else:
                         latest_telemetry["flight_mode"] = "AKTİF"
+
+                    # 🛢️ Gelen canlı telemetri paketini yerel SQLite veritabanına ve SQL dosyasına kaydet
+                    telemetry_db.queue_telemetry_row(latest_telemetry)
+
+                    current_time = time.time()
+                    if current_time - last_print_time >= 1.5:
+                        last_print_time = current_time
+                        stats = telemetry_db.get_stats()
+                        print(f"📩 [RX ← UE5 ({sender_ip})]: \"{rx_msg_content}\" (Port {TELEMETRY_PORT})")
+                        print(f"📤 [TX → UE5 ({sender_ip})]: \"HI FROM PI5\" (Port {DISCOVERY_PORT} Heartbeat)")
+                        print(f"🛢️ [SQL VERİTABANI]: {stats['total_logged']} satır kayıtlı (pisim_telemetry.db) | Roll: {latest_telemetry['roll']}° Alt: {latest_telemetry['altitude']}m")
 
             except json.JSONDecodeError:
                 pass
