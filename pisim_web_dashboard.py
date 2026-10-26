@@ -67,6 +67,13 @@ class PiSimRequestHandler(http.server.SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=str(WEBUI_DIR), **kwargs)
 
+    def end_headers(self):
+        # TÜM DOSYALAR (HTML/CSS/JS/API) İÇİN ÖNBELLEĞİ KESİNLİKLE KAPAT (CACHE-BUSTING)
+        self.send_header('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0')
+        self.send_header('Pragma', 'no-cache')
+        self.send_header('Expires', '0')
+        super().end_headers()
+
     def do_GET(self):
         parsed_url = urlparse(self.path)
         clean_path = parsed_url.path
@@ -233,12 +240,14 @@ def launch_in_app_mode(url: str):
     Raspberry Pi 5 (Chromium), Linux ve Windows ile tam uyumludur.
     """
     app_launched = False
+    # Tarayıcının disk önbelleğini kesinlikle atlaması için zaman damgası ekle
+    cache_bust_url = f"{url}?t={int(time.time())}"
 
     # 1. Raspberry Pi 5 / Linux: chromium-browser veya chromium
     linux_browsers = ["chromium-browser", "chromium", "google-chrome"]
     for b in linux_browsers:
         try:
-            cmd = [b, f"--app={url}", "--window-size=1280,720", "--start-maximized"]
+            cmd = [b, f"--app={cache_bust_url}", "--window-size=1280,720", "--start-maximized", "--disable-application-cache"]
             subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             print(f"[Launcher] 🚀 '{b}' Uygulama Modunda başlatıldı!")
             app_launched = True
@@ -256,7 +265,7 @@ def launch_in_app_mode(url: str):
         ]
         for path in win_candidates:
             if os.path.exists(path):
-                subprocess.Popen([path, f"--app={url}", "--window-size=1280,720"])
+                subprocess.Popen([path, f"--app={cache_bust_url}", "--window-size=1280,720", "--disable-application-cache"])
                 print(f"[Launcher] 🚀 Windows App Modunda başlatıldı: {path}")
                 app_launched = True
                 break
@@ -264,7 +273,7 @@ def launch_in_app_mode(url: str):
     # 3. Genel Fallback: Varsayılan tarayıcı
     if not app_launched:
         print("[Launcher] 🌐 Standart web tarayıcısında açılıyor...")
-        webbrowser.open(url)
+        webbrowser.open(cache_bust_url)
 
 
 def main():

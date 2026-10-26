@@ -367,7 +367,8 @@ html[data-pattern="none"] {
 }
 
 html, body {
-    background: transparent !important;
+    background-color: #06090c !important;
+    background: #06090c radial-gradient(ellipse at center, #0e141c 0%, #040608 100%) !important;
     color: var(--text-primary);
     font-family: var(--font-mono);
     overflow: hidden;
