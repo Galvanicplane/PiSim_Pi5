@@ -381,49 +381,69 @@
                     if (nUe5) nUe5.classList.add('active-node');
                     if (nCenter) nCenter.classList.add('active-node');
 
-                    // 3. SOL PANEL: CANLI ARAÇ LİSTESİ DOLDURMA
-                    const vId = Number(data.vehicle_id || 0);
-                    const vName = `Araç ${vId + 1} [Unreal Simülasyonu]`;
-                    if (countTag) countTag.innerText = "[1 BAĞLI]";
+                    // 3. SOL PANEL: CANLI FİLO LİSTESİ DOLDURMA (Çoklu Araç Desteği)
+                    const fleet = (Array.isArray(data.fleet) && data.fleet.length > 0) ? data.fleet : [{
+                        code: data.vehicle_code || `rover_${Number(data.vehicle_id || 0) + 1}`,
+                        id: Number(data.vehicle_id || 0),
+                        name: data.vehicle_name || `Rover ${Number(data.vehicle_id || 0) + 1:02d}`,
+                        speed: data.speed || 0,
+                        altitude: data.altitude || 0,
+                        battery: data.battery || 98,
+                        flight_mode: data.flight_mode || 'AKTİF',
+                        is_selected: true,
+                        connected: isConnected
+                    }];
+
+                    if (countTag) countTag.innerText = `[${fleet.length} BAĞLI]`;
                     if (cardsContainer) {
-                        cardsContainer.innerHTML = `
-                            <div class="vehicle-card active" style="border-left: 3px solid var(--accent-color); background: rgba(0, 223, 182, 0.08); padding: 8px; border-radius: 4px;">
-                                <div class="vehicle-card-header" style="display: flex; justify-content: space-between; align-items: center;">
-                                    <span class="vehicle-card-title" style="font-weight: 800; color: #ffffff; font-size: 11px;">🟢 ${vName}</span>
-                                    <span class="status-indicator online" style="color: var(--accent-color); font-weight: 800; font-size: 9.5px;">● CANLI</span>
+                        cardsContainer.innerHTML = fleet.map(v => {
+                            const isSel = v.is_selected || (data.selected_vehicle_code === v.code);
+                            const cardBorder = isSel ? 'border-left: 3px solid var(--accent-color); background: rgba(0, 223, 182, 0.12);' : 'border-left: 3px solid transparent; background: rgba(255, 255, 255, 0.03);';
+                            const badgeHtml = isSel ? '<span class="status-indicator online" style="color: var(--accent-color); font-weight: 800; font-size: 9.5px;">● SEÇİLİ (ABONE)</span>' : '<span style="color: #00e5ff; font-weight: 700; font-size: 9.5px;">● ÇEVRİMİÇİ</span>';
+                            return `
+                                <div class="vehicle-card ${isSel ? 'active' : ''}" onclick="selectVehicle('${v.code}')" style="${cardBorder} padding: 8px; border-radius: 4px; cursor: pointer; margin-bottom: 6px; transition: all 0.2s ease;">
+                                    <div class="vehicle-card-header" style="display: flex; justify-content: space-between; align-items: center;">
+                                        <span class="vehicle-card-title" style="font-weight: 800; color: #ffffff; font-size: 11px;">
+                                            🟢 ${v.name}
+                                            <span style="font-size: 8.5px; opacity: 0.75; font-family: var(--font-mono); color: #00e5ff; display: block;">[${v.code}]</span>
+                                        </span>
+                                        ${badgeHtml}
+                                    </div>
+                                    <div class="vehicle-card-body" style="display: grid; grid-template-columns: auto 1fr; gap: 2px 8px; font-size: 9.5px; margin-top: 5px;">
+                                        <span style="color: var(--text-muted);">Portlar:</span>
+                                        <span style="color: #00e5ff; font-family: var(--font-mono); font-weight: 700;">UDP 7400 (Tel) / 7401 (Vid)</span>
+                                        <span style="color: var(--text-muted);">Hız:</span>
+                                        <span style="color: var(--accent-color); font-weight: 800;">${v.speed || 0} km/s</span>
+                                        <span style="color: var(--text-muted);">İrtifa:</span>
+                                        <span style="color: #ffffff; font-weight: 700;">${v.altitude || 0} m</span>
+                                        <span style="color: var(--text-muted);">Batarya:</span>
+                                        <span style="color: #00dfb6; font-weight: 700;">% ${v.battery || 98}</span>
+                                        <span style="color: var(--text-muted);">Mod:</span>
+                                        <span style="color: #ffaa00; font-weight: 800;">${v.flight_mode || 'AKTİF'}</span>
+                                    </div>
                                 </div>
-                                <div class="vehicle-card-body" style="display: grid; grid-template-columns: auto 1fr; gap: 3px 8px; font-size: 10px; margin-top: 6px;">
-                                    <span style="color: var(--text-muted);">Kaynak IP:</span>
-                                    <span style="color: #00e5ff; font-family: var(--font-mono); font-weight: 700;">${data.ue5_ip || 'Unreal'}:7400</span>
-                                    <span style="color: var(--text-muted);">Hız:</span>
-                                    <span style="color: var(--accent-color); font-weight: 800;">${data.speed || 0} km/s</span>
-                                    <span style="color: var(--text-muted);">İrtifa:</span>
-                                    <span style="color: #ffffff; font-weight: 700;">${data.altitude || 0} m</span>
-                                    <span style="color: var(--text-muted);">Batarya:</span>
-                                    <span style="color: #00dfb6; font-weight: 700;">% ${data.battery || 98}</span>
-                                    <span style="color: var(--text-muted);">Uçuş Modu:</span>
-                                    <span style="color: #ffaa00; font-weight: 800;">${data.flight_mode || 'AKTİF'}</span>
-                                    <span style="color: var(--text-muted);">Tutum:</span>
-                                    <span style="color: var(--text-muted); font-size: 9px;">R:${data.roll || 0}° P:${data.pitch || 0}° Y:${data.yaw || 0}°</span>
-                                </div>
-                            </div>
-                        `;
+                            `;
+                        }).join('');
                     }
 
                     // 4. RADAR & HARİTA
+                    const curName = data.vehicle_name || `Rover ${Number(data.vehicle_id || 0) + 1:02d}`;
+                    const curCode = data.vehicle_code || `rover_${Number(data.vehicle_id || 0) + 1}`;
+                    const fullLabel = `${curName} [${curCode}]`;
+
                     if (radarBlip) {
                         radarBlip.style.display = "flex";
                         const blipLabel = document.getElementById('live-blip-label');
-                        if (blipLabel) blipLabel.innerText = `${vName} [${data.speed || 0} km/s]`;
+                        if (blipLabel) blipLabel.innerText = `${fullLabel} [${data.speed || 0} km/s]`;
                     }
                     const targetLabel = document.getElementById('map-target-label');
-                    if (targetLabel) targetLabel.innerText = `${vName} (Kilitlendi)`;
+                    if (targetLabel) targetLabel.innerText = `${fullLabel} (Abone Olundu)`;
                     const gnssLabel = document.getElementById('gnss-fix-label');
                     if (gnssLabel) gnssLabel.innerText = "3D FIX [RTK CANLI]";
 
                     // 5. SAĞ PANEL: ARAÇ TELEMETRİ DETAYLARI DOLDURMA
                     const titleEl = document.getElementById('detail-vehicle-title');
-                    if (titleEl) titleEl.innerText = vName;
+                    if (titleEl) titleEl.innerText = fullLabel;
                     const speedEl = document.getElementById('detail-speed-val');
                     if (speedEl) speedEl.innerText = `${data.speed || 0} km/s`;
                     const battEl = document.getElementById('detail-battery-val');
@@ -658,6 +678,32 @@
             if (term) term.innerHTML = '<div style="color:var(--accent-color);">[LOG TEMİZLENDİ]</div>';
         }
 
+        // ==================== ARAÇ SEÇİMİ VE VİDEO ABONELİK FONKSİYONLARI ====================
+        async function selectVehicle(code) {
+            try {
+                addLog(`🎯 Araç Seçildi: ${code} (Telemetri Abonesi Değiştiriliyor...)`);
+                addPacketLog(`TX → UE5 | SUB_VEHICLE: ${code} (Port 7400 Telemetri Talebi)`);
+                const res = await fetch(`/api/select_vehicle?code=${encodeURIComponent(code)}`);
+                const data = await res.json();
+                addLog(`[BAĞLANTI ACK] Abone Olunan Araç: ${data.selected}`);
+                pollTelemetry();
+            } catch (err) {
+                addLog(`[HATA] Araç seçilemedi: ${err}`);
+            }
+        }
+
+        let isVideoSubscribed = false;
+        async function toggleVideoSubscription() {
+            try {
+                isVideoSubscribed = !isVideoSubscribed;
+                addLog(`📹 Canlı Video: ${isVideoSubscribed ? 'AÇILDI (Port 7401 On-Demand)' : 'KAPATILDI'}`);
+                addPacketLog(`TX → UE5 | SUB_VIDEO: ${isVideoSubscribed ? 'ENABLE' : 'DISABLE'} (Port 7401)`);
+                await fetch(`/api/subscribe_video?subscribe=${isVideoSubscribed}`);
+            } catch (err) {
+                addLog(`[HATA] Video aboneliği güncellenemedi: ${err}`);
+            }
+        }
+
         // ==================== SQL TABLOSU MODAL MOTORU ====================
         let sqlRefreshInterval = null;
         function openSqlModal() {
@@ -686,14 +732,15 @@
                 const status = document.getElementById('sql-table-status-tag');
                 if (status) status.innerText = `Toplam: ${data.total_logged || 0} satır | SQLite`;
                 if (!data.rows || data.rows.length === 0) {
-                    tbody.innerHTML = '<tr><td colspan="10" style="text-align:center; padding:20px; color:var(--text-dark);">Henüz veritabanında satır yok. Unreal simülasyonu başladığında otomatik dolar.</td></tr>';
+                    tbody.innerHTML = '<tr><td colspan="11" style="text-align:center; padding:20px; color:var(--text-dark);">Henüz veritabanında satır yok. Unreal simülasyonu başladığında otomatik dolar.</td></tr>';
                     return;
                 }
                 tbody.innerHTML = data.rows.map(r => `
                     <tr style="border-bottom: 1px solid rgba(255,255,255,0.05); font-size:10px;">
                         <td style="padding:4px 6px; color:var(--text-muted);">${r.id}</td>
                         <td style="padding:4px 6px;">${r.time ? r.time.toFixed(1) : '--'}s</td>
-                        <td style="padding:4px 6px; color:#00e5ff;">#${r.vehicle_id}</td>
+                        <td style="padding:4px 6px; color:#00e5ff; font-weight:700;">${r.vehicle_code || ('rover_' + (r.vehicle_id + 1))}</td>
+                        <td style="padding:4px 6px; color:#ffffff;">#${r.vehicle_id}</td>
                         <td style="padding:4px 6px;">${r.roll > 0 ? '+' : ''}${r.roll}°</td>
                         <td style="padding:4px 6px;">${r.pitch > 0 ? '+' : ''}${r.pitch}°</td>
                         <td style="padding:4px 6px;">${r.yaw}°</td>
@@ -711,7 +758,7 @@
 
     <!-- SQL TELEMETRİ TABLOSU MODALI -->
     <div id="modal-sql-table" style="display:none; position:fixed; top:0; left:0; width:100vw; height:100vh; background:rgba(0,0,0,0.85); backdrop-filter:blur(4px); z-index:9999; justify-content:center; align-items:center;" onclick="if(event.target===this) closeSqlModal();">
-        <div style="background:#090d12; border:1px solid #00dfb6; box-shadow:0 0 25px rgba(0,223,182,0.25); max-width:960px; width:92%; max-height:85vh; display:flex; flex-direction:column; clip-path:polygon(0 0, calc(100% - 10px) 0, 100% 10px, 100% 100%, 10px 100%, 0 calc(100% - 10px));">
+        <div style="background:#090d12; border:1px solid #00dfb6; box-shadow:0 0 25px rgba(0,223,182,0.25); max-width:1050px; width:94%; max-height:85vh; display:flex; flex-direction:column; clip-path:polygon(0 0, calc(100% - 10px) 0, 100% 10px, 100% 100%, 10px 100%, 0 calc(100% - 10px));">
             <div style="display:flex; justify-content:space-between; align-items:center; padding:10px 14px; border-bottom:1px solid var(--mono-border); background:rgba(0,223,182,0.06);">
                 <div style="font-weight:800; color:#00dfb6; font-size:12px; letter-spacing:1px; font-family:var(--font-mono);">
                     🛢️ PISIM RASPBERRY PI 5 - SQL TELEMETRİ VERİTABANI (pisim_telemetry.db)
@@ -731,7 +778,8 @@
                         <tr style="background:rgba(0,223,182,0.12); border-bottom:1px solid #00dfb6; color:#00dfb6; text-align:left;">
                             <th style="padding:6px;">ID</th>
                             <th style="padding:6px;">ZAMAN</th>
-                            <th style="padding:6px;">ARAÇ</th>
+                            <th style="padding:6px;">ARAÇ KODU</th>
+                            <th style="padding:6px;">ARAÇ ID</th>
                             <th style="padding:6px;">ROLL</th>
                             <th style="padding:6px;">PITCH</th>
                             <th style="padding:6px;">YAW</th>
@@ -742,7 +790,7 @@
                         </tr>
                     </thead>
                     <tbody id="sql-table-tbody">
-                        <tr><td colspan="10" style="text-align:center; padding:20px; color:var(--text-dark);">Veriler yükleniyor...</td></tr>
+                        <tr><td colspan="11" style="text-align:center; padding:20px; color:var(--text-dark);">Veriler yükleniyor...</td></tr>
                     </tbody>
                 </table>
             </div>

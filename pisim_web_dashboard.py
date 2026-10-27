@@ -47,7 +47,9 @@ UE5_CONTROL_PORT = 9002
 latest_telemetry = {
     "timestamp": 0.0,
     "last_rx_time": 0.0,
+    "vehicle_code": "rover_01",
     "vehicle_id": 0,
+    "vehicle_name": "Rover 01",
     "roll": 0.0,
     "pitch": 0.0,
     "yaw": 0.0,
@@ -59,8 +61,11 @@ latest_telemetry = {
     "flight_mode": "BEKLİYOR",
     "connected": False,
     "ue5_ip": None,
-    "msg": "HI FROM UNREAL"
+    "msg": "HI FROM UNREAL",
+    "fleet": []
 }
+fleet_telemetry = {}
+selected_vehicle_code = None
 telemetry_lock = threading.Lock()
 discovered_ue5_ip = None
 discovery_service_ref = None
@@ -79,7 +84,7 @@ class PiSimRequestHandler(http.server.SimpleHTTPRequestHandler):
         super().end_headers()
 
     def do_GET(self):
-        global discovered_ue5_ip
+        global discovered_ue5_ip, selected_vehicle_code
         parsed_url = urlparse(self.path)
         clean_path = parsed_url.path
 
@@ -98,13 +103,36 @@ class PiSimRequestHandler(http.server.SimpleHTTPRequestHandler):
             self.send_header('Cache-Control', 'no-cache, no-store, must-revalidate')
             self.end_headers()
             with telemetry_lock:
+                now = time.time()
                 latest_telemetry["local_ip"] = get_local_ip()
                 latest_telemetry["ue5_ip"] = discovered_ue5_ip
-                now = time.time()
                 latest_telemetry["now"] = now
                 last_rx = float(latest_telemetry.get("last_rx_time", 0.0))
-                # Son 4 saniye içinde paket geldiyse canlı bağlıdır
                 latest_telemetry["connected"] = (now - last_rx < 4.0) and (last_rx > 0.0)
+
+                # Filo listesini derle
+                fleet_list = []
+                for code, vdata in fleet_telemetry.items():
+                    vrx = float(vdata.get("last_rx_time", 0.0))
+                    fleet_list.append({
+                        "code": code,
+                        "id": vdata.get("vehicle_id", 0),
+                        "name": vdata.get("vehicle_name", f"Rover {vdata.get('vehicle_id', 0) + 1:02d}"),
+                        "speed": vdata.get("speed", 0.0),
+                        "altitude": vdata.get("altitude", 0.0),
+                        "battery": vdata.get("battery", 98.0),
+                        "flight_mode": vdata.get("flight_mode", "AKTİF"),
+                        "lat": vdata.get("lat", 39.9334),
+                        "lon": vdata.get("lon", 32.8597),
+                        "roll": vdata.get("roll", 0.0),
+                        "pitch": vdata.get("pitch", 0.0),
+                        "yaw": vdata.get("yaw", 0.0),
+                        "is_selected": (code == selected_vehicle_code),
+                        "connected": (now - vrx < 4.0)
+                    })
+                fleet_list.sort(key=lambda x: x["id"])
+                latest_telemetry["fleet"] = fleet_list
+                latest_telemetry["selected_vehicle_code"] = selected_vehicle_code
                 payload = json.dumps(latest_telemetry).encode('utf-8')
             self.wfile.write(payload)
             return
@@ -118,8 +146,9 @@ class PiSimRequestHandler(http.server.SimpleHTTPRequestHandler):
             self.end_headers()
             qs = parse_qs(parsed_url.query)
             max_rows = int(qs.get('max_rows', [50])[0])
+            v_code = qs.get('code', [None])[0]
             stats = telemetry_db.get_stats()
-            rows = telemetry_db.get_recent_rows(max_rows)
+            rows = telemetry_db.get_recent_rows(max_rows, vehicle_code=v_code)
             res = {
                 "status": "OK",
                 "total_logged": stats["total_logged"],
@@ -128,6 +157,68 @@ class PiSimRequestHandler(http.server.SimpleHTTPRequestHandler):
                 "rows": rows
             }
             self.wfile.write(json.dumps(res).encode('utf-8'))
+            return
+
+        # 2c. Belirtilen araca abone olma REST API (Sol panelden araca tıklandığında)
+        if clean_path == '/api/select_vehicle':
+            qs = parse_qs(parsed_url.query)
+            code = qs.get('code', [''])[0].strip()
+            target_host = discovered_ue5_ip or "127.0.0.1"
+            with telemetry_lock:
+                if code:
+                    selected_vehicle_code = code
+                    if code in fleet_telemetry:
+                        latest_telemetry.update(fleet_telemetry[code])
+
+            # Unreal Engine Port 7499'a dinamik UDP abone olma paketi fırlat
+            sub_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            try:
+                cmd_dict = {
+                    "cmd": "SUB_VEHICLE",
+                    "vehicle_code": code,
+                    "client_ip": get_local_ip(),
+                    "telemetry_port": TELEMETRY_PORT
+                }
+                sub_sock.sendto(json.dumps(cmd_dict).encode('utf-8'), (target_host, DISCOVERY_PORT))
+            except Exception:
+                pass
+            finally:
+                sub_sock.close()
+
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.end_headers()
+            self.wfile.write(json.dumps({"status": "OK", "selected": code, "target": target_host}).encode('utf-8'))
+            return
+
+        # 2d. Canlı Video Aboneliği Açma/Kapatma REST API (On-demand video streaming)
+        if clean_path == '/api/subscribe_video':
+            qs = parse_qs(parsed_url.query)
+            code = qs.get('code', [''])[0].strip() or selected_vehicle_code or ""
+            subscribe_str = qs.get('subscribe', ['true'])[0].strip().lower()
+            b_sub = (subscribe_str in ('true', '1', 'yes'))
+            target_host = discovered_ue5_ip or "127.0.0.1"
+            sub_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            try:
+                cmd_dict = {
+                    "cmd": "SUB_VIDEO",
+                    "vehicle_code": code,
+                    "subscribe": b_sub,
+                    "client_ip": get_local_ip(),
+                    "video_port": VIDEO_PORT
+                }
+                sub_sock.sendto(json.dumps(cmd_dict).encode('utf-8'), (target_host, DISCOVERY_PORT))
+            except Exception:
+                pass
+            finally:
+                sub_sock.close()
+
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.end_headers()
+            self.wfile.write(json.dumps({"status": "OK", "video_subscribed": b_sub, "vehicle_code": code}).encode('utf-8'))
             return
 
         # 3. Anlık keşif probu fırlatma REST API uç noktası
@@ -200,7 +291,7 @@ class PiSimRequestHandler(http.server.SimpleHTTPRequestHandler):
 
 def run_udp_telemetry_listener():
     """Unreal Engine'den gelen UDP 7400 telemetri paketlerini dinler"""
-    global latest_telemetry, discovered_ue5_ip
+    global latest_telemetry, discovered_ue5_ip, selected_vehicle_code
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     try:
@@ -234,56 +325,97 @@ def run_udp_telemetry_listener():
                 msg = json.loads(text)
                 with telemetry_lock:
                     now_ts = time.time()
-                    latest_telemetry["last_rx_time"] = now_ts
-                    latest_telemetry["timestamp"] = msg.get("timestamp", now_ts)
-                    latest_telemetry["vehicle_id"] = msg.get("vehicle_id", 0)
-                    latest_telemetry["connected"] = True
-                    latest_telemetry["ue5_ip"] = addr[0]
+                    v_id = int(msg.get("vehicle_id", 0))
+                    v_code = str(msg.get("vehicle_code", f"rover_{v_id+1:02d}"))
+                    v_name = str(msg.get("vehicle_name", f"Rover {v_id+1:02d}"))
                     rx_msg_content = str(msg.get("msg", "HI FROM UNREAL"))
-                    latest_telemetry["msg"] = rx_msg_content
 
                     if not was_connected:
                         was_connected = True
                         print(f"\n========================================================")
                         print(f"  ✅ [BAĞLANTI KURULDU] Unreal Engine telemetrisi alınıyor!")
                         print(f"     Kaynak IP  : {sender_ip} -> Dinlenen Port: {TELEMETRY_PORT}")
-                        print(f"     Gelen Mesaj: \"{rx_msg_content}\"")
+                        print(f"     Araç Kodu  : {v_code} ({v_name})")
                         print(f"========================================================\n")
 
-                    # ArduPilot SITL / PiSim JSON Veri Formatı
-                    if "attitude" in msg:
+                    # 1. Oryantasyon / Tutum (Roll, Pitch, Yaw)
+                    roll, pitch, yaw = 0.0, 0.0, 0.0
+                    if "roll" in msg:
+                        roll = round(float(msg.get("roll", 0.0)), 2)
+                        pitch = round(float(msg.get("pitch", 0.0)), 2)
+                        yaw = round(float(msg.get("yaw", 0.0)), 2)
+                    elif "attitude" in msg:
                         att = msg["attitude"]
-                        if len(att) >= 3:
-                            latest_telemetry["roll"] = round(att[0] * 57.2958, 2)
-                            latest_telemetry["pitch"] = round(att[1] * 57.2958, 2)
-                            latest_telemetry["yaw"] = round(att[2] * 57.2958, 2)
+                        if isinstance(att, list) and len(att) >= 3:
+                            roll = round(att[0] * 57.2958, 2)
+                            pitch = round(att[1] * 57.2958, 2)
+                            yaw = round(att[2] * 57.2958, 2)
 
-                    if "airspeed" in msg:
-                        latest_telemetry["speed"] = round(msg["airspeed"] * 3.6, 1)
+                    # 2. Hız (km/s)
+                    speed = 0.0
+                    if "speed" in msg:
+                        speed = round(float(msg["speed"]), 1)
+                    elif "airspeed" in msg:
+                        speed = round(float(msg["airspeed"]) * 3.6, 1)
 
-                    if "position" in msg:
-                        pos = msg["position"]
-                        if len(pos) >= 3:
-                            latest_telemetry["altitude"] = round(-pos[2], 1)
+                    # 3. İrtifa (m)
+                    altitude = 0.0
+                    if "altitude" in msg:
+                        altitude = round(float(msg["altitude"]), 1)
+                    elif "position" in msg and len(msg["position"]) >= 3:
+                        altitude = round(-msg["position"][2], 1)
 
-                    if "battery" in msg:
-                        latest_telemetry["battery"] = round(msg["battery"], 1)
+                    # 4. Batarya (%)
+                    battery = round(float(msg.get("battery", 98.0)), 1)
+                    if "ros2_battery" in msg and isinstance(msg["ros2_battery"], dict):
+                        pct = msg["ros2_battery"].get("percentage", 0.98)
+                        battery = round(float(pct) * 100.0 if pct <= 1.0 else float(pct), 1)
 
-                    if "flight_mode" in msg:
-                        latest_telemetry["flight_mode"] = str(msg["flight_mode"])
-                    else:
-                        latest_telemetry["flight_mode"] = "AKTİF"
+                    # 5. GPS Koordinatları
+                    lat = float(msg.get("lat", 39.9334))
+                    lon = float(msg.get("lon", 32.8597))
+                    if "ros2_navsat" in msg and isinstance(msg["ros2_navsat"], dict):
+                        lat = float(msg["ros2_navsat"].get("latitude", lat))
+                        lon = float(msg["ros2_navsat"].get("longitude", lon))
+
+                    flight_mode = str(msg.get("flight_mode", "AKTİF"))
+
+                    # Araç kaydını oluştur / güncelle
+                    entry = {
+                        "timestamp": msg.get("timestamp", now_ts),
+                        "last_rx_time": now_ts,
+                        "vehicle_code": v_code,
+                        "vehicle_id": v_id,
+                        "vehicle_name": v_name,
+                        "connected": True,
+                        "ue5_ip": sender_ip,
+                        "msg": rx_msg_content,
+                        "roll": roll,
+                        "pitch": pitch,
+                        "yaw": yaw,
+                        "speed": speed,
+                        "altitude": altitude,
+                        "battery": battery,
+                        "lat": lat,
+                        "lon": lon,
+                        "flight_mode": flight_mode,
+                        "ros2_msg": msg.get("ros2_msg", False)
+                    }
+                    fleet_telemetry[v_code] = entry
+
+                    if selected_vehicle_code is None or selected_vehicle_code == v_code:
+                        selected_vehicle_code = v_code
+                        latest_telemetry.update(entry)
 
                     # 🛢️ Gelen canlı telemetri paketini yerel SQLite veritabanına ve SQL dosyasına kaydet
-                    telemetry_db.queue_telemetry_row(latest_telemetry)
+                    telemetry_db.queue_telemetry_row(entry)
 
                     current_time = time.time()
                     if current_time - last_print_time >= 1.5:
                         last_print_time = current_time
                         stats = telemetry_db.get_stats()
-                        print(f"📩 [RX ← UE5 ({sender_ip})]: \"{rx_msg_content}\" (Port {TELEMETRY_PORT})")
-                        print(f"📤 [TX → UE5 ({sender_ip})]: \"HI FROM PI5\" (Port {DISCOVERY_PORT} Heartbeat)")
-                        print(f"🛢️ [SQL VERİTABANI]: {stats['total_logged']} satır kayıtlı (pisim_telemetry.db) | Roll: {latest_telemetry['roll']}° Alt: {latest_telemetry['altitude']}m")
+                        print(f"📩 [RX ← UE5 ({sender_ip})]: Araç \"{v_code}\" (Port {TELEMETRY_PORT})")
+                        print(f"🛢️ [SQL VERİTABANI]: {stats['total_logged']} satır kayıtlı | R:{roll}° P:{pitch}° Alt:{altitude}m | Seçili Araç: {selected_vehicle_code}")
 
             except json.JSONDecodeError:
                 pass

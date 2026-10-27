@@ -32,6 +32,7 @@ def init_db():
             CREATE TABLE IF NOT EXISTS vehicle_telemetry (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 timestamp_sec REAL NOT NULL,
+                vehicle_code TEXT NOT NULL,
                 vehicle_id INTEGER NOT NULL,
                 roll_deg REAL,
                 pitch_deg REAL,
@@ -45,6 +46,7 @@ def init_db():
             )
         """)
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_telemetry_time ON vehicle_telemetry(timestamp_sec)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_telemetry_code ON vehicle_telemetry(vehicle_code)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_telemetry_vehicle ON vehicle_telemetry(vehicle_id)")
         conn.commit()
 
@@ -64,12 +66,13 @@ def queue_telemetry_row(data: dict):
     now_sec = time.time()
     t_sec = float(data.get("timestamp", now_sec))
     v_id = int(data.get("vehicle_id", 0))
+    v_code = str(data.get("vehicle_code", f"rover_{v_id+1:02d}"))
 
     # Tutum verileri (roll, pitch, yaw)
     att = data.get("attitude", {})
-    roll = float(data.get("roll", att.get("roll", 0.0)))
-    pitch = float(data.get("pitch", att.get("pitch", 0.0)))
-    yaw = float(data.get("yaw", att.get("yaw", 0.0)))
+    roll = float(data.get("roll", att.get("roll", 0.0) if isinstance(att, dict) else (att[0]*57.2958 if isinstance(att, list) and len(att)>0 else 0.0)))
+    pitch = float(data.get("pitch", att.get("pitch", 0.0) if isinstance(att, dict) else (att[1]*57.2958 if isinstance(att, list) and len(att)>1 else 0.0)))
+    yaw = float(data.get("yaw", att.get("yaw", 0.0) if isinstance(att, dict) else (att[2]*57.2958 if isinstance(att, list) and len(att)>2 else 0.0)))
 
     # İrtifa & Hız
     alt = float(data.get("altitude", data.get("alt", 0.0)))
@@ -78,11 +81,11 @@ def queue_telemetry_row(data: dict):
 
     # GPS
     gps = data.get("gps", {})
-    lat = float(data.get("lat", gps.get("lat", 39.9334)))
-    lon = float(data.get("lon", gps.get("lon", 32.8597)))
+    lat = float(data.get("lat", gps.get("lat", 39.9334) if isinstance(gps, dict) else 39.9334))
+    lon = float(data.get("lon", gps.get("lon", 32.8597) if isinstance(gps, dict) else 32.8597))
     mode = str(data.get("flight_mode", "AUTO"))
 
-    row = (t_sec, v_id, roll, pitch, yaw, alt, speed, batt, lat, lon, mode)
+    row = (t_sec, v_code, v_id, roll, pitch, yaw, alt, speed, batt, lat, lon, mode)
 
     with _lock:
         _pending_rows.append(row)
@@ -104,8 +107,8 @@ def _flush_locked():
         cursor = conn.cursor()
         cursor.executemany("""
             INSERT INTO vehicle_telemetry 
-            (timestamp_sec, vehicle_id, roll_deg, pitch_deg, yaw_deg, altitude_m, airspeed_ms, battery_pct, lat, lon, flight_mode)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            (timestamp_sec, vehicle_code, vehicle_id, roll_deg, pitch_deg, yaw_deg, altitude_m, airspeed_ms, battery_pct, lat, lon, flight_mode)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, batch)
         conn.commit()
         conn.close()
@@ -117,7 +120,7 @@ def _flush_locked():
             f.write(f"\n-- Batch Kaydı: {time.strftime('%Y-%m-%d %H:%M:%S')} ({len(batch)} satır)\n")
             f.write("BEGIN TRANSACTION;\n")
             for r in batch:
-                f.write(f"INSERT INTO vehicle_telemetry (timestamp_sec, vehicle_id, roll_deg, pitch_deg, yaw_deg, altitude_m, airspeed_ms, battery_pct, lat, lon, flight_mode) VALUES ({r[0]:.2f}, {r[1]}, {r[2]:.2f}, {r[3]:.2f}, {r[4]:.2f}, {r[5]:.2f}, {r[6]:.2f}, {r[7]:.1f}, {r[8]:.6f}, {r[9]:.6f}, '{r[10]}');\n")
+                f.write(f"INSERT INTO vehicle_telemetry (timestamp_sec, vehicle_code, vehicle_id, roll_deg, pitch_deg, yaw_deg, altitude_m, airspeed_ms, battery_pct, lat, lon, flight_mode) VALUES ({r[0]:.2f}, '{r[1]}', {r[2]}, {r[3]:.2f}, {r[4]:.2f}, {r[5]:.2f}, {r[6]:.2f}, {r[7]:.2f}, {r[8]:.1f}, {r[9]:.6f}, {r[10]:.6f}, '{r[11]}');\n")
             f.write("COMMIT;\n")
 
         return len(batch)
@@ -130,7 +133,7 @@ def flush():
     with _lock:
         return _flush_locked()
 
-def get_recent_rows(max_rows: int = 50) -> list:
+def get_recent_rows(max_rows: int = 50, vehicle_code: str = None) -> list:
     """En son kaydedilen N satırı liste olarak döner (En yeni satırlar önce)."""
     with _lock:
         _flush_locked()
@@ -138,12 +141,21 @@ def get_recent_rows(max_rows: int = 50) -> list:
             conn = sqlite3.connect(str(DB_FILE))
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
-            cursor.execute("""
-                SELECT id, timestamp_sec, vehicle_id, roll_deg, pitch_deg, yaw_deg, altitude_m, airspeed_ms, battery_pct, lat, lon, flight_mode
-                FROM vehicle_telemetry
-                ORDER BY id DESC
-                LIMIT ?
-            """, (max_rows,))
+            if vehicle_code:
+                cursor.execute("""
+                    SELECT id, timestamp_sec, vehicle_code, vehicle_id, roll_deg, pitch_deg, yaw_deg, altitude_m, airspeed_ms, battery_pct, lat, lon, flight_mode
+                    FROM vehicle_telemetry
+                    WHERE vehicle_code = ?
+                    ORDER BY id DESC
+                    LIMIT ?
+                """, (vehicle_code, max_rows))
+            else:
+                cursor.execute("""
+                    SELECT id, timestamp_sec, vehicle_code, vehicle_id, roll_deg, pitch_deg, yaw_deg, altitude_m, airspeed_ms, battery_pct, lat, lon, flight_mode
+                    FROM vehicle_telemetry
+                    ORDER BY id DESC
+                    LIMIT ?
+                """, (max_rows,))
             rows = cursor.fetchall()
             conn.close()
 
@@ -152,6 +164,7 @@ def get_recent_rows(max_rows: int = 50) -> list:
                 result.append({
                     "id": r["id"],
                     "time": r["timestamp_sec"],
+                    "vehicle_code": r["vehicle_code"],
                     "vehicle_id": r["vehicle_id"],
                     "roll": r["roll_deg"],
                     "pitch": r["pitch_deg"],
