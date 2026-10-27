@@ -105,10 +105,11 @@ class PiSimRequestHandler(http.server.SimpleHTTPRequestHandler):
             with telemetry_lock:
                 now = time.time()
                 latest_telemetry["local_ip"] = get_local_ip()
-                latest_telemetry["ue5_ip"] = discovered_ue5_ip
+                latest_telemetry["ue5_ip"] = discovered_ue5_ip or latest_telemetry.get("ue5_ip")
                 latest_telemetry["now"] = now
                 last_rx = float(latest_telemetry.get("last_rx_time", 0.0))
-                latest_telemetry["connected"] = (now - last_rx < 4.0) and (last_rx > 0.0)
+                any_fresh_rx = any((now - float(v.get("last_rx_time", 0.0)) < 4.0) for v in fleet_telemetry.values())
+                latest_telemetry["connected"] = (now - last_rx < 4.0 and last_rx > 0.0) or any_fresh_rx
 
                 # Filo listesini derle
                 fleet_list = []
@@ -398,7 +399,24 @@ def run_udp_telemetry_listener():
                     }
                     fleet_telemetry[v_code] = entry
 
-                    if selected_vehicle_code is None or selected_vehicle_code == v_code:
+                    # Her gelen pakette genel son alım zamanını ve IP adresini daima taze tut
+                    latest_telemetry["last_rx_time"] = now_ts
+                    latest_telemetry["ue5_ip"] = sender_ip
+                    latest_telemetry["connected"] = True
+
+                    # 4 saniyeden eski bayat/geçici araç kimliklerini listeden temizle
+                    stale_codes = [c for c, d in fleet_telemetry.items() if (now_ts - d.get("last_rx_time", 0.0) > 4.0) and c != v_code]
+                    for sc in stale_codes:
+                        del fleet_telemetry[sc]
+
+                    # Seçili araç yoksa, silinmişse veya artık veri göndermiyorsa (2 sn) gelen araca geç
+                    if (selected_vehicle_code is None or 
+                        selected_vehicle_code not in fleet_telemetry or 
+                        (now_ts - fleet_telemetry.get(selected_vehicle_code, {}).get("last_rx_time", 0.0) > 2.0)):
+                        selected_vehicle_code = v_code
+
+                    # Seçili araç bu araçsa veya tek araç varsa latest_telemetry güncelle
+                    if selected_vehicle_code == v_code or len(fleet_telemetry) == 1:
                         selected_vehicle_code = v_code
                         latest_telemetry.update(entry)
 

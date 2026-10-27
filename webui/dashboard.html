@@ -365,10 +365,12 @@
                     if (inpTarget && !inpTarget.value) inpTarget.placeholder = data.ue5_ip;
                 }
 
-                // 2. Canlı bağlantı bayrağı veya son paket süresi (4 saniyeden yeniyse bağlı kabul edilir)
+                // 2. Canlı bağlantı bayrağı veya son paket süresi (Filoda bağlı araç varsa veya 5 sn yeniyse bağlıdır)
+                const hasFleet = Array.isArray(data.fleet) && data.fleet.some(v => v.connected);
                 const hasFreshData = (data.connected === true) || 
-                                     (data.last_rx_time && (Date.now() / 1000 - data.last_rx_time < 4.0)) ||
-                                     (data.ue5_ip && data.timestamp > 0);
+                                     hasFleet ||
+                                     (data.last_rx_time && (Date.now() / 1000 - data.last_rx_time < 5.0)) ||
+                                     (data.ue5_ip && (data.timestamp > 0 || hasFleet));
                 isConnected = Boolean(hasFreshData);
 
                 const statusTag = document.getElementById('bridge-status-tag');
@@ -502,8 +504,8 @@
                     if (camOverlayEl) camOverlayEl.innerText = `R:${data.roll || 0}° P:${data.pitch || 0}° Y:${data.yaw || 0}° • SPD:${data.speed || 0}km/s`;
 
                     // 6. ALT PANEL TERMİNALİ: CANLI PAKET AKIŞI
-                    const nowSec = Math.floor(Date.now() / 1000);
-                    if (nowSec - lastLoggedSec >= 1.2) {
+                    const nowSec = Date.now() / 1000;
+                    if (nowSec - lastLoggedSec >= 1.0) {
                         lastLoggedSec = nowSec;
                         addPacketLog(`RX ← UE5 (${data.ue5_ip || 'Unreal'}:7400) | <b style="color:#00e5ff;">"${rxMsg}"</b> | R:${data.roll || 0}° P:${data.pitch || 0}° | ALT:${data.altitude || 0}m SPD:${data.speed || 0}km/s`);
                         addPacketLog(`TX → UE5 (${data.ue5_ip || 'Unreal'}:7499) | <b style="color:var(--accent-color);">"HI FROM PI5"</b> [Heartbeat Aktif]`);
@@ -554,7 +556,7 @@
                     }
                     if (countTag) countTag.innerText = "[0 BAĞLI]";
 
-                    if (cardsContainer && !document.getElementById('no-vehicles-msg')) {
+                    if (cardsContainer && (!data.fleet || data.fleet.length === 0) && !document.getElementById('no-vehicles-msg')) {
                         cardsContainer.innerHTML = `
                             <div id="no-vehicles-msg" style="padding: 24px 12px; text-align: center; color: var(--text-muted); font-size: 11px; border: 1px dashed var(--mono-border); border-radius: 4px; margin-top: 8px;">
                                 <div style="font-size: 24px; margin-bottom: 8px; opacity: 0.6;">📡</div>
