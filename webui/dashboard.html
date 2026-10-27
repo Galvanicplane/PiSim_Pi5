@@ -30,6 +30,9 @@
             <span id="header-status-badge" style="background: rgba(255, 170, 0, 0.15); color: #ffaa00; padding: 1px 6px; border: 1px solid #ffaa00; font-weight: 800;">
                 BEKLİYOR
             </span>
+            <span id="header-greeting-badge" style="background: rgba(0, 229, 255, 0.12); color: #00e5ff; padding: 1px 8px; border: 1px solid rgba(0, 229, 255, 0.35); font-weight: 800; font-family: var(--font-mono); display: none;">
+                HI FROM ...
+            </span>
             
             <!-- 5'Lİ TEMA DEĞİŞTİRME BUTONU -->
             <button id="btn-theme-switcher" class="cod-btn cod-btn-accent" style="padding: 3px 10px; font-size: 10px;" onclick="cycleTheme()">
@@ -152,7 +155,7 @@
 
                                 <div class="data-node" id="node-center-telemetry" onclick="inspectChannel('sitl')" style="cursor: pointer; min-width: 120px;">
                                     <div class="node-title">UDP 7400 TELEMETRİ</div>
-                                    <div class="node-sub">JSON / SITL</div>
+                                    <div class="node-sub" id="node-center-msg">JSON / SITL</div>
                                 </div>
 
                                 <div class="two-way-pipe-group" id="channel-ue5" onclick="inspectChannel('ue5')">
@@ -216,6 +219,9 @@
 
             <div style="font-size: 13px; font-weight: 900; color: var(--accent-color); margin-top: 4px;" id="detail-vehicle-title">
                 [BAĞLANTI BEKLENİYOR]
+            </div>
+            <div style="font-size: 10.5px; font-weight: 800; color: #00e5ff; font-family: var(--font-mono); margin-top: 2px;" id="detail-vehicle-greeting">
+                [SELAMLAMA BEKLENİYOR]
             </div>
 
             <!-- KAMERA VE SENSÖR ÖNİZLEME PENCERESİ -->
@@ -339,21 +345,50 @@
                 const data = await res.json();
                 if (!data) return;
 
-                // Backend'in canlı bağlantı bayrağı veya son paket süresi (4 saniyeden yeniyse bağlı)
+                // 1. Kendi IP'mizi ve Hedef IP'yi ilk adımda derhal güncelle (Asla YÜKLENİYOR... da takılmaz)
+                if (data.local_ip) {
+                    const lblLocalIp = document.getElementById('label-local-ip');
+                    if (lblLocalIp) lblLocalIp.innerText = data.local_ip;
+                }
+                const targetIpEl = document.getElementById('label-target-ue5-ip');
+                if (targetIpEl) {
+                    if (data.ue5_ip) {
+                        targetIpEl.innerText = `${data.ue5_ip}:7400 [BAĞLI]`;
+                        targetIpEl.style.color = "#00e5ff";
+                    } else {
+                        targetIpEl.innerText = "DİNLENİYOR (PROBE BEKLENİYOR)...";
+                        targetIpEl.style.color = "var(--text-muted)";
+                    }
+                }
+                if (data.ue5_ip) {
+                    const inpTarget = document.getElementById('input-manual-target-ip');
+                    if (inpTarget && !inpTarget.value) inpTarget.placeholder = data.ue5_ip;
+                }
+
+                // 2. Canlı bağlantı bayrağı veya son paket süresi (4 saniyeden yeniyse bağlı kabul edilir)
                 const hasFreshData = (data.connected === true) || 
                                      (data.last_rx_time && (Date.now() / 1000 - data.last_rx_time < 4.0)) ||
-                                     (data.ue5_ip && data.ue5_ip !== '127.0.0.1' && data.timestamp > 0);
-                isConnected = hasFreshData;
+                                     (data.ue5_ip && data.timestamp > 0);
+                isConnected = Boolean(hasFreshData);
 
                 const statusTag = document.getElementById('bridge-status-tag');
                 const headerBadge = document.getElementById('header-status-badge');
+                const headerGreeting = document.getElementById('header-greeting-badge');
                 const activeBadge = document.getElementById('active-status-badge');
                 const pipes = document.querySelectorAll('.two-way-pipe-group');
                 const cardsContainer = document.getElementById('vehicle-cards-container');
                 const countTag = document.getElementById('vehicle-count-tag');
                 const radarBlip = document.getElementById('live-radar-blip');
+                const detailGreeting = document.getElementById('detail-vehicle-greeting');
+                const nodeCenterMsg = document.getElementById('node-center-msg');
 
                 if (isConnected) {
+                    // Dinamik araç selamlaması (Örn: HI FROM rover_01_2810260020)
+                    const curCode = data.vehicle_code || ('rover_' + (Number(data.vehicle_id || 0) + 1));
+                    const curName = data.vehicle_name || ('Rover ' + String(Number(data.vehicle_id || 0) + 1).padStart(2, '0'));
+                    const fullLabel = `${curName} [${curCode}]`;
+                    const rxMsg = data.msg || `HI FROM ${curCode}`;
+
                     // 1. Durum Etiketleri
                     if (statusTag) {
                         statusTag.innerText = `CANLI [UE5: ${data.ue5_ip || '7400'}]`;
@@ -367,9 +402,20 @@
                         headerBadge.style.color = "var(--accent-color)";
                         headerBadge.style.borderColor = "var(--accent-color)";
                     }
+                    if (headerGreeting) {
+                        headerGreeting.style.display = "inline-block";
+                        headerGreeting.innerText = rxMsg;
+                    }
                     if (activeBadge) {
                         activeBadge.innerText = "[CANLI YAYIN]";
                         activeBadge.style.color = "var(--accent-color)";
+                    }
+                    if (detailGreeting) {
+                        detailGreeting.innerText = `● "${rxMsg}"`;
+                        detailGreeting.style.color = "#00e5ff";
+                    }
+                    if (nodeCenterMsg) {
+                        nodeCenterMsg.innerText = rxMsg;
                     }
 
                     // 2. Veri Kanalları ve Düğüm Parlamaları
@@ -383,9 +429,9 @@
 
                     // 3. SOL PANEL: CANLI FİLO LİSTESİ DOLDURMA (Çoklu Araç Desteği)
                     const fleet = (Array.isArray(data.fleet) && data.fleet.length > 0) ? data.fleet : [{
-                        code: data.vehicle_code || `rover_${Number(data.vehicle_id || 0) + 1}`,
+                        code: curCode,
                         id: Number(data.vehicle_id || 0),
-                        name: data.vehicle_name || `Rover ${Number(data.vehicle_id || 0) + 1:02d}`,
+                        name: curName,
                         speed: data.speed || 0,
                         altitude: data.altitude || 0,
                         battery: data.battery || 98,
@@ -427,10 +473,6 @@
                     }
 
                     // 4. RADAR & HARİTA
-                    const curName = data.vehicle_name || `Rover ${Number(data.vehicle_id || 0) + 1:02d}`;
-                    const curCode = data.vehicle_code || `rover_${Number(data.vehicle_id || 0) + 1}`;
-                    const fullLabel = `${curName} [${curCode}]`;
-
                     if (radarBlip) {
                         radarBlip.style.display = "flex";
                         const blipLabel = document.getElementById('live-blip-label');
@@ -459,18 +501,10 @@
                     const camOverlayEl = document.getElementById('cam-telemetry-overlay');
                     if (camOverlayEl) camOverlayEl.innerText = `R:${data.roll || 0}° P:${data.pitch || 0}° Y:${data.yaw || 0}° • SPD:${data.speed || 0}km/s`;
 
-                    // 6. HEDEF IP BİLGİSİ GÜNCELLEME
-                    const targetIpEl = document.getElementById('label-target-ue5-ip');
-                    if (targetIpEl && data.ue5_ip) {
-                        targetIpEl.innerText = `${data.ue5_ip}:7400 [EŞLEŞTİ]`;
-                        targetIpEl.style.color = "#00e5ff";
-                    }
-
-                    // 7. ALT PANEL TERMİNALİ: CANLI PAKET AKIŞI
+                    // 6. ALT PANEL TERMİNALİ: CANLI PAKET AKIŞI
                     const nowSec = Math.floor(Date.now() / 1000);
                     if (nowSec - lastLoggedSec >= 1.2) {
                         lastLoggedSec = nowSec;
-                        const rxMsg = data.msg || "HI FROM UNREAL";
                         addPacketLog(`RX ← UE5 (${data.ue5_ip || 'Unreal'}:7400) | <b style="color:#00e5ff;">"${rxMsg}"</b> | R:${data.roll || 0}° P:${data.pitch || 0}° | ALT:${data.altitude || 0}m SPD:${data.speed || 0}km/s`);
                         addPacketLog(`TX → UE5 (${data.ue5_ip || 'Unreal'}:7499) | <b style="color:var(--accent-color);">"HI FROM PI5"</b> [Heartbeat Aktif]`);
                     }
@@ -478,7 +512,7 @@
                     if (!wasConnectedLogFired) {
                         wasConnectedLogFired = true;
                         addLog(`✅ [BAĞLANTI AKTİF] Unreal Engine telemetrisi alınıyor: ${data.ue5_ip || 'Unreal'}:7400`);
-                        addLog(`📡 Araç #1 kilitlendi | Canlı telemetri akışı başladı.`);
+                        addLog(`📡 Araç kilitlendi: ${fullLabel} | Selamlama: "${rxMsg}"`);
                     }
 
                 } else {
@@ -504,9 +538,19 @@
                         headerBadge.style.color = "#ffaa00";
                         headerBadge.style.borderColor = "#ffaa00";
                     }
+                    if (headerGreeting) {
+                        headerGreeting.style.display = "none";
+                    }
                     if (activeBadge) {
                         activeBadge.innerText = "[BEKLEMEDE]";
                         activeBadge.style.color = "var(--text-muted)";
+                    }
+                    if (detailGreeting) {
+                        detailGreeting.innerText = "[SELAMLAMA BEKLENİYOR]";
+                        detailGreeting.style.color = "var(--text-muted)";
+                    }
+                    if (nodeCenterMsg) {
+                        nodeCenterMsg.innerText = "JSON / SITL";
                     }
                     if (countTag) countTag.innerText = "[0 BAĞLI]";
 
@@ -537,18 +581,8 @@
                     document.getElementById('detail-alt-tag').innerText = "ALT: -- m";
                     document.getElementById('cam-telemetry-overlay').innerText = "[SİNYAL BEKLENİYOR - PORT 7401]";
                 }
-
-                // Kendi IP'mizi ve Hedef IP'yi her durumda güncelle
-                if (data && data.local_ip) {
-                    const lblLocalIp = document.getElementById('label-local-ip');
-                    if (lblLocalIp) lblLocalIp.innerText = data.local_ip;
-                }
-                if (data && data.ue5_ip) {
-                    const inpTarget = document.getElementById('input-manual-target-ip');
-                    if (inpTarget && !inpTarget.value) inpTarget.placeholder = data.ue5_ip;
-                }
             } catch (err) {
-                // Ağ geçiş hatalarını yoksay
+                console.error("syncLiveTelemetry error:", err);
             }
         }
         syncLiveTelemetry();
@@ -686,7 +720,7 @@
                 const res = await fetch(`/api/select_vehicle?code=${encodeURIComponent(code)}`);
                 const data = await res.json();
                 addLog(`[BAĞLANTI ACK] Abone Olunan Araç: ${data.selected}`);
-                pollTelemetry();
+                syncLiveTelemetry();
             } catch (err) {
                 addLog(`[HATA] Araç seçilemedi: ${err}`);
             }

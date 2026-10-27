@@ -310,12 +310,6 @@ def run_udp_telemetry_listener():
                 continue
 
             sender_ip = addr[0]
-            local_ip = get_local_ip()
-            all_ips = get_all_local_ips()
-            # Kendisinden gelen paketleri reddet
-            if (sender_ip == "127.0.0.1" or sender_ip == local_ip or sender_ip in all_ips) and local_ip != "127.0.0.1":
-                continue
-
             discovered_ue5_ip = sender_ip
             if discovery_service_ref and discovery_service_ref.target_ue5_ip != sender_ip:
                 discovery_service_ref.target_ue5_ip = sender_ip
@@ -328,7 +322,7 @@ def run_udp_telemetry_listener():
                     v_id = int(msg.get("vehicle_id", 0))
                     v_code = str(msg.get("vehicle_code", f"rover_{v_id+1:02d}"))
                     v_name = str(msg.get("vehicle_name", f"Rover {v_id+1:02d}"))
-                    rx_msg_content = str(msg.get("msg", "HI FROM UNREAL"))
+                    rx_msg_content = str(msg.get("msg", f"HI FROM {v_code}"))
 
                     if not was_connected:
                         was_connected = True
@@ -336,6 +330,7 @@ def run_udp_telemetry_listener():
                         print(f"  ✅ [BAĞLANTI KURULDU] Unreal Engine telemetrisi alınıyor!")
                         print(f"     Kaynak IP  : {sender_ip} -> Dinlenen Port: {TELEMETRY_PORT}")
                         print(f"     Araç Kodu  : {v_code} ({v_name})")
+                        print(f"     Selamlama  : \"{rx_msg_content}\"")
                         print(f"========================================================\n")
 
                     # 1. Oryantasyon / Tutum (Roll, Pitch, Yaw)
@@ -414,7 +409,7 @@ def run_udp_telemetry_listener():
                     if current_time - last_print_time >= 1.5:
                         last_print_time = current_time
                         stats = telemetry_db.get_stats()
-                        print(f"📩 [RX ← UE5 ({sender_ip})]: Araç \"{v_code}\" (Port {TELEMETRY_PORT})")
+                        print(f"📩 [RX ← UE5 ({sender_ip})]: Araç \"{v_code}\" | \"{rx_msg_content}\" (Port {TELEMETRY_PORT})")
                         print(f"🛢️ [SQL VERİTABANI]: {stats['total_logged']} satır kayıtlı | R:{roll}° P:{pitch}° Alt:{altitude}m | Seçili Araç: {selected_vehicle_code}")
 
             except json.JSONDecodeError:

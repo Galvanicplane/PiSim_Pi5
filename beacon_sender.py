@@ -193,7 +193,7 @@ class PiSimDiscoveryService:
                     continue
 
                 sender_ip = addr[0]
-                if sender_ip == "127.0.0.1" or sender_ip == self.local_ip:
+                if sender_ip == self.local_ip and self.local_ip != "127.0.0.1":
                     continue
 
                 text = data.decode('utf-8', errors='ignore').strip()
