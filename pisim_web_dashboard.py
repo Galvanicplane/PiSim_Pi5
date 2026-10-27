@@ -107,15 +107,23 @@ class PiSimRequestHandler(http.server.SimpleHTTPRequestHandler):
                 latest_telemetry["local_ip"] = get_local_ip()
                 latest_telemetry["ue5_ip"] = discovered_ue5_ip or latest_telemetry.get("ue5_ip")
                 latest_telemetry["now"] = now
-                last_rx = float(latest_telemetry.get("last_rx_time", 0.0))
-                any_fresh_rx = any((now - float(v.get("last_rx_time", 0.0)) < 4.0) for v in fleet_telemetry.values())
-                latest_telemetry["connected"] = (now - last_rx < 4.0 and last_rx > 0.0) or any_fresh_rx
 
-                # Filo listesini derle
-                fleet_list = []
+                # 🛢️ 1. DOĞRUDAN SQL VERİTABANINDAN TÜM ARAÇLARI ÇEK
+                db_fleet = telemetry_db.get_fleet_from_db()
+                fleet_map = {}
+
+                # Önce SQL tablosundaki tüm araçları taban olarak yükle
+                for item in db_fleet:
+                    code = item["code"]
+                    vrx = float(item.get("last_rx_time", 0.0))
+                    item["is_selected"] = (code == selected_vehicle_code)
+                    item["connected"] = (now - vrx < 5.0) if vrx > 0 else False
+                    fleet_map[code] = item
+
+                # Sonra bellekteki canlı UDP telemetri ile güncelle / yeni araç varsa ekle
                 for code, vdata in fleet_telemetry.items():
                     vrx = float(vdata.get("last_rx_time", 0.0))
-                    fleet_list.append({
+                    fleet_map[code] = {
                         "code": code,
                         "id": vdata.get("vehicle_id", 0),
                         "name": vdata.get("vehicle_name", f"Rover {vdata.get('vehicle_id', 0) + 1:02d}"),
@@ -129,9 +137,39 @@ class PiSimRequestHandler(http.server.SimpleHTTPRequestHandler):
                         "pitch": vdata.get("pitch", 0.0),
                         "yaw": vdata.get("yaw", 0.0),
                         "is_selected": (code == selected_vehicle_code),
-                        "connected": (now - vrx < 4.0)
-                    })
+                        "connected": (now - vrx < 5.0),
+                        "last_rx_time": vrx
+                    }
+
+                fleet_list = list(fleet_map.values())
                 fleet_list.sort(key=lambda x: x["id"])
+
+                # Henüz seçili araç yoksa filodaki ilk aracı otomatik seç
+                if not selected_vehicle_code and fleet_list:
+                    selected_vehicle_code = fleet_list[0]["code"]
+                    for f in fleet_list:
+                        f["is_selected"] = (f["code"] == selected_vehicle_code)
+
+                # Seçili aracın telemetrisini ana göstergelere yansıt
+                if selected_vehicle_code in fleet_map:
+                    sel_item = fleet_map[selected_vehicle_code]
+                    latest_telemetry["vehicle_code"] = sel_item["code"]
+                    latest_telemetry["vehicle_id"] = sel_item["id"]
+                    latest_telemetry["vehicle_name"] = sel_item["name"]
+                    latest_telemetry["roll"] = sel_item["roll"]
+                    latest_telemetry["pitch"] = sel_item["pitch"]
+                    latest_telemetry["yaw"] = sel_item["yaw"]
+                    latest_telemetry["altitude"] = sel_item["altitude"]
+                    latest_telemetry["speed"] = sel_item["speed"]
+                    latest_telemetry["battery"] = sel_item["battery"]
+                    latest_telemetry["lat"] = sel_item["lat"]
+                    latest_telemetry["lon"] = sel_item["lon"]
+                    latest_telemetry["flight_mode"] = sel_item["flight_mode"]
+                    latest_telemetry["msg"] = f"HI FROM {sel_item['code']}"
+
+                any_connected = any(v.get("connected", False) for v in fleet_list)
+                last_rx = float(latest_telemetry.get("last_rx_time", 0.0))
+                latest_telemetry["connected"] = any_connected or (now - last_rx < 5.0 and last_rx > 0.0)
                 latest_telemetry["fleet"] = fleet_list
                 latest_telemetry["selected_vehicle_code"] = selected_vehicle_code
                 payload = json.dumps(latest_telemetry).encode('utf-8')
@@ -170,6 +208,25 @@ class PiSimRequestHandler(http.server.SimpleHTTPRequestHandler):
                     selected_vehicle_code = code
                     if code in fleet_telemetry:
                         latest_telemetry.update(fleet_telemetry[code])
+                    else:
+                        sql_rows = telemetry_db.get_recent_rows(max_rows=1, vehicle_code=code)
+                        if sql_rows:
+                            r = sql_rows[0]
+                            latest_telemetry.update({
+                                "vehicle_code": r["vehicle_code"],
+                                "vehicle_id": r["vehicle_id"],
+                                "vehicle_name": f"Rover {r['vehicle_id'] + 1:02d}",
+                                "roll": r["roll"],
+                                "pitch": r["pitch"],
+                                "yaw": r["yaw"],
+                                "altitude": r["altitude"],
+                                "speed": r["speed"],
+                                "battery": r["battery"],
+                                "lat": r["lat"],
+                                "lon": r["lon"],
+                                "flight_mode": r["mode"],
+                                "msg": f"HI FROM {r['vehicle_code']}"
+                            })
 
             # Unreal Engine Port 7499'a dinamik UDP abone olma paketi fırlat
             sub_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -404,20 +461,13 @@ def run_udp_telemetry_listener():
                     latest_telemetry["ue5_ip"] = sender_ip
                     latest_telemetry["connected"] = True
 
-                    # 4 saniyeden eski bayat/geçici araç kimliklerini listeden temizle
-                    stale_codes = [c for c, d in fleet_telemetry.items() if (now_ts - d.get("last_rx_time", 0.0) > 4.0) and c != v_code]
-                    for sc in stale_codes:
-                        del fleet_telemetry[sc]
-
-                    # Seçili araç yoksa, silinmişse veya artık veri göndermiyorsa (2 sn) gelen araca geç
-                    if (selected_vehicle_code is None or 
-                        selected_vehicle_code not in fleet_telemetry or 
-                        (now_ts - fleet_telemetry.get(selected_vehicle_code, {}).get("last_rx_time", 0.0) > 2.0)):
+                    # DİKKAT: Araçlar listeden asla silinmez, tüm filo kalıcıdır
+                    # Henüz seçili araç yoksa gelen ilk aracı seç
+                    if selected_vehicle_code is None:
                         selected_vehicle_code = v_code
 
-                    # Seçili araç bu araçsa veya tek araç varsa latest_telemetry güncelle
-                    if selected_vehicle_code == v_code or len(fleet_telemetry) == 1:
-                        selected_vehicle_code = v_code
+                    # Seçili araç bu araçsa latest_telemetry güncelle
+                    if selected_vehicle_code == v_code:
                         latest_telemetry.update(entry)
 
                     # 🛢️ Gelen canlı telemetri paketini yerel SQLite veritabanına ve SQL dosyasına kaydet

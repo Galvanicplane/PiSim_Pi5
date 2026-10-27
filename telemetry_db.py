@@ -23,11 +23,13 @@ _pending_rows = []
 _total_logged = 0
 
 def init_db():
-    """Veritabanını ve tablo şemasını oluşturur (Her oturumda eski kayıtları temizler)."""
+    """Veritabanını ve tablo şemasını oluşturur (Eski kayıtları korur, DROP TABLE yapmaz)."""
+    global _total_logged
     with _lock:
         conn = sqlite3.connect(str(DB_FILE))
         cursor = conn.cursor()
-        cursor.execute("DROP TABLE IF EXISTS vehicle_telemetry")
+        cursor.execute("PRAGMA journal_mode = WAL")
+        cursor.execute("PRAGMA synchronous = NORMAL")
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS vehicle_telemetry (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -50,19 +52,22 @@ def init_db():
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_telemetry_vehicle ON vehicle_telemetry(vehicle_id)")
         conn.commit()
 
-        global _total_logged
-        _total_logged = 0
+        try:
+            cursor.execute("SELECT COUNT(*) FROM vehicle_telemetry")
+            _total_logged = cursor.fetchone()[0] or 0
+        except Exception:
+            _total_logged = 0
         conn.close()
 
-    # SQL Döküm dosyasını her oturumda taze olarak sıfırla
-    with open(SQL_DUMP_FILE, "w", encoding="utf-8") as f:
-        f.write("-- =========================================================================\n")
-        f.write("-- PiSim Raspberry Pi 5 Uçuş Telemetri Veritabanı Dökümü\n")
-        f.write("-- Oturum Başlangıcında Sıfırlanmıştır\n")
-        f.write("-- =========================================================================\n\n")
+    # SQL Döküm dosyası yoksa oluştur (Mevcut olanı silme)
+    if not SQL_DUMP_FILE.exists():
+        with open(SQL_DUMP_FILE, "w", encoding="utf-8") as f:
+            f.write("-- =========================================================================\n")
+            f.write("-- PiSim Raspberry Pi 5 Uçuş Telemetri Veritabanı Dökümü\n")
+            f.write("-- =========================================================================\n\n")
 
 def queue_telemetry_row(data: dict):
-    """Gelen telemetri paketini kuyruğa ekler."""
+    """Gelen telemetri paketini kuyruğa ekler ve derhal SQLite'a yazar."""
     now_sec = time.time()
     t_sec = float(data.get("timestamp", now_sec))
     v_id = int(data.get("vehicle_id", 0))
@@ -89,9 +94,8 @@ def queue_telemetry_row(data: dict):
 
     with _lock:
         _pending_rows.append(row)
-        # 10 örnek biriktiğinde otomatik batch commit yap
-        if len(_pending_rows) >= 10:
-            _flush_locked()
+        # Gelen her telemetri kaydını beklemeden derhal SQLite'a kaydet (0 gecikme)
+        _flush_locked()
 
 def _flush_locked():
     """Kuyruktaki satırları SQLite ve SQL dosyasına atomik olarak yazar (Kilitli çağrılmalıdır)."""
@@ -179,6 +183,49 @@ def get_recent_rows(max_rows: int = 50, vehicle_code: str = None) -> list:
             return result
         except Exception as e:
             print(f"⚠️ [telemetry_db] Okuma hatası: {e}")
+            return []
+
+def get_fleet_from_db() -> list:
+    """Veritabanında kayıtlı tüm araçların en son telemetrisini döner (Doğrudan SQL Tablosundan)."""
+    with _lock:
+        _flush_locked()
+        try:
+            conn = sqlite3.connect(str(DB_FILE))
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT t.*
+                FROM vehicle_telemetry t
+                INNER JOIN (
+                    SELECT vehicle_code, MAX(id) as max_id
+                    FROM vehicle_telemetry
+                    GROUP BY vehicle_code
+                ) m ON t.id = m.max_id
+                ORDER BY t.vehicle_id ASC
+            """)
+            rows = cursor.fetchall()
+            conn.close()
+
+            result = []
+            for r in rows:
+                result.append({
+                    "code": r["vehicle_code"],
+                    "id": r["vehicle_id"],
+                    "name": f"Rover {r['vehicle_id'] + 1:02d}",
+                    "speed": round(float(r["airspeed_ms"]), 1) if r["airspeed_ms"] is not None else 0.0,
+                    "altitude": round(float(r["altitude_m"]), 1) if r["altitude_m"] is not None else 0.0,
+                    "battery": round(float(r["battery_pct"]), 1) if r["battery_pct"] is not None else 98.0,
+                    "flight_mode": r["flight_mode"] or "AKTİF",
+                    "lat": float(r["lat"]) if r["lat"] is not None else 39.9334,
+                    "lon": float(r["lon"]) if r["lon"] is not None else 32.8597,
+                    "roll": round(float(r["roll_deg"]), 1) if r["roll_deg"] is not None else 0.0,
+                    "pitch": round(float(r["pitch_deg"]), 1) if r["pitch_deg"] is not None else 0.0,
+                    "yaw": round(float(r["yaw_deg"]), 1) if r["yaw_deg"] is not None else 0.0,
+                    "last_rx_time": float(r["timestamp_sec"])
+                })
+            return result
+        except Exception as e:
+            print(f"⚠️ [telemetry_db] get_fleet_from_db hatası: {e}")
             return []
 
 def get_stats() -> dict:
