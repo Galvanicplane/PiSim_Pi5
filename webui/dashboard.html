@@ -50,8 +50,9 @@
                 <div style="font-size: 12px; font-weight: 800; color: #ffffff; letter-spacing: 1px;">
                     // ARAÇLAR
                 </div>
-                <div style="font-size: 10px; color: var(--accent-color); font-weight: 700;">
-                    <span id="vehicle-count-tag">[0 BAĞLI]</span>
+                <div style="display: flex; gap: 6px; align-items: center;">
+                    <span id="vehicle-count-tag" style="font-size: 10px; color: var(--accent-color); font-weight: 700;">[0 BAĞLI]</span>
+                    <button class="cod-btn" onclick="clearFleet()" title="Çevrimdışı eski araçları temizle" style="padding: 2px 6px; font-size: 9px; border-color: rgba(255,255,255,0.2);">🧹 TEMİZLE</button>
                 </div>
             </div>
 
@@ -365,13 +366,10 @@
                     if (inpTarget && !inpTarget.value) inpTarget.placeholder = data.ue5_ip;
                 }
 
-                // 2. Canlı bağlantı bayrağı veya son paket süresi (Filoda bağlı araç varsa veya 5 sn yeniyse bağlıdır)
+                // 2. Canlı bağlantı bayrağı: Doğrudan sunucunun hesapladığı data.connected veya aktif filo araçları kontrol edilir.
+                // İstemci-sunucu saat uyumsuzluğunu (clock drift) önlemek için istemci tarafı Date.now() karşılaştırması kaldırıldı.
                 const hasFleet = Array.isArray(data.fleet) && data.fleet.some(v => v.connected);
-                const hasFreshData = (data.connected === true) || 
-                                     hasFleet ||
-                                     (data.last_rx_time && (Date.now() / 1000 - data.last_rx_time < 5.0)) ||
-                                     (data.ue5_ip && (data.timestamp > 0 || hasFleet));
-                isConnected = Boolean(hasFreshData);
+                isConnected = Boolean(data.connected === true || hasFleet);
 
                 const statusTag = document.getElementById('bridge-status-tag');
                 const headerBadge = document.getElementById('header-status-badge');
@@ -442,18 +440,26 @@
                         connected: isConnected
                     }];
 
-                    if (countTag) countTag.innerText = `[${fleet.length} BAĞLI]`;
+                    const activeCount = fleet.filter(v => v.connected).length;
+                    if (countTag) countTag.innerText = `[${activeCount}/${fleet.length} ÇEVRİMİÇİ]`;
                     if (cardsContainer) {
                         cardsContainer.innerHTML = fleet.map(v => {
                             const isSel = v.is_selected || (data.selected_vehicle_code === v.code);
-                            const cardBorder = isSel ? 'border-left: 3px solid var(--accent-color); background: rgba(0, 223, 182, 0.12);' : 'border-left: 3px solid transparent; background: rgba(255, 255, 255, 0.03);';
-                            const badgeHtml = isSel ? '<span class="status-indicator online" style="color: var(--accent-color); font-weight: 800; font-size: 9.5px;">● SEÇİLİ (ABONE)</span>' : '<span style="color: #00e5ff; font-weight: 700; font-size: 9.5px;">● ÇEVRİMİÇİ</span>';
+                            const isOnline = Boolean(v.connected);
+                            const cardBorder = isSel 
+                                ? 'border-left: 3px solid var(--accent-color); background: rgba(0, 223, 182, 0.12);' 
+                                : (isOnline ? 'border-left: 3px solid transparent; background: rgba(255, 255, 255, 0.03);' : 'border-left: 3px solid transparent; background: rgba(255, 255, 255, 0.01); opacity: 0.6;');
+                            const badgeHtml = isSel 
+                                ? '<span class="status-indicator online" style="color: var(--accent-color); font-weight: 800; font-size: 9.5px;">● SEÇİLİ (ABONE)</span>' 
+                                : (isOnline 
+                                    ? '<span style="color: #00e5ff; font-weight: 700; font-size: 9.5px;">● ÇEVRİMİÇİ</span>' 
+                                    : '<span style="color: var(--text-muted); font-weight: 600; font-size: 9.5px;">○ ÇEVRİMDIŞI</span>');
                             return `
                                 <div class="vehicle-card ${isSel ? 'active' : ''}" onclick="selectVehicle('${v.code}')" style="${cardBorder} padding: 8px; border-radius: 4px; cursor: pointer; margin-bottom: 6px; transition: all 0.2s ease;">
                                     <div class="vehicle-card-header" style="display: flex; justify-content: space-between; align-items: center;">
-                                        <span class="vehicle-card-title" style="font-weight: 800; color: #ffffff; font-size: 11px;">
-                                            🟢 ${v.name}
-                                            <span style="font-size: 8.5px; opacity: 0.75; font-family: var(--font-mono); color: #00e5ff; display: block;">[${v.code}]</span>
+                                        <span class="vehicle-card-title" style="font-weight: 800; color: ${isOnline ? '#ffffff' : 'var(--text-muted)'}; font-size: 11px;">
+                                            ${isOnline ? '🟢' : '⚪'} ${v.name}
+                                            <span style="font-size: 8.5px; opacity: 0.75; font-family: var(--font-mono); color: ${isOnline ? '#00e5ff' : 'var(--text-dark)'}; display: block;">[${v.code}]</span>
                                         </span>
                                         ${badgeHtml}
                                     </div>
@@ -554,18 +560,35 @@
                     if (nodeCenterMsg) {
                         nodeCenterMsg.innerText = "JSON / SITL";
                     }
-                    if (countTag) countTag.innerText = "[0 BAĞLI]";
+                    if (countTag) countTag.innerText = `[0/${(data.fleet || []).length} ÇEVRİMİÇİ]`;
 
-                    if (cardsContainer && (!data.fleet || data.fleet.length === 0) && !document.getElementById('no-vehicles-msg')) {
-                        cardsContainer.innerHTML = `
-                            <div id="no-vehicles-msg" style="padding: 24px 12px; text-align: center; color: var(--text-muted); font-size: 11px; border: 1px dashed var(--mono-border); border-radius: 4px; margin-top: 8px;">
-                                <div style="font-size: 24px; margin-bottom: 8px; opacity: 0.6;">📡</div>
-                                <div style="font-weight: 800; color: #ffffff; margin-bottom: 4px;">BAĞLI ARAÇ YOK</div>
-                                <div style="font-size: 9px; color: var(--text-dark); line-height: 1.4;">
-                                    Unreal Engine simülasyonu başlatıldığında (Port 7400) aktif araç burada listelenecektir.
+                    if (cardsContainer) {
+                        if (Array.isArray(data.fleet) && data.fleet.length > 0) {
+                            cardsContainer.innerHTML = data.fleet.map(v => {
+                                const isSel = v.is_selected || (data.selected_vehicle_code === v.code);
+                                return `
+                                    <div class="vehicle-card ${isSel ? 'active' : ''}" onclick="selectVehicle('${v.code}')" style="border-left: 3px solid transparent; background: rgba(255, 255, 255, 0.01); opacity: 0.6; padding: 8px; border-radius: 4px; cursor: pointer; margin-bottom: 6px;">
+                                        <div class="vehicle-card-header" style="display: flex; justify-content: space-between; align-items: center;">
+                                            <span class="vehicle-card-title" style="font-weight: 800; color: var(--text-muted); font-size: 11px;">
+                                                ⚪ ${v.name}
+                                                <span style="font-size: 8.5px; opacity: 0.75; font-family: var(--font-mono); color: var(--text-dark); display: block;">[${v.code}]</span>
+                                            </span>
+                                            <span style="color: var(--text-muted); font-weight: 600; font-size: 9.5px;">○ ÇEVRİMDIŞI</span>
+                                        </div>
+                                    </div>
+                                `;
+                            }).join('');
+                        } else if (!document.getElementById('no-vehicles-msg')) {
+                            cardsContainer.innerHTML = `
+                                <div id="no-vehicles-msg" style="padding: 24px 12px; text-align: center; color: var(--text-muted); font-size: 11px; border: 1px dashed var(--mono-border); border-radius: 4px; margin-top: 8px;">
+                                    <div style="font-size: 24px; margin-bottom: 8px; opacity: 0.6;">📡</div>
+                                    <div style="font-weight: 800; color: #ffffff; margin-bottom: 4px;">BAĞLI ARAÇ YOK</div>
+                                    <div style="font-size: 9px; color: var(--text-dark); line-height: 1.4;">
+                                        Unreal Engine simülasyonu başlatıldığında (Port 7400) aktif araç burada listelenecektir.
+                                    </div>
                                 </div>
-                            </div>
-                        `;
+                            `;
+                        }
                     }
 
                     if (radarBlip) radarBlip.style.display = "none";
@@ -737,6 +760,18 @@
                 await fetch(`/api/subscribe_video?subscribe=${isVideoSubscribed}`);
             } catch (err) {
                 addLog(`[HATA] Video aboneliği güncellenemedi: ${err}`);
+            }
+        }
+
+        async function clearFleet() {
+            try {
+                addLog("🧹 Çevrimdışı eski araçlar temizleniyor...");
+                const res = await fetch('/api/clear_fleet');
+                const data = await res.json();
+                addLog(`✅ Temizlendi. Aktif kalan araç: ${data.preserved ? data.preserved.length : 0}`);
+                syncLiveTelemetry();
+            } catch (err) {
+                addLog(`[HATA] Filo temizlenemedi: ${err}`);
             }
         }
 

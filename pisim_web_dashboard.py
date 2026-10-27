@@ -117,12 +117,13 @@ class PiSimRequestHandler(http.server.SimpleHTTPRequestHandler):
                     code = item["code"]
                     vrx = float(item.get("last_rx_time", 0.0))
                     item["is_selected"] = (code == selected_vehicle_code)
-                    item["connected"] = (now - vrx < 5.0) if vrx > 0 else False
+                    item["connected"] = (now - vrx < 4.0) if vrx > 0 else False
                     fleet_map[code] = item
 
                 # Sonra bellekteki canlı UDP telemetri ile güncelle / yeni araç varsa ekle
                 for code, vdata in fleet_telemetry.items():
                     vrx = float(vdata.get("last_rx_time", 0.0))
+                    is_conn = (now - vrx < 4.0)
                     fleet_map[code] = {
                         "code": code,
                         "id": vdata.get("vehicle_id", 0),
@@ -137,18 +138,25 @@ class PiSimRequestHandler(http.server.SimpleHTTPRequestHandler):
                         "pitch": vdata.get("pitch", 0.0),
                         "yaw": vdata.get("yaw", 0.0),
                         "is_selected": (code == selected_vehicle_code),
-                        "connected": (now - vrx < 5.0),
+                        "connected": is_conn,
                         "last_rx_time": vrx
                     }
 
                 fleet_list = list(fleet_map.values())
-                fleet_list.sort(key=lambda x: x["id"])
+                # Çevrimiçi araçları öne, ardından araç ID sırasına göre diz
+                fleet_list.sort(key=lambda x: (not x.get("connected", False), x.get("id", 0)))
 
-                # Henüz seçili araç yoksa filodaki ilk aracı otomatik seç
-                if not selected_vehicle_code and fleet_list:
+                active_vehicles = [v for v in fleet_list if v.get("connected", False)]
+
+                # Henüz seçili araç yoksa VEYA seçili araç artık aktif değilse, aktif olan ilk aracı otomatik seç
+                if active_vehicles:
+                    if not selected_vehicle_code or not any(v["code"] == selected_vehicle_code and v["connected"] for v in fleet_list):
+                        selected_vehicle_code = active_vehicles[0]["code"]
+                elif not selected_vehicle_code and fleet_list:
                     selected_vehicle_code = fleet_list[0]["code"]
-                    for f in fleet_list:
-                        f["is_selected"] = (f["code"] == selected_vehicle_code)
+
+                for f in fleet_list:
+                    f["is_selected"] = (f["code"] == selected_vehicle_code)
 
                 # Seçili aracın telemetrisini ana göstergelere yansıt
                 if selected_vehicle_code in fleet_map:
@@ -167,9 +175,9 @@ class PiSimRequestHandler(http.server.SimpleHTTPRequestHandler):
                     latest_telemetry["flight_mode"] = sel_item["flight_mode"]
                     latest_telemetry["msg"] = f"HI FROM {sel_item['code']}"
 
-                any_connected = any(v.get("connected", False) for v in fleet_list)
+                any_connected = (len(active_vehicles) > 0)
                 last_rx = float(latest_telemetry.get("last_rx_time", 0.0))
-                latest_telemetry["connected"] = any_connected or (now - last_rx < 5.0 and last_rx > 0.0)
+                latest_telemetry["connected"] = any_connected or (now - last_rx < 4.0 and last_rx > 0.0)
                 latest_telemetry["fleet"] = fleet_list
                 latest_telemetry["selected_vehicle_code"] = selected_vehicle_code
                 payload = json.dumps(latest_telemetry).encode('utf-8')
@@ -248,6 +256,26 @@ class PiSimRequestHandler(http.server.SimpleHTTPRequestHandler):
             self.send_header('Access-Control-Allow-Origin', '*')
             self.end_headers()
             self.wfile.write(json.dumps({"status": "OK", "selected": code, "target": target_host}).encode('utf-8'))
+            return
+
+        # 2c-2. Eski / Çevrimdışı Araçları Temizleme REST API
+        if clean_path == '/api/clear_fleet':
+            with telemetry_lock:
+                now_ts = time.time()
+                # Yalnızca son 4 saniyede canlı paket göndermiş aktif araçları koru
+                active_codes = [c for c, v in fleet_telemetry.items() if (now_ts - float(v.get("last_rx_time", 0.0)) < 4.0)]
+                # Çevrimdışı olanları bellekten temizle
+                for dead_code in list(fleet_telemetry.keys()):
+                    if dead_code not in active_codes:
+                        del fleet_telemetry[dead_code]
+                telemetry_db.clear_fleet(active_codes if active_codes else None)
+                if selected_vehicle_code not in active_codes:
+                    selected_vehicle_code = active_codes[0] if active_codes else None
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.end_headers()
+            self.wfile.write(json.dumps({"status": "OK", "preserved": active_codes}).encode('utf-8'))
             return
 
         # 2d. Canlı Video Aboneliği Açma/Kapatma REST API (On-demand video streaming)
@@ -435,7 +463,8 @@ def run_udp_telemetry_listener():
 
                     # Araç kaydını oluştur / güncelle
                     entry = {
-                        "timestamp": msg.get("timestamp", now_ts),
+                        "timestamp": now_ts,
+                        "sim_timestamp": float(msg.get("timestamp", 0.0)),
                         "last_rx_time": now_ts,
                         "vehicle_code": v_code,
                         "vehicle_id": v_id,
@@ -461,24 +490,29 @@ def run_udp_telemetry_listener():
                     latest_telemetry["ue5_ip"] = sender_ip
                     latest_telemetry["connected"] = True
 
-                    # DİKKAT: Araçlar listeden asla silinmez, tüm filo kalıcıdır
-                    # Henüz seçili araç yoksa gelen ilk aracı seç
-                    if selected_vehicle_code is None:
+                    # Eğer şu an seçili araç yoksa VEYA seçili olan araç artık yayın yapmıyorsa (> 4.0s),
+                    # yayın yapan bu canlı araca otomatik kilitlen
+                    cur_sel_online = False
+                    if selected_vehicle_code and selected_vehicle_code in fleet_telemetry:
+                        cur_sel_online = (now_ts - float(fleet_telemetry[selected_vehicle_code].get("last_rx_time", 0.0)) < 4.0)
+
+                    if selected_vehicle_code is None or not cur_sel_online:
                         selected_vehicle_code = v_code
 
                     # Seçili araç bu araçsa latest_telemetry güncelle
                     if selected_vehicle_code == v_code:
                         latest_telemetry.update(entry)
 
-                    # 🛢️ Gelen canlı telemetri paketini yerel SQLite veritabanına ve SQL dosyasına kaydet
-                    telemetry_db.queue_telemetry_row(entry)
+                # 🛢️ Gelen canlı telemetri paketini yerel SQLite veritabanına ve SQL dosyasına kaydet
+                # (telemetry_lock DIŞINDA çağrılır, non-blocking in-memory kuyruktur)
+                telemetry_db.queue_telemetry_row(entry)
 
-                    current_time = time.time()
-                    if current_time - last_print_time >= 1.5:
-                        last_print_time = current_time
-                        stats = telemetry_db.get_stats()
-                        print(f"📩 [RX ← UE5 ({sender_ip})]: Araç \"{v_code}\" | \"{rx_msg_content}\" (Port {TELEMETRY_PORT})")
-                        print(f"🛢️ [SQL VERİTABANI]: {stats['total_logged']} satır kayıtlı | R:{roll}° P:{pitch}° Alt:{altitude}m | Seçili Araç: {selected_vehicle_code}")
+                current_time = time.time()
+                if current_time - last_print_time >= 1.5:
+                    last_print_time = current_time
+                    stats = telemetry_db.get_stats()
+                    print(f"📩 [RX ← UE5 ({sender_ip})]: Araç \"{v_code}\" | \"{rx_msg_content}\" (Port {TELEMETRY_PORT})")
+                    print(f"🛢️ [SQL VERİTABANI]: {stats['total_logged']} satır kayıtlı | R:{roll}° P:{pitch}° Alt:{altitude}m | Seçili Araç: {selected_vehicle_code}")
 
             except json.JSONDecodeError:
                 pass
