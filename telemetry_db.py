@@ -23,10 +23,11 @@ _pending_rows = []
 _total_logged = 0
 
 def init_db():
-    """Veritabanını ve tablo şemasını oluşturur."""
+    """Veritabanını ve tablo şemasını oluşturur (Her oturumda eski kayıtları temizler)."""
     with _lock:
         conn = sqlite3.connect(str(DB_FILE))
         cursor = conn.cursor()
+        cursor.execute("DROP TABLE IF EXISTS vehicle_telemetry")
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS vehicle_telemetry (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -47,19 +48,16 @@ def init_db():
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_telemetry_vehicle ON vehicle_telemetry(vehicle_id)")
         conn.commit()
 
-        # Mevcut toplam satır sayısını al
-        cursor.execute("SELECT count(*) FROM vehicle_telemetry")
         global _total_logged
-        _total_logged = cursor.fetchone()[0]
+        _total_logged = 0
         conn.close()
 
-    # SQL Döküm dosyasının başlığını hazırla
-    if not SQL_DUMP_FILE.exists():
-        with open(SQL_DUMP_FILE, "w", encoding="utf-8") as f:
-            f.write("-- =========================================================================\n")
-            f.write("-- PiSim Raspberry Pi 5 Uçuş Telemetri Veritabanı Dökümü\n")
-            f.write("-- Standart SQLite & SQL INSERT formatı\n")
-            f.write("-- =========================================================================\n\n")
+    # SQL Döküm dosyasını her oturumda taze olarak sıfırla
+    with open(SQL_DUMP_FILE, "w", encoding="utf-8") as f:
+        f.write("-- =========================================================================\n")
+        f.write("-- PiSim Raspberry Pi 5 Uçuş Telemetri Veritabanı Dökümü\n")
+        f.write("-- Oturum Başlangıcında Sıfırlanmıştır\n")
+        f.write("-- =========================================================================\n\n")
 
 def queue_telemetry_row(data: dict):
     """Gelen telemetri paketini kuyruğa ekler."""
