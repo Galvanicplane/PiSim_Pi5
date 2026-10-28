@@ -1,187 +1,189 @@
-<!DOCTYPE html>
-<html lang="tr">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>PiSim Tactical - Canlı SQL Telemetri Veritabanı</title>
-    <link rel="stylesheet" href="style.css">
-    <style>
-        body {
-            margin: 0;
-            padding: 16px;
-            background: #06090c;
-            color: #e6edf3;
-            font-family: var(--font-mono, 'Consolas', monospace);
-        }
-        .header-bar {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            background: rgba(0, 223, 182, 0.08);
-            border: 1px solid var(--accent-color, #00dfb6);
-            padding: 12px 18px;
-            margin-bottom: 12px;
-            clip-path: polygon(0 0, calc(100% - 10px) 0, 100% 10px, 100% 100%, 10px 100%, 0 calc(100% - 10px));
-        }
-        .stat-badge {
-            background: rgba(0, 0, 0, 0.6);
-            border: 1px solid rgba(255, 255, 255, 0.15);
-            padding: 4px 10px;
-            font-size: 11px;
-            border-radius: 2px;
-        }
-        .sql-table {
-            width: 100%;
-            border-collapse: collapse;
-            font-size: 11px;
-            background: #090d12;
-            border: 1px solid var(--mono-border, rgba(255,255,255,0.1));
-        }
-        .sql-table th {
-            background: rgba(0, 223, 182, 0.15);
-            color: #00dfb6;
-            padding: 8px 10px;
-            text-align: left;
-            border-bottom: 1px solid #00dfb6;
-            font-weight: 800;
-        }
-        .sql-table td {
-            padding: 6px 10px;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.04);
-        }
-        .sql-table tr:hover {
-            background: rgba(0, 229, 255, 0.05);
-        }
-        .btn-action {
-            background: rgba(0, 223, 182, 0.15);
-            border: 1px solid #00dfb6;
-            color: #00dfb6;
-            padding: 6px 14px;
-            font-family: inherit;
-            font-size: 11px;
-            font-weight: 700;
-            cursor: pointer;
-            transition: all 0.2s;
-        }
-        .btn-action:hover {
-            background: #00dfb6;
-            color: #000;
-        }
-    </style>
-</head>
-<body>
-
-    <div class="header-bar">
-        <div>
-            <div style="font-size: 15px; font-weight: 900; color: #00dfb6; letter-spacing: 1px;">
-                🛢️ PISIM STUDIO - CANLI SQL TELEMETRİ VERİTABANI
-            </div>
-            <div style="font-size: 10px; color: #8b949e; margin-top: 4px;">
-                Unreal Engine C++ (10sn Batch) ➔ Saved/Telemetry/flight_telemetry.sql ➔ Pi 5 (pisim_telemetry.db)
-            </div>
-        </div>
-        <div style="display: flex; gap: 8px; align-items: center;">
-            <span class="stat-badge" id="badge-total-rows" style="color: #00e5ff; font-weight: 800;">Toplam: -- satır</span>
-            <span class="stat-badge" id="badge-file-size" style="color: #ffaa00;">SQL: -- KB</span>
-            <button class="btn-action" onclick="fetchTable()">🔄 YENİLE</button>
-            <a href="/dashboard.html" class="btn-action" style="text-decoration: none; display: inline-block;">⬅ DASHBOARD'A DÖN</a>
-        </div>
-    </div>
-
-    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; font-size: 11px; color: #8b949e;">
-        <div>
-            Filtre:
-            <select id="filter-code" onchange="fetchTable()" style="background: #090d12; color: #00dfb6; border: 1px solid var(--mono-border); padding: 3px 8px; font-family: inherit;">
-                <option value="">Tüm Araçlar</option>
-                <option value="rover_01">rover_01</option>
-                <option value="rover_02">rover_02</option>
-            </select>
-            | Gösterilen: <span id="label-shown-count" style="color: #fff; font-weight: 700;">--</span> satır (En yeni üstte)
-        </div>
-        <div style="color: #00e5ff;">
-            ● Canlı Otomatik Yenileme (Her 2 saniyede bir)
-        </div>
-    </div>
-
-    <div style="overflow-x: auto;">
-        <table class="sql-table">
-            <thead>
-                <tr>
-                    <th>ID</th>
-                    <th>KAYIT SAATİ</th>
-                    <th>ZAMAN DAMGASI (s)</th>
-                    <th>ARAÇ KODU</th>
-                    <th>ARAÇ ID</th>
-                    <th>ROLL</th>
-                    <th>PITCH</th>
-                    <th>YAW</th>
-                    <th>İRTİFA</th>
-                    <th>HIZ</th>
-                    <th>BATARYA</th>
-                    <th>MOD</th>
-                </tr>
-            </thead>
-            <tbody id="sql-tbody">
-                <tr><td colspan="11" style="text-align: center; padding: 30px; color: #8b949e;">Veriler yükleniyor...</td></tr>
-            </tbody>
-        </table>
-    </div>
-
-    <script>
-        async function fetchTable() {
-            try {
-                const codeFilter = document.getElementById('filter-code').value;
-                const url = codeFilter ? `/api/sql_table?max_rows=50&code=${encodeURIComponent(codeFilter)}` : '/api/sql_table?max_rows=50';
-                const res = await fetch(url);
-                if (!res.ok) return;
-                const data = await res.json();
-
-                const badgeTotal = document.getElementById('badge-total-rows');
-                if (badgeTotal) badgeTotal.innerText = `Toplam: ${data.total_logged || 0} satır`;
-                const shownLabel = document.getElementById('label-shown-count');
-                if (shownLabel) shownLabel.innerText = data.rows ? data.rows.length : 0;
-
-                const tbody = document.getElementById('sql-tbody');
-                if (!data.rows || data.rows.length === 0) {
-                    tbody.innerHTML = '<tr><td colspan="11" style="text-align:center; padding:30px; color:#ffaa00;">Henüz SQL satırı bulunamadı. Unreal Engine simülasyonunu başlatın.</td></tr>';
-                    return;
-                }
-
-                tbody.innerHTML = data.rows.map(r => {
-                    const roll = (r.roll !== undefined && r.roll !== null) ? Number(r.roll).toFixed(2) : '0.00';
-                    const pitch = (r.pitch !== undefined && r.pitch !== null) ? Number(r.pitch).toFixed(2) : '0.00';
-                    const yaw = (r.yaw !== undefined && r.yaw !== null) ? Number(r.yaw).toFixed(2) : '0.00';
-                    const alt = (r.altitude !== undefined && r.altitude !== null) ? Number(r.altitude).toFixed(2) : '0.00';
-                    const spd = (r.speed !== undefined && r.speed !== null) ? Number(r.speed).toFixed(2) : '0.00';
-                    const batt = (r.battery !== undefined && r.battery !== null) ? Number(r.battery).toFixed(0) : '--';
-                    const t = (r.time !== undefined && r.time !== null) ? Number(r.time).toFixed(2) : '--';
-                    const code = r.vehicle_code || ('rover_' + (r.vehicle_id + 1));
-
-                    return `
-                        <tr>
-                            <td style="color: #8b949e;">${r.id}</td>
-                            <td style="color: #ffaa00; font-size: 11px;">${r.created_at || '--'}</td>
-                            <td style="color: #ffffff; font-weight: 700;">${t}s</td>
-                            <td style="color: #00e5ff; font-weight: 800;">${code}</td>
-                            <td style="color: #fff;">#${r.vehicle_id}</td>
-                            <td style="color: ${Number(roll) > 0 ? '#00dfb6' : '#ff7700'};">${Number(roll) > 0 ? '+' : ''}${roll}°</td>
-                            <td style="color: ${Number(pitch) > 0 ? '#00dfb6' : '#ff7700'};">${Number(pitch) > 0 ? '+' : ''}${pitch}°</td>
-                            <td>${yaw}°</td>
-                            <td style="color: #00dfb6; font-weight: 700;">${alt} m</td>
-                            <td style="color: #ffffff;">${spd} km/s</td>
-                            <td style="color: #ffaa00;">% ${batt}</td>
-                            <td style="color: #00dfb6; font-weight: 800;">${r.mode || 'AUTO'}</td>
-                        </tr>
-                    `;
-                }).join('');
-            } catch (err) {
-                console.error("fetchTable error:", err);
-            }
-        }
-
-        fetchTable();
-        setInterval(fetchTable, 2000); // 2 saniyede bir otomatik yenile
-    </script>
-</body>
-</html>
-
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PiSim Tactical - Canlı SQL Telemetri Veritabanı</title>
+    <link rel="stylesheet" href="style.css">
+    <style>
+        body {
+            margin: 0;
+            padding: 16px;
+            background: #06090c;
+            color: #e6edf3;
+            font-family: var(--font-mono, 'Consolas', monospace);
+        }
+        .header-bar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: rgba(0, 223, 182, 0.08);
+            border: 1px solid var(--accent-color, #00dfb6);
+            padding: 12px 18px;
+            margin-bottom: 12px;
+            clip-path: polygon(0 0, calc(100% - 10px) 0, 100% 10px, 100% 100%, 10px 100%, 0 calc(100% - 10px));
+        }
+        .stat-badge {
+            background: rgba(0, 0, 0, 0.6);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            padding: 4px 10px;
+            font-size: 11px;
+            border-radius: 2px;
+        }
+        .sql-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 11px;
+            background: #090d12;
+            border: 1px solid var(--mono-border, rgba(255,255,255,0.1));
+        }
+        .sql-table th {
+            background: rgba(0, 223, 182, 0.15);
+            color: #00dfb6;
+            padding: 8px 10px;
+            text-align: left;
+            border-bottom: 1px solid #00dfb6;
+            font-weight: 800;
+        }
+        .sql-table td {
+            padding: 6px 10px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+        }
+        .sql-table tr:hover {
+            background: rgba(0, 229, 255, 0.05);
+        }
+        .btn-action {
+            background: rgba(0, 223, 182, 0.15);
+            border: 1px solid #00dfb6;
+            color: #00dfb6;
+            padding: 6px 14px;
+            font-family: inherit;
+            font-size: 11px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .btn-action:hover {
+            background: #00dfb6;
+            color: #000;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="header-bar">
+        <div>
+            <div style="font-size: 15px; font-weight: 900; color: #00dfb6; letter-spacing: 1px;">
+                🛢️ PISIM STUDIO - CANLI SQL TELEMETRİ VERİTABANI
+            </div>
+            <div style="font-size: 10px; color: #8b949e; margin-top: 4px;">
+                Unreal Engine C++ (10sn Batch) ➔ Saved/Telemetry/flight_telemetry.sql ➔ Pi 5 (pisim_telemetry.db)
+            </div>
+        </div>
+        <div style="display: flex; gap: 8px; align-items: center;">
+            <span class="stat-badge" id="badge-total-rows" style="color: #00e5ff; font-weight: 800;">Toplam: -- satır</span>
+            <span class="stat-badge" id="badge-file-size" style="color: #ffaa00;">SQL: -- KB</span>
+            <button class="btn-action" onclick="fetchTable()">🔄 YENİLE</button>
+            <a href="/dashboard.html" class="btn-action" style="text-decoration: none; display: inline-block;">⬅ DASHBOARD'A DÖN</a>
+        </div>
+    </div>
+
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; font-size: 11px; color: #8b949e;">
+        <div>
+            Filtre:
+            <select id="filter-code" onchange="fetchTable()" style="background: #090d12; color: #00dfb6; border: 1px solid var(--mono-border); padding: 3px 8px; font-family: inherit;">
+                <option value="">Tüm Araçlar</option>
+                <option value="rover_01">rover_01</option>
+                <option value="rover_02">rover_02</option>
+            </select>
+            | Gösterilen: <span id="label-shown-count" style="color: #fff; font-weight: 700;">--</span> satır (En yeni üstte)
+        </div>
+        <div style="color: #00e5ff;">
+            ● Canlı Otomatik Yenileme (Her 2 saniyede bir)
+        </div>
+    </div>
+
+    <div style="overflow-x: auto;">
+        <table class="sql-table">
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>KAYIT SAATİ</th>
+                    <th>ZAMAN DAMGASI (s)</th>
+                    <th>ARAÇ KODU</th>
+                    <th>ARAÇ ADI</th>
+                    <th>ARAÇ ID</th>
+                    <th>ROLL</th>
+                    <th>PITCH</th>
+                    <th>YAW</th>
+                    <th>İRTİFA</th>
+                    <th>HIZ</th>
+                    <th>BATARYA</th>
+                    <th>MOD</th>
+                </tr>
+            </thead>
+            <tbody id="sql-tbody">
+                <tr><td colspan="13" style="text-align: center; padding: 30px; color: #8b949e;">Veriler yükleniyor...</td></tr>
+            </tbody>
+        </table>
+    </div>
+
+    <script>
+        async function fetchTable() {
+            try {
+                const codeFilter = document.getElementById('filter-code').value;
+                const url = codeFilter ? `/api/sql_table?max_rows=50&code=${encodeURIComponent(codeFilter)}` : '/api/sql_table?max_rows=50';
+                const res = await fetch(url);
+                if (!res.ok) return;
+                const data = await res.json();
+
+                const badgeTotal = document.getElementById('badge-total-rows');
+                if (badgeTotal) badgeTotal.innerText = `Toplam: ${data.total_logged || 0} satır`;
+                const shownLabel = document.getElementById('label-shown-count');
+                if (shownLabel) shownLabel.innerText = data.rows ? data.rows.length : 0;
+
+                const tbody = document.getElementById('sql-tbody');
+                if (!data.rows || data.rows.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="11" style="text-align:center; padding:30px; color:#ffaa00;">Henüz SQL satırı bulunamadı. Unreal Engine simülasyonunu başlatın.</td></tr>';
+                    return;
+                }
+
+                tbody.innerHTML = data.rows.map(r => {
+                    const roll = (r.roll !== undefined && r.roll !== null) ? Number(r.roll).toFixed(2) : '0.00';
+                    const pitch = (r.pitch !== undefined && r.pitch !== null) ? Number(r.pitch).toFixed(2) : '0.00';
+                    const yaw = (r.yaw !== undefined && r.yaw !== null) ? Number(r.yaw).toFixed(2) : '0.00';
+                    const alt = (r.altitude !== undefined && r.altitude !== null) ? Number(r.altitude).toFixed(2) : '0.00';
+                    const spd = (r.speed !== undefined && r.speed !== null) ? Number(r.speed).toFixed(2) : '0.00';
+                    const batt = (r.battery !== undefined && r.battery !== null) ? Number(r.battery).toFixed(0) : '--';
+                    const t = (r.time !== undefined && r.time !== null) ? Number(r.time).toFixed(2) : '--';
+                    const code = r.vehicle_code || ('rover_' + (r.vehicle_id + 1));
+
+                    return `
+                        <tr>
+                            <td style="color: #8b949e;">${r.id}</td>
+                            <td style="color: #ffaa00; font-size: 11px;">${r.created_at || '--'}</td>
+                            <td style="color: #ffffff; font-weight: 700;">${t}s</td>
+                            <td style="color: #00e5ff; font-weight: 800;">${code}</td>
+                            <td style="color: #00dfb6; font-weight: 800;">${r.vehicle_name || code}</td>
+                            <td style="color: #fff;">#${r.vehicle_id}</td>
+                            <td style="color: ${Number(roll) > 0 ? '#00dfb6' : '#ff7700'};">${Number(roll) > 0 ? '+' : ''}${roll}°</td>
+                            <td style="color: ${Number(pitch) > 0 ? '#00dfb6' : '#ff7700'};">${Number(pitch) > 0 ? '+' : ''}${pitch}°</td>
+                            <td>${yaw}°</td>
+                            <td style="color: #00dfb6; font-weight: 700;">${alt} m</td>
+                            <td style="color: #ffffff;">${spd} km/s</td>
+                            <td style="color: #ffaa00;">% ${batt}</td>
+                            <td style="color: #00dfb6; font-weight: 800;">${r.mode || 'AUTO'}</td>
+                        </tr>
+                    `;
+                }).join('');
+            } catch (err) {
+                console.error("fetchTable error:", err);
+            }
+        }
+
+        fetchTable();
+        setInterval(fetchTable, 2000); // 2 saniyede bir otomatik yenile
+    </script>
+</body>
+</html>
+

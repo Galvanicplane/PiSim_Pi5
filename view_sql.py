@@ -44,8 +44,8 @@ def render_table(watch_mode=False):
         return
 
     # Tablo Başlığı
-    header = f"| {'ID':^6} | {'KAYIT SAATİ':^19} | {'ZAMAN(s)':^9} | {'KOD':^10} | {'ID':^4} | {'ROLL (°)':^9} | {'PITCH (°)':^9} | {'YAW (°)':^9} | {'İRTİFA':^9} | {'HIZ':^8} | {'PİL':^6} | {'MOD':^10} |"
-    sep = "+" + "-"*8 + "+" + "-"*21 + "+" + "-"*11 + "+" + "-"*12 + "+" + "-"*6 + "+" + "-"*11 + "+" + "-"*11 + "+" + "-"*11 + "+" + "-"*11 + "+" + "-"*10 + "+" + "-"*8 + "+" + "-"*12 + "+"
+    header = f"| {'ID':^6} | {'KAYIT SAATİ':^19} | {'ZAMAN(s)':^9} | {'KOD':^10} | {'İSİM':^12} | {'ID':^4} | {'ROLL (°)':^9} | {'PITCH (°)':^9} | {'YAW (°)':^9} | {'İRTİFA':^9} | {'HIZ':^8} | {'PİL':^6} | {'MOD':^10} |"
+    sep = "+" + "-"*8 + "+" + "-"*21 + "+" + "-"*11 + "+" + "-"*12 + "+" + "-"*14 + "+" + "-"*6 + "+" + "-"*11 + "+" + "-"*11 + "+" + "-"*11 + "+" + "-"*11 + "+" + "-"*10 + "+" + "-"*8 + "+" + "-"*12 + "+"
 
     print(sep)
     print(header)
@@ -61,9 +61,10 @@ def render_table(watch_mode=False):
         speed_str = f"{r['speed']:.1f}" if r['speed'] is not None else "0.0"
         batt_str = f"{r['battery']:.0f}%" if r['battery'] is not None else "--"
         mode_str = f"{str(r['mode'])[:10]}"
-        v_code = str(r.get('vehicle_code') or f"rover_{r['vehicle_id']+1}")
+        v_code = str(r.get('vehicle_code') or f"rover_{r.get('vehicle_id', 0)}")
+        v_name = str(r.get('vehicle_name') or v_code)
 
-        line = f"| {r['id']:^6} | {dt_str:^19} | {t_str:^9} | {v_code:^10} | {r['vehicle_id']:^4} | {roll_str:^9} | {pitch_str:^9} | {yaw_str:^9} | {alt_str:^9} | {speed_str:^8} | {batt_str:^6} | {mode_str:^10} |"
+        line = f"| {r['id']:^6} | {dt_str:^19} | {t_str:^9} | {v_code:^10} | {v_name:^12} | {r['vehicle_id']:^4} | {roll_str:^9} | {pitch_str:^9} | {yaw_str:^9} | {alt_str:^9} | {speed_str:^8} | {batt_str:^6} | {mode_str:^10} |"
         print(line)
 
     print(sep)

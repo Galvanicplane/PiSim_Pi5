@@ -570,8 +570,8 @@ def run_udp_telemetry_listener():
                 with telemetry_lock:
                     now_ts = time.time()
                     v_id = int(msg.get("vehicle_id", 0))
-                    v_code = str(msg.get("vehicle_code", f"rover_{v_id+1:02d}"))
-                    v_name = str(msg.get("vehicle_name", f"Rover {v_id+1:02d}"))
+                    v_code = str(msg.get("vehicle_code") or (f"rover_{v_id:02d}" if v_id > 0 else "rover_01"))
+                    v_name = str(msg.get("vehicle_name") or msg.get("name") or (f"Rover {v_id:02d}" if v_id > 0 else v_code))
                     rx_msg_content = str(msg.get("msg") or f"TELEMETRİ_{v_code}")
 
                     if not was_connected:

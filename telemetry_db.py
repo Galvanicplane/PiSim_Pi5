@@ -181,6 +181,8 @@ def add_sql_rows_from_network(rows: list) -> int:
         cursor.execute("BEGIN TRANSACTION")
         for r in rows:
             v_code = str(r.get("vehicle_code", "rover_01"))
+            v_name = str(r.get("vehicle_name") or v_code)
+            v_id = int(r.get("vehicle_id", 0))
             t_sec = float(r.get("time", time.time()))
             # Mükerrer kaydı önle: bu araç ve zaman damgası zaten varsa ekleme
             cursor.execute("SELECT 1 FROM vehicle_telemetry WHERE vehicle_code = ? AND ABS(timestamp_sec - ?) < 0.05 LIMIT 1", (v_code, t_sec))
@@ -189,12 +191,13 @@ def add_sql_rows_from_network(rows: list) -> int:
 
             cursor.execute("""
                 INSERT INTO vehicle_telemetry 
-                (timestamp_sec, vehicle_code, vehicle_id, roll_deg, pitch_deg, yaw_deg, altitude_m, airspeed_ms, battery_pct, lat, lon, flight_mode)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (timestamp_sec, vehicle_code, vehicle_name, vehicle_id, roll_deg, pitch_deg, yaw_deg, altitude_m, airspeed_ms, battery_pct, lat, lon, flight_mode)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 t_sec,
                 v_code,
-                int(r.get("vehicle_id", 0)),
+                v_name,
+                v_id,
                 float(r.get("roll", 0.0)),
                 float(r.get("pitch", 0.0)),
                 float(r.get("yaw", 0.0)),
@@ -229,8 +232,8 @@ def _write_batch_to_disk(batch: list):
         cursor = conn.cursor()
         cursor.executemany("""
             INSERT INTO vehicle_telemetry 
-            (timestamp_sec, vehicle_code, vehicle_id, roll_deg, pitch_deg, yaw_deg, altitude_m, airspeed_ms, battery_pct, lat, lon, flight_mode)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            (timestamp_sec, vehicle_code, vehicle_name, vehicle_id, roll_deg, pitch_deg, yaw_deg, altitude_m, airspeed_ms, battery_pct, lat, lon, flight_mode)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, batch)
         conn.commit()
         conn.close()
@@ -242,7 +245,7 @@ def _write_batch_to_disk(batch: list):
             f.write(f"\n-- Batch Kaydı: {time.strftime('%Y-%m-%d %H:%M:%S')} ({len(batch)} satır)\n")
             f.write("BEGIN TRANSACTION;\n")
             for r in batch:
-                f.write(f"INSERT INTO vehicle_telemetry (timestamp_sec, vehicle_code, vehicle_id, roll_deg, pitch_deg, yaw_deg, altitude_m, airspeed_ms, battery_pct, lat, lon, flight_mode) VALUES ({r[0]:.2f}, '{r[1]}', {r[2]}, {r[3]:.2f}, {r[4]:.2f}, {r[5]:.2f}, {r[6]:.2f}, {r[7]:.2f}, {r[8]:.1f}, {r[9]:.6f}, {r[10]:.6f}, '{r[11]}');\n")
+                f.write(f"INSERT INTO vehicle_telemetry (timestamp_sec, vehicle_code, vehicle_name, vehicle_id, roll_deg, pitch_deg, yaw_deg, altitude_m, airspeed_ms, battery_pct, lat, lon, flight_mode) VALUES ({r[0]:.2f}, '{r[1]}', '{r[2]}', {r[3]}, {r[4]:.2f}, {r[5]:.2f}, {r[6]:.2f}, {r[7]:.2f}, {r[8]:.2f}, {r[9]:.1f}, {r[10]:.6f}, {r[11]:.6f}, '{r[12]}');\n")
             f.write("COMMIT;\n")
 
         return len(batch)
@@ -283,6 +286,7 @@ def init_db():
             created_at TEXT DEFAULT (datetime('now', 'localtime')),
             timestamp_sec REAL NOT NULL,
             vehicle_code TEXT NOT NULL,
+            vehicle_name TEXT,
             vehicle_id INTEGER NOT NULL,
             roll_deg REAL,
             pitch_deg REAL,
@@ -295,9 +299,13 @@ def init_db():
             flight_mode TEXT
         )
     """)
-    # Tablo önceden varsa created_at sütununu ekle
+    # Tablo önceden varsa created_at ve vehicle_name sütunlarını ekle
     try:
         cursor.execute("ALTER TABLE vehicle_telemetry ADD COLUMN created_at TEXT DEFAULT (datetime('now', 'localtime'))")
+    except Exception:
+        pass
+    try:
+        cursor.execute("ALTER TABLE vehicle_telemetry ADD COLUMN vehicle_name TEXT")
     except Exception:
         pass
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_telemetry_time ON vehicle_telemetry(timestamp_sec)")
@@ -330,7 +338,8 @@ def queue_telemetry_row(data: dict):
     """Gelen telemetri paketini non-blocking in-memory kuyruğa ekler (< 0.001ms gecikme)."""
     now_sec = time.time()
     v_id = int(data.get("vehicle_id", 0))
-    v_code = str(data.get("vehicle_code", f"rover_{v_id+1:02d}"))
+    v_code = str(data.get("vehicle_code", f"rover_{v_id:02d}"))
+    v_name = str(data.get("vehicle_name") or data.get("name") or v_code)
 
     # Tutum verileri (roll, pitch, yaw)
     att = data.get("attitude", {})
@@ -350,7 +359,7 @@ def queue_telemetry_row(data: dict):
     mode = str(data.get("flight_mode", "AUTO"))
 
     # Gerçek sistem zaman damgası (now_sec) ile kaydet (Simülasyon saniyesi değil)
-    row = (now_sec, v_code, v_id, roll, pitch, yaw, alt, speed, batt, lat, lon, mode)
+    row = (now_sec, v_code, v_name, v_id, roll, pitch, yaw, alt, speed, batt, lat, lon, mode)
 
     try:
         _pending_queue.put_nowait(row)
@@ -365,7 +374,7 @@ def get_recent_rows(max_rows: int = 50, vehicle_code: str = None) -> list:
         cursor = conn.cursor()
         if vehicle_code:
             cursor.execute("""
-                SELECT id, created_at, timestamp_sec, vehicle_code, vehicle_id, roll_deg, pitch_deg, yaw_deg, altitude_m, airspeed_ms, battery_pct, lat, lon, flight_mode
+                SELECT id, created_at, timestamp_sec, vehicle_code, vehicle_name, vehicle_id, roll_deg, pitch_deg, yaw_deg, altitude_m, airspeed_ms, battery_pct, lat, lon, flight_mode
                 FROM vehicle_telemetry
                 WHERE vehicle_code = ?
                 ORDER BY id DESC
@@ -373,7 +382,7 @@ def get_recent_rows(max_rows: int = 50, vehicle_code: str = None) -> list:
             """, (vehicle_code, max_rows))
         else:
             cursor.execute("""
-                SELECT id, created_at, timestamp_sec, vehicle_code, vehicle_id, roll_deg, pitch_deg, yaw_deg, altitude_m, airspeed_ms, battery_pct, lat, lon, flight_mode
+                SELECT id, created_at, timestamp_sec, vehicle_code, vehicle_name, vehicle_id, roll_deg, pitch_deg, yaw_deg, altitude_m, airspeed_ms, battery_pct, lat, lon, flight_mode
                 FROM vehicle_telemetry
                 ORDER BY id DESC
                 LIMIT ?
@@ -383,11 +392,13 @@ def get_recent_rows(max_rows: int = 50, vehicle_code: str = None) -> list:
 
         result = []
         for r in rows:
+            v_name = r["vehicle_name"] if ("vehicle_name" in r.keys() and r["vehicle_name"]) else r["vehicle_code"]
             result.append({
                 "id": r["id"],
                 "created_at": r["created_at"] if "created_at" in r.keys() and r["created_at"] else "--",
                 "time": r["timestamp_sec"],
                 "vehicle_code": r["vehicle_code"],
+                "vehicle_name": v_name,
                 "vehicle_id": r["vehicle_id"],
                 "roll": r["roll_deg"],
                 "pitch": r["pitch_deg"],
@@ -443,10 +454,11 @@ def get_fleet_from_db(max_age_sec: float = None) -> list:
             # Eski oturumlardan kalan tarih damgalı hayalet araçları yoksay
             if v_code and v_code.count('_') > 1:
                 continue
+            v_name = r["vehicle_name"] if ("vehicle_name" in r.keys() and r["vehicle_name"]) else v_code
             result.append({
                 "code": v_code,
                 "id": r["vehicle_id"],
-                "name": f"Rover {r['vehicle_id'] + 1:02d}",
+                "name": v_name,
                 "speed": round(float(r["airspeed_ms"]), 1) if r["airspeed_ms"] is not None else 0.0,
                 "altitude": round(float(r["altitude_m"]), 1) if r["altitude_m"] is not None else 0.0,
                 "battery": round(float(r["battery_pct"]), 1) if r["battery_pct"] is not None else 98.0,
