@@ -83,28 +83,39 @@ def sync_sql_data(discovered_ue5_ip: str = None) -> dict:
                 with open(sql_file, "r", encoding="utf-8", errors="ignore") as f:
                     f.seek(_last_sql_file_pos)
                     new_content = f.read()
-                    _last_sql_file_pos = f.tell()
+                    next_pos = f.tell()
 
                 lines = [l.strip() for l in new_content.splitlines() if l.strip().startswith("INSERT INTO vehicle_telemetry")]
                 if lines:
-                    conn = sqlite3.connect(str(DB_FILE), timeout=5.0)
-                    cursor = conn.cursor()
-                    for line in lines:
-                        try:
+                    try:
+                        conn = sqlite3.connect(str(DB_FILE), timeout=15.0)
+                        cursor = conn.cursor()
+                        cursor.execute("BEGIN TRANSACTION")
+                        for line in lines:
                             cursor.execute(line)
                             new_rows += 1
+                        conn.commit()
+
+                        # Harici araçların (DB Browser vb.) anında görebilmesi için WAL checkpoint
+                        try:
+                            cursor.execute("PRAGMA wal_checkpoint(PASSIVE)")
                         except Exception:
                             pass
-                    conn.commit()
-                    # DB Browser gibi harici araçların anında görebilmesi için WAL'ı checkpoint yap
-                    try:
-                        cursor.execute("PRAGMA wal_checkpoint(PASSIVE)")
-                    except Exception:
-                        pass
-                    cursor.execute("SELECT COUNT(*) FROM vehicle_telemetry")
-                    _total_logged = cursor.fetchone()[0] or 0
-                    conn.close()
-                _save_last_pos(_last_sql_file_pos)
+
+                        cursor.execute("SELECT COUNT(*) FROM vehicle_telemetry")
+                        _total_logged = cursor.fetchone()[0] or 0
+                        conn.close()
+
+                        # SADECE VE SADECE BAŞARIYLA YAZILDIĞINDA İMLECİ İLERLET!
+                        _last_sql_file_pos = next_pos
+                        _save_last_pos(_last_sql_file_pos)
+                    except sqlite3.OperationalError as oe:
+                        print(f"⚠️ [telemetry_db] SQLite veritabanı kilitli ({oe})! Sonraki döngüde tekrar denenecek.")
+                    except Exception as ex:
+                        print(f"⚠️ [telemetry_db] SQL batch yazım hatası: {ex}")
+                else:
+                    _last_sql_file_pos = next_pos
+                    _save_last_pos(_last_sql_file_pos)
         except Exception as e:
             print(f"⚠️ [telemetry_db] SQL senkronizasyon hatası: {e}")
 
