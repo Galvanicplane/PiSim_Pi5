@@ -123,12 +123,15 @@ def run_sql_sync_worker():
 
             if first_run:
                 first_run = False
-                msg = f"🛢️ [SQL BAŞLANGIÇ] İlk açılış: {new_count} satır yeni veri çekildi (Toplam: {total} satır, Filo: {len(fleet_data)} araç)"
-                print(f"{msg} | Araçlar: {', '.join(v_list) if v_list else 'Kayıt bulunamadı'}")
+                msg = f"🛢️ [SQL BAŞLANGIÇ] İlk açılış: {new_count} satır yeni veri çekildi (Toplam: {total} satır, SQL Filosu: {len(fleet_data)} araç)"
+                print(f"{msg} | Araçlar: {', '.join(v_list) if v_list else 'Kayıtlı Araç Yok'}")
                 add_system_log(msg)
             else:
-                msg = f"🛢️ [SQL 10sn SENKRONİZASYON] {new_count} yeni satır çekildi (Toplam: {total} satır, Filo: {len(fleet_data)} araç)"
-                print(f"{msg} | Filodaki Araçlar: {', '.join(v_list) if v_list else 'Henüz kayıt yok'}")
+                if new_count > 0:
+                    msg = f"🛢️ [SQL 10sn SENKRONİZASYON] +{new_count} yeni satır çekildi (Toplam: {total} satır, SQL Filosu: {len(fleet_data)} araç)"
+                else:
+                    msg = f"🛢️ [SQL 10sn SENKRONİZASYON] 0 yeni satır (Toplam: {total} satır, SQL Filosu: {len(fleet_data)} araç)"
+                print(f"{msg} | Filodaki Araçlar: {', '.join(v_list) if v_list else '0 araç (SQL bekleniyor)'}")
                 add_system_log(msg)
 
         except Exception as e:
@@ -176,7 +179,8 @@ class PiSimRequestHandler(http.server.SimpleHTTPRequestHandler):
                 latest_telemetry["ue5_ip"] = discovered_ue5_ip or latest_telemetry.get("ue5_ip")
                 latest_telemetry["now"] = now
 
-                # 🛢️ Taban filo listesi (SQL'den 60 saniyede bir çekilen önbellek)
+                # 🛢️ KESİN KURAL: Araçlar sol panele SADECE VE SADECE SQL'DE VARSA EKLENİR!
+                # UDP mesajı geldi diye, keşif için geldi diye veya anlık mesaj attı diye ASLA ARAÇ EKLENMEZ!
                 fleet_map = {}
                 for item in cached_db_fleet:
                     code = item["code"]
@@ -187,39 +191,54 @@ class PiSimRequestHandler(http.server.SimpleHTTPRequestHandler):
                     item_copy["has_sql"] = True
                     fleet_map[code] = item_copy
 
-                # Sonra bellekteki canlı UDP telemetri ile güncelle / yeni araç varsa ekle
+                # Canlı UDP telemetri SADECE SQL'de zaten kayıtlı olan araçların anlık sensörlerini günceller.
+                # SQL'de OLMAYAN HİÇBİR ARAÇ LİSTEYE KESİNLİKLE EKLENMEZ!
                 for code, vdata in fleet_telemetry.items():
-                    vrx = float(vdata.get("last_rx_time", 0.0))
-                    is_conn = (now - vrx < 4.0)
-                    fleet_map[code] = {
-                        "code": code,
-                        "id": vdata.get("vehicle_id", 0),
-                        "name": vdata.get("vehicle_name", f"Rover {vdata.get('vehicle_id', 0) + 1:02d}"),
-                        "speed": vdata.get("speed", 0.0),
-                        "altitude": vdata.get("altitude", 0.0),
-                        "battery": vdata.get("battery", 0.0),
-                        "flight_mode": vdata.get("flight_mode", "AKTİF"),
-                        "lat": vdata.get("lat", 0.0),
-                        "lon": vdata.get("lon", 0.0),
-                        "roll": vdata.get("roll", 0.0),
-                        "pitch": vdata.get("pitch", 0.0),
-                        "yaw": vdata.get("yaw", 0.0),
-                        "is_selected": (code == selected_vehicle_code),
-                        "connected": is_conn,
-                        "has_sql": True,
-                        "last_rx_time": vrx
-                    }
+                    if code in fleet_map:
+                        vrx = float(vdata.get("last_rx_time", 0.0))
+                        is_conn = (now - vrx < 4.0)
+                        fleet_map[code].update({
+                            "speed": vdata.get("speed", fleet_map[code].get("speed", 0.0)),
+                            "altitude": vdata.get("altitude", fleet_map[code].get("altitude", 0.0)),
+                            "battery": vdata.get("battery", fleet_map[code].get("battery", 0.0)),
+                            "flight_mode": vdata.get("flight_mode", fleet_map[code].get("flight_mode", "AKTİF")),
+                            "lat": vdata.get("lat", fleet_map[code].get("lat", 0.0)),
+                            "lon": vdata.get("lon", fleet_map[code].get("lon", 0.0)),
+                            "roll": vdata.get("roll", fleet_map[code].get("roll", 0.0)),
+                            "pitch": vdata.get("pitch", fleet_map[code].get("pitch", 0.0)),
+                            "yaw": vdata.get("yaw", fleet_map[code].get("yaw", 0.0)),
+                            "connected": is_conn,
+                            "last_rx_time": vrx
+                        })
+                        if vdata.get("msg"):
+                            fleet_map[code]["msg"] = vdata["msg"]
 
                 fleet_list = list(fleet_map.values())
                 # Çevrimiçi araçları öne, ardından araç ID sırasına göre diz
                 fleet_list.sort(key=lambda x: (not x.get("connected", False), x.get("id", 0)))
 
-                # Eğer henüz araç seçilmemişse ve filoda araç varsa, ilk aracı varsayılan olarak seç
-                if not selected_vehicle_code and fleet_list:
-                    selected_vehicle_code = fleet_list[0]["code"]
+                # SQL'de hiç araç yoksa göstergeleri tamamen sıfırla
+                if not fleet_list:
+                    selected_vehicle_code = None
+                    latest_telemetry["vehicle_code"] = None
+                    latest_telemetry["vehicle_id"] = None
+                    latest_telemetry["vehicle_name"] = None
+                    latest_telemetry["roll"] = 0.0
+                    latest_telemetry["pitch"] = 0.0
+                    latest_telemetry["yaw"] = 0.0
+                    latest_telemetry["altitude"] = 0.0
+                    latest_telemetry["speed"] = 0.0
+                    latest_telemetry["battery"] = 0.0
+                    latest_telemetry["flight_mode"] = "SQL BEKLENİYOR"
+                    latest_telemetry["msg"] = None
+                    latest_telemetry["streaming"] = False
+                else:
+                    # Sadece SQL'deki araçlar arasından seçim yapılabilir
+                    if not selected_vehicle_code or selected_vehicle_code not in fleet_map:
+                        selected_vehicle_code = fleet_list[0]["code"]
 
-                for f in fleet_list:
-                    f["is_selected"] = (f["code"] == selected_vehicle_code)
+                    for f in fleet_list:
+                        f["is_selected"] = (f["code"] == selected_vehicle_code)
 
                 # Seçili aracın durumunu göstergelere yansıt
                 sel_is_streaming = False
@@ -286,6 +305,18 @@ class PiSimRequestHandler(http.server.SimpleHTTPRequestHandler):
             code = qs.get('code', [''])[0].strip()
             v_id = int(qs.get('id', [-1])[0])
             target_host = discovered_ue5_ip or "127.0.0.1"
+
+            # KESİN KURAL: Araç SQL veritabanında yoksa ASLA abone olunamaz ve seçilemez!
+            sql_codes = [v["code"] for v in cached_db_fleet]
+            if code and sql_codes and code not in sql_codes:
+                self.send_response(400)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({
+                    "status": "REJECTED",
+                    "msg": f"Araç '{code}' SQL veritabanında bulunmuyor! Sadece SQL'de kayıtlı araçlara abone olunabilir."
+                }).encode('utf-8'))
+                return
 
             with telemetry_lock:
                 if code:
@@ -614,15 +645,16 @@ def run_udp_telemetry_listener():
 
                     fleet_telemetry[v_code] = entry
 
-                    # Eğer henüz seçili araç yoksa gelen bu araca kilitlen
-                    if not selected_vehicle_code:
-                        selected_vehicle_code = v_code
+                    # KESİN KURAL: Sadece araç SQL veritabanında VARSA seçilebilir ve göstergelere yansıtılır!
+                    sql_codes = [v["code"] for v in cached_db_fleet]
+                    if v_code in sql_codes:
+                        if not selected_vehicle_code:
+                            selected_vehicle_code = v_code
 
-                    # Seçili araç bu araçsa latest_telemetry güncelle
-                    if selected_vehicle_code == v_code:
-                        latest_telemetry.update(entry)
-                        latest_telemetry["connected"] = True
-                        latest_telemetry["streaming"] = True
+                        if selected_vehicle_code == v_code:
+                            latest_telemetry.update(entry)
+                            latest_telemetry["connected"] = True
+                            latest_telemetry["streaming"] = True
 
                 # Terminal log basımı (1.5 saniyede bir)
                 current_time = time.time()
@@ -720,6 +752,17 @@ def main():
     print(f" [+] Telemetri RX  : UDP Port {TELEMETRY_PORT}")
     print(f" [+] Canlı Video RX: UDP Port {VIDEO_PORT}")
     print("=================================================================")
+
+    # 0. Başlangıçta SQL veritabanından mevcut filoyu hemen senkronize et
+    init_res = telemetry_db.sync_sql_data()
+    with telemetry_lock:
+        cached_db_fleet = init_res.get("fleet", [])
+    sql_vehicle_codes = [v["code"] for v in cached_db_fleet]
+    print(f" [+] SQL Veritabanı: {init_res.get('total_logged', 0)} satır kayıtlı | Araçlar: {', '.join(sql_vehicle_codes) if sql_vehicle_codes else '0 araç (SQL bekleniyor)'}")
+    if cached_db_fleet:
+        add_system_log(f"🛢️ [SQL BAŞLANGIÇ] {init_res.get('total_logged', 0)} satır bulundu. SQL Filosu: {', '.join(sql_vehicle_codes)}")
+    else:
+        add_system_log("🛢️ [SQL BAŞLANGIÇ] Veritabanı boş (0 satır). Unreal Engine'in ilk 10 saniyelik batch yazması bekleniyor...")
 
     global discovery_service_ref
     # 1. Keşif Dinleyici Servisini Başlat (UDP Port 7499)

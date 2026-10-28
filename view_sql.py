@@ -71,10 +71,26 @@ def render_table(watch_mode=False):
     print("=" * 105 + "\n")
 
 def main():
+    if "--clear" in sys.argv or "--reset" in sys.argv:
+        print("🧹 SQLite veritabanı (pisim_telemetry.db) ve flight_telemetry.sql temizleniyor...")
+        telemetry_db.clear_fleet()
+        # Unreal Engine Saved dosyasını da temizle (varsa)
+        ue5_file = telemetry_db.get_ue5_sql_file_path()
+        if ue5_file.exists():
+            try:
+                with open(ue5_file, "w", encoding="utf-8") as f:
+                    f.write("-- PiSim Temizlendi\n")
+                print(f"🧹 Unreal SQL dosyası da sıfırlandı: {ue5_file}")
+            except Exception as e:
+                print(f"⚠️ Unreal SQL dosyası sıfırlanamadı: {e}")
+        print("✅ Veritabanı ve SQL dosyaları başarıyla sıfırlandı! Artık 0 satır ile test yapabilirsiniz.\n")
+        return
+
     watch = ("--watch" in sys.argv or "-w" in sys.argv)
     if not watch:
         render_table(watch_mode=False)
-        print("💡 İpucu: Sürekli canlı yenileme modunda izlemek için: python view_sql.py --watch\n")
+        print("💡 İpucu: Sürekli canlı yenileme modunda izlemek için: python view_sql.py --watch")
+        print("💡 İpucu: Veritabanını sıfırlamak (0 satır yapmak) için: python view_sql.py --clear\n")
         return
 
     print("🚀 Canlı SQL İzleme Modu başlatıldı (Her 2 saniyede bir güncellenir)...")
