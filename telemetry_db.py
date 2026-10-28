@@ -15,6 +15,8 @@ import threading
 import queue
 import time
 import sys
+import socket
+import json
 from pathlib import Path
 
 # Ensure UTF-8 output on all consoles (avoid cp1254 charmap error)
@@ -62,15 +64,54 @@ def get_ue5_sql_file_path() -> Path:
             return p
     return candidates[0]
 
+def fetch_sql_rows_from_network(ue5_ip: str = None) -> list:
+    """Unreal Engine'den UDP Port 7499 üzerinden doğrudan SQL telemetri tablosunu talep eder (Ağ üzerinden senkronizasyon)."""
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+    sock.settimeout(1.2)
+    rows = []
+    try:
+        req = json.dumps({"magic": "PISIM_REQ_SQL_TABLE"}).encode('utf-8')
+        targets = [("255.255.255.255", 7499)]
+        if ue5_ip and ue5_ip not in ("255.255.255.255", "127.0.0.1"):
+            targets.append((ue5_ip, 7499))
+        for t in set(targets):
+            try:
+                sock.sendto(req, t)
+            except Exception:
+                pass
+
+        data, addr = sock.recvfrom(65535)
+        parsed = json.loads(data.decode('utf-8'))
+        if parsed.get("magic") == "PISIM_RESP_SQL_TABLE":
+            rows = parsed.get("data", {}).get("rows", [])
+    except Exception:
+        pass
+    finally:
+        sock.close()
+    return rows
+
 def sync_sql_data(discovered_ue5_ip: str = None) -> dict:
     """
-    KURAL: SQL'den ilk açılışta ve sonrasında her 60 saniyede bir SADECE YENİ GELEN VERİLERİ çeker.
-    1. Yerel dosya (Saved/Telemetry/flight_telemetry.sql) varsa son okunan byte ofsetinden sonrasını okur.
-    2. Yeni INSERT INTO ifadelerini SQLite (pisim_telemetry.db) veritabanına yazar.
-    3. Kaç satır yeni veri çekildiğini ve filodaki araçları döner.
+    KURAL: SQL'den ilk açılışta ve sonrasında her 10 saniyede bir SADECE YENİ GELEN VERİLERİ çeker.
+    1. Önce ağ üzerinden (UDP 7499) Unreal Engine'e PISIM_REQ_SQL_TABLE sorar ve gelen satırları SQLite'a ekler.
+    2. Yerel dosya (Saved/Telemetry/flight_telemetry.sql) varsa son okunan byte ofsetinden sonrasını okur.
+    3. Yeni INSERT INTO ifadelerini SQLite (pisim_telemetry.db) veritabanına yazar.
+    4. Kaç satır yeni veri çekildiğini ve filodaki araçları döner.
     """
     global _last_sql_file_pos, _total_logged
     new_rows = 0
+
+    # 1. AĞ ÜZERİNDEN SENKRONİZASYON (Pi 5 başka bir cihazda olsa bile çalışır!)
+    try:
+        net_rows = fetch_sql_rows_from_network(discovered_ue5_ip)
+        if net_rows:
+            net_added = add_sql_rows_from_network(net_rows)
+            new_rows += net_added
+    except Exception as e:
+        print(f"⚠️ [telemetry_db] Ağ SQL sorgu hatası: {e}")
+
+    # 2. YEREL DOSYA ÜZERİNDEN SENKRONİZASYON (Aynı bilgisayardaysa)
     sql_file = get_ue5_sql_file_path()
 
     if sql_file.exists():
@@ -135,16 +176,24 @@ def add_sql_rows_from_network(rows: list) -> int:
         return 0
     added = 0
     try:
-        conn = sqlite3.connect(str(DB_FILE), timeout=5.0)
+        conn = sqlite3.connect(str(DB_FILE), timeout=15.0)
         cursor = conn.cursor()
+        cursor.execute("BEGIN TRANSACTION")
         for r in rows:
+            v_code = str(r.get("vehicle_code", "rover_01"))
+            t_sec = float(r.get("time", time.time()))
+            # Mükerrer kaydı önle: bu araç ve zaman damgası zaten varsa ekleme
+            cursor.execute("SELECT 1 FROM vehicle_telemetry WHERE vehicle_code = ? AND ABS(timestamp_sec - ?) < 0.05 LIMIT 1", (v_code, t_sec))
+            if cursor.fetchone():
+                continue
+
             cursor.execute("""
                 INSERT INTO vehicle_telemetry 
                 (timestamp_sec, vehicle_code, vehicle_id, roll_deg, pitch_deg, yaw_deg, altitude_m, airspeed_ms, battery_pct, lat, lon, flight_mode)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
-                float(r.get("time", time.time())),
-                str(r.get("vehicle_code", "rover_01")),
+                t_sec,
+                v_code,
                 int(r.get("vehicle_id", 0)),
                 float(r.get("roll", 0.0)),
                 float(r.get("pitch", 0.0)),
@@ -158,6 +207,10 @@ def add_sql_rows_from_network(rows: list) -> int:
             ))
             added += 1
         conn.commit()
+        try:
+            cursor.execute("PRAGMA wal_checkpoint(PASSIVE)")
+        except Exception:
+            pass
         cursor.execute("SELECT COUNT(*) FROM vehicle_telemetry")
         _total_logged = cursor.fetchone()[0] or 0
         conn.close()

@@ -112,6 +112,11 @@ def run_sql_sync_worker():
 
     while True:
         try:
+            # 1. Ağ üzerinden Unreal Engine'e SQL telemetri tablosu talep paketi gönder (UDP Port 7499)
+            if discovery_service_ref:
+                discovery_service_ref.request_sql_table(discovered_ue5_ip)
+
+            # 2. Yerel diskte (varsa) Saved/Telemetry/flight_telemetry.sql dosyasından senkronize et
             res = telemetry_db.sync_sql_data(discovered_ue5_ip)
             new_count = res.get("new_rows_count", 0)
             total = res.get("total_logged", 0)
@@ -779,6 +784,17 @@ def main():
         add_system_log(f"[KEŞİF] Unreal Engine eşleştirildi: {ue_ip}")
 
     discovery.on_probe_received = on_probe_discovered
+
+    def on_sql_rows_received(added, total_received, sender_ip):
+        with telemetry_lock:
+            global cached_db_fleet
+            cached_db_fleet = telemetry_db.get_fleet_from_db()
+        v_list = [v["code"] for v in cached_db_fleet]
+        msg = f"📥 [SQL AĞ SENKRONİZASYONU] Unreal Engine ({sender_ip}) üzerinden +{added} satır SQL verisi alındı (SQL Filosu: {len(cached_db_fleet)} araç: {', '.join(v_list)})"
+        print(msg)
+        add_system_log(msg)
+
+    discovery.on_sql_rows_received = on_sql_rows_received
     discovery.start()
 
     # 2. Arka Plan SQL Senkronizasyon İşçisini Başlat (Her 60 saniyede bir ve başlangıçta)

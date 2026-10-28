@@ -142,6 +142,32 @@ class PiSimDiscoveryService:
         self.heartbeat_thread = None
         self.target_ue5_ip = None
         self.on_probe_received = None
+        self.on_sql_rows_received = None
+
+    def request_sql_table(self, target_ip: str = None):
+        """Unreal Engine'den UDP Port 7499 üzerinden SQL telemetri tablosunu talep eder."""
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+        try:
+            req_msg = json.dumps({
+                "magic": "PISIM_REQ_SQL_TABLE",
+                "client_ip": self.local_ip,
+                "port": self.port,
+                "timestamp": time.time()
+            }).encode('utf-8')
+
+            targets = get_broadcast_targets(self.port)
+            dest_ip = target_ip or self.target_ue5_ip
+            if dest_ip and dest_ip not in ("255.255.255.255", "127.0.0.1"):
+                targets.append((dest_ip, self.port))
+
+            for t in set(targets):
+                try:
+                    sock.sendto(req_msg, t)
+                except Exception:
+                    pass
+        finally:
+            sock.close()
 
     def start(self):
         self.running = True
@@ -226,6 +252,16 @@ class PiSimDiscoveryService:
                     print(f"🎯 [Abonelik Onayı RX ← UE5 ({sender_ip})]: Araç '{msg.get('vehicle_code')}' abone yapıldı!")
                 elif msg.get("magic") == "PISIM_ACK_VIDEO":
                     print(f"📹 [Video Onayı RX ← UE5 ({sender_ip})]: Araç '{msg.get('vehicle_code')}' video: {msg.get('subscribed')}")
+                elif msg.get("magic") == "PISIM_RESP_SQL_TABLE":
+                    table_data = msg.get("data", {})
+                    rows = table_data.get("rows", [])
+                    if rows:
+                        import telemetry_db
+                        added = telemetry_db.add_sql_rows_from_network(rows)
+                        if added > 0:
+                            print(f"📥 [SQL Ağ Senkronizasyonu RX ← UE5 ({sender_ip})]: +{added} yeni telemetri satırı SQLite veritabanına işlendi!")
+                        if self.on_sql_rows_received:
+                            self.on_sql_rows_received(added, len(rows), sender_ip)
 
             except socket.timeout:
                 continue
