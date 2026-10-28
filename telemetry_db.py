@@ -28,12 +28,28 @@ except Exception:
 
 DB_FILE = Path(__file__).parent / "pisim_telemetry.db"
 SQL_DUMP_FILE = Path(__file__).parent / "flight_telemetry.sql"
+POS_FILE = Path(__file__).parent / "telemetry_sync.pos"
+
+def _load_last_pos() -> int:
+    try:
+        if POS_FILE.exists():
+            val = int(POS_FILE.read_text(encoding='utf-8').strip())
+            return max(0, val)
+    except Exception:
+        pass
+    return 0
+
+def _save_last_pos(pos: int):
+    try:
+        POS_FILE.write_text(str(pos), encoding='utf-8')
+    except Exception:
+        pass
 
 _pending_queue = queue.Queue(maxsize=20000)
 _total_logged = 0
 _writer_thread = None
 _writer_running = True
-_last_sql_file_pos = 0
+_last_sql_file_pos = _load_last_pos()
 
 def get_ue5_sql_file_path() -> Path:
     """Unreal Engine Saved/Telemetry/flight_telemetry.sql dosyasının yolunu arar."""
@@ -80,9 +96,15 @@ def sync_sql_data(discovered_ue5_ip: str = None) -> dict:
                         except Exception:
                             pass
                     conn.commit()
+                    # DB Browser gibi harici araçların anında görebilmesi için WAL'ı checkpoint yap
+                    try:
+                        cursor.execute("PRAGMA wal_checkpoint(PASSIVE)")
+                    except Exception:
+                        pass
                     cursor.execute("SELECT COUNT(*) FROM vehicle_telemetry")
                     _total_logged = cursor.fetchone()[0] or 0
                     conn.close()
+                _save_last_pos(_last_sql_file_pos)
         except Exception as e:
             print(f"⚠️ [telemetry_db] SQL senkronizasyon hatası: {e}")
 
@@ -194,6 +216,7 @@ def init_db():
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS vehicle_telemetry (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
+            created_at TEXT DEFAULT (datetime('now', 'localtime')),
             timestamp_sec REAL NOT NULL,
             vehicle_code TEXT NOT NULL,
             vehicle_id INTEGER NOT NULL,
@@ -208,6 +231,11 @@ def init_db():
             flight_mode TEXT
         )
     """)
+    # Tablo önceden varsa created_at sütununu ekle
+    try:
+        cursor.execute("ALTER TABLE vehicle_telemetry ADD COLUMN created_at TEXT DEFAULT (datetime('now', 'localtime'))")
+    except Exception:
+        pass
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_telemetry_time ON vehicle_telemetry(timestamp_sec)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_telemetry_code ON vehicle_telemetry(vehicle_code)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_telemetry_vehicle ON vehicle_telemetry(vehicle_id)")
@@ -273,7 +301,7 @@ def get_recent_rows(max_rows: int = 50, vehicle_code: str = None) -> list:
         cursor = conn.cursor()
         if vehicle_code:
             cursor.execute("""
-                SELECT id, timestamp_sec, vehicle_code, vehicle_id, roll_deg, pitch_deg, yaw_deg, altitude_m, airspeed_ms, battery_pct, lat, lon, flight_mode
+                SELECT id, created_at, timestamp_sec, vehicle_code, vehicle_id, roll_deg, pitch_deg, yaw_deg, altitude_m, airspeed_ms, battery_pct, lat, lon, flight_mode
                 FROM vehicle_telemetry
                 WHERE vehicle_code = ?
                 ORDER BY id DESC
@@ -281,7 +309,7 @@ def get_recent_rows(max_rows: int = 50, vehicle_code: str = None) -> list:
             """, (vehicle_code, max_rows))
         else:
             cursor.execute("""
-                SELECT id, timestamp_sec, vehicle_code, vehicle_id, roll_deg, pitch_deg, yaw_deg, altitude_m, airspeed_ms, battery_pct, lat, lon, flight_mode
+                SELECT id, created_at, timestamp_sec, vehicle_code, vehicle_id, roll_deg, pitch_deg, yaw_deg, altitude_m, airspeed_ms, battery_pct, lat, lon, flight_mode
                 FROM vehicle_telemetry
                 ORDER BY id DESC
                 LIMIT ?
@@ -293,6 +321,7 @@ def get_recent_rows(max_rows: int = 50, vehicle_code: str = None) -> list:
         for r in rows:
             result.append({
                 "id": r["id"],
+                "created_at": r["created_at"] if "created_at" in r.keys() and r["created_at"] else "--",
                 "time": r["timestamp_sec"],
                 "vehicle_code": r["vehicle_code"],
                 "vehicle_id": r["vehicle_id"],
@@ -372,8 +401,10 @@ def get_fleet_from_db(max_age_sec: float = None) -> list:
 
 def clear_fleet(preserve_codes: list = None) -> bool:
     """Eski veya çevrimdışı araç kayıtlarını temizler."""
-    global _last_sql_file_pos
+    global _last_sql_file_pos, _total_logged
     _last_sql_file_pos = 0
+    _save_last_pos(0)
+    _total_logged = 0
     try:
         conn = sqlite3.connect(str(DB_FILE), timeout=5.0)
         cursor = conn.cursor()
@@ -383,6 +414,10 @@ def clear_fleet(preserve_codes: list = None) -> bool:
         else:
             cursor.execute("DELETE FROM vehicle_telemetry")
         conn.commit()
+        try:
+            cursor.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        except Exception:
+            pass
         conn.close()
 
         # SQL döküm dosyasını da temizle
@@ -392,7 +427,7 @@ def clear_fleet(preserve_codes: list = None) -> bool:
             f.write(f"-- Temizleme Zamanı: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
             f.write("-- =========================================================================\n\n")
 
-        print("🧹 [telemetry_db] Araç kayıtları ve SQL dökümü başarıyla temizlendi.")
+        print("🧹 [telemetry_db] Araç kayıtları, pozisyon imleci ve SQL dökümü başarıyla temizlendi.")
         return True
     except Exception as e:
         print(f"⚠️ [telemetry_db] clear_fleet hatası: {e}")
