@@ -204,21 +204,21 @@ class PiSimDiscoveryService:
 
                 # Unreal Engine probe veya heartbeat isteği yakalandığında
                 if msg.get("magic") in ("PISIM_PROBE", "PISIM_HEARTBEAT") or "UE5" in msg.get("source", "") or "UNREAL" in str(msg):
+                    is_first = (self.target_ue5_ip != sender_ip)
                     self.target_ue5_ip = sender_ip
-                    incoming_msg = msg.get("msg", "HI FROM UNREAL")
-                    print(f"📡 [Keşif RX ← UE5 ({sender_ip})]: \"{incoming_msg}\" (UDP Port {self.port})")
                     resp = {
                         "magic": "PISIM_BEACON",
                         "device": "Raspberry Pi 5",
                         "name": "Raspberry Pi 5 (Companion)",
                         "ip": self.local_ip,
                         "telemetry_port": TELEMETRY_PORT,
-                        "msg": "HI FROM PI5",
                         "status": "ONLINE",
                         "timestamp": time.time()
                     }
                     sock.sendto(json.dumps(resp).encode('utf-8'), addr)
-                    print(f"📤 [Keşif TX → UE5 ({sender_ip})]: \"HI FROM PI5\" (UDP Port {self.port})")
+                    if is_first:
+                        print(f"📡 [Keşif RX ← UE5 ({sender_ip})]: Unreal Engine köprüsü bağlandı! (UDP Port {self.port})")
+                        print(f"📤 [Keşif TX → UE5 ({sender_ip})]: Pi 5 Beacon iletildi (UDP Port {self.port})")
                     if self.on_probe_received:
                         self.on_probe_received(sender_ip)
 

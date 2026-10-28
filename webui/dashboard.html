@@ -387,12 +387,13 @@
                 const detailGreeting = document.getElementById('detail-vehicle-greeting');
                 const nodeCenterMsg = document.getElementById('node-center-msg');
 
-                // 3. Sistem loglarını aktar (SQL çekimi, RX mesajları vb.)
+                // 3. Sistem loglarını aktar (SQL çekimi, RX mesajları vb.) - HEM ALT PANELE HEM SAĞ SİSTEM LOGUNA
                 if (Array.isArray(data.recent_logs)) {
                     data.recent_logs.forEach(msg => {
                         if (!loggedHistory.has(msg)) {
                             loggedHistory.add(msg);
                             addLog(msg);
+                            addPacketLog(msg); // Alt paneldeki büyük canlı log akışına anında ekle!
                             if (loggedHistory.size > 200) loggedHistory.clear();
                         }
                     });
@@ -633,10 +634,31 @@
 
             const time = getTime();
             const div = document.createElement('div');
-            div.innerHTML = `[${time}] <b style="color:var(--accent-color);">UDP</b> | ${line}`;
+            div.style.padding = '2px 0';
+            div.style.borderBottom = '1px solid rgba(255,255,255,0.04)';
+
+            let tag = '<b style="color:var(--accent-color);">LOG</b>';
+            if (line.includes('SQL')) {
+                tag = '<b style="color:#ffaa00;">SQL</b>';
+            } else if (line.includes('ABONELİK') || line.includes('SUB_') || line.includes('ACK')) {
+                tag = '<b style="color:#00e5ff;">SUB</b>';
+            } else if (line.includes('RX')) {
+                tag = '<b style="color:#00dfb6;">RX</b>';
+            } else if (line.includes('TX') || line.includes('KOMUT')) {
+                tag = '<b style="color:#ff9900;">TX</b>';
+            } else if (line.includes('HATA') || line.includes('UYARI')) {
+                tag = '<b style="color:#ff4444;">ERR</b>';
+            }
+
+            let cleanLine = line;
+            if (/^\[\d{2}:\d{2}:\d{2}\]/.test(cleanLine)) {
+                cleanLine = cleanLine.replace(/^\[\d{2}:\d{2}:\d{2}\]\s*/, '');
+            }
+
+            div.innerHTML = `[${time}] ${tag} | ${cleanLine}`;
             stream.appendChild(div);
 
-            if (stream.children.length > 30) {
+            if (stream.children.length > 60) {
                 stream.removeChild(stream.children[0]);
             }
             stream.scrollTop = stream.scrollHeight;
@@ -799,30 +821,42 @@
 
         async function fetchSqlTable() {
             try {
-                const res = await fetch('/api/sql_table?max_rows=30');
+                const res = await fetch('/api/sql_table?max_rows=50');
+                if (!res.ok) return;
                 const data = await res.json();
                 const tbody = document.getElementById('sql-table-tbody');
                 const status = document.getElementById('sql-table-status-tag');
                 if (status) status.innerText = `Toplam: ${data.total_logged || 0} satır | SQLite`;
                 if (!data.rows || data.rows.length === 0) {
-                    tbody.innerHTML = '<tr><td colspan="11" style="text-align:center; padding:20px; color:var(--text-dark);">Henüz veritabanında satır yok. Unreal simülasyonu başladığında otomatik dolar.</td></tr>';
+                    tbody.innerHTML = '<tr><td colspan="11" style="text-align:center; padding:20px; color:#ffaa00;">Henüz SQL satırı bulunamadı. Unreal Engine 10 saniyede bir batch yazar.</td></tr>';
                     return;
                 }
-                tbody.innerHTML = data.rows.map(r => `
-                    <tr style="border-bottom: 1px solid rgba(255,255,255,0.05); font-size:10px;">
-                        <td style="padding:4px 6px; color:var(--text-muted);">${r.id}</td>
-                        <td style="padding:4px 6px;">${r.time ? r.time.toFixed(1) : '--'}s</td>
-                        <td style="padding:4px 6px; color:#00e5ff; font-weight:700;">${r.vehicle_code || ('rover_' + (r.vehicle_id + 1))}</td>
-                        <td style="padding:4px 6px; color:#ffffff;">#${r.vehicle_id}</td>
-                        <td style="padding:4px 6px;">${r.roll > 0 ? '+' : ''}${r.roll}°</td>
-                        <td style="padding:4px 6px;">${r.pitch > 0 ? '+' : ''}${r.pitch}°</td>
-                        <td style="padding:4px 6px;">${r.yaw}°</td>
-                        <td style="padding:4px 6px; color:#00dfb6;">${r.altitude}m</td>
-                        <td style="padding:4px 6px;">${r.speed} m/s</td>
-                        <td style="padding:4px 6px; color:#ffaa00;">${r.battery}%</td>
-                        <td style="padding:4px 6px; color:var(--accent-color); font-weight:800;">${r.mode}</td>
-                    </tr>
-                `).join('');
+                tbody.innerHTML = data.rows.map(r => {
+                    const roll = (r.roll !== undefined && r.roll !== null) ? Number(r.roll).toFixed(1) : '0.0';
+                    const pitch = (r.pitch !== undefined && r.pitch !== null) ? Number(r.pitch).toFixed(1) : '0.0';
+                    const yaw = (r.yaw !== undefined && r.yaw !== null) ? Number(r.yaw).toFixed(1) : '0.0';
+                    const alt = (r.altitude !== undefined && r.altitude !== null) ? Number(r.altitude).toFixed(1) : '0.0';
+                    const spd = (r.speed !== undefined && r.speed !== null) ? Number(r.speed).toFixed(1) : '0.0';
+                    const batt = (r.battery !== undefined && r.battery !== null) ? Number(r.battery).toFixed(0) : '--';
+                    const t = (r.time !== undefined && r.time !== null) ? Number(r.time).toFixed(1) : '--';
+                    const code = r.vehicle_code || ('rover_' + (r.vehicle_id + 1));
+
+                    return `
+                        <tr style="border-bottom: 1px solid rgba(255,255,255,0.05); font-size:10px;">
+                            <td style="padding:4px 6px; color:var(--text-muted);">${r.id}</td>
+                            <td style="padding:4px 6px;">${t}s</td>
+                            <td style="padding:4px 6px; color:#00e5ff; font-weight:700;">${code}</td>
+                            <td style="padding:4px 6px; color:#ffffff;">#${r.vehicle_id}</td>
+                            <td style="padding:4px 6px;">${Number(roll) > 0 ? '+' : ''}${roll}°</td>
+                            <td style="padding:4px 6px;">${Number(pitch) > 0 ? '+' : ''}${pitch}°</td>
+                            <td style="padding:4px 6px;">${yaw}°</td>
+                            <td style="padding:4px 6px; color:#00dfb6;">${alt}m</td>
+                            <td style="padding:4px 6px;">${spd} km/s</td>
+                            <td style="padding:4px 6px; color:#ffaa00;">${batt}%</td>
+                            <td style="padding:4px 6px; color:var(--accent-color); font-weight:800;">${r.mode || 'AUTO'}</td>
+                        </tr>
+                    `;
+                }).join('');
             } catch (e) {
                 console.error("SQL tablo hatası:", e);
             }

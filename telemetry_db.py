@@ -346,8 +346,12 @@ def get_fleet_from_db(max_age_sec: float = None) -> list:
 
         result = []
         for r in rows:
+            v_code = r["vehicle_code"]
+            # Eski oturumlardan kalan tarih damgalı hayalet araçları yoksay
+            if v_code and v_code.count('_') > 1:
+                continue
             result.append({
-                "code": r["vehicle_code"],
+                "code": v_code,
                 "id": r["vehicle_id"],
                 "name": f"Rover {r['vehicle_id'] + 1:02d}",
                 "speed": round(float(r["airspeed_ms"]), 1) if r["airspeed_ms"] is not None else 0.0,

@@ -104,8 +104,8 @@ def pop_recent_system_logs() -> list:
 
 def run_sql_sync_worker():
     """
-    KURAL: SQL'den ilk açılışta ve sonrasında da her 60 saniyede bir SADECE YENİ GELEN VERİLERİ çeker.
-    (Bu aşamada aktif araç olmadığı için hiçbir araç aktif olarak veri aktarmayacak ama biz verileri çektikçe loga yazıcaz).
+    KURAL: SQL'den ilk açılışta ve sonrasında her 10 saniyede bir SADECE YENİ GELEN VERİLERİ çeker.
+    (Bu aşamada aktif araç olmasa bile SQL verilerini çektikçe terminale ve alt loga yazar).
     """
     global cached_db_fleet
     first_run = True
@@ -123,19 +123,19 @@ def run_sql_sync_worker():
 
             if first_run:
                 first_run = False
-                msg = f"[SQL BAŞLANGIÇ] İlk açılış: {new_count} satır yeni veri çekildi (Toplam: {total} satır, Filo: {len(fleet_data)} araç)"
-                print(f"🛢️ {msg} | Araçlar: {', '.join(v_list) if v_list else 'Kayıt bulunamadı'}")
+                msg = f"🛢️ [SQL BAŞLANGIÇ] İlk açılış: {new_count} satır yeni veri çekildi (Toplam: {total} satır, Filo: {len(fleet_data)} araç)"
+                print(f"{msg} | Araçlar: {', '.join(v_list) if v_list else 'Kayıt bulunamadı'}")
                 add_system_log(msg)
             else:
-                msg = f"[SQL 60sn SENKRONİZASYON] {new_count} yeni satır çekildi (Toplam: {total} satır, Filo: {len(fleet_data)} araç)"
-                print(f"🛢️ {msg} | Filodaki Araçlar: {', '.join(v_list) if v_list else 'Henüz kayıt yok'}")
+                msg = f"🛢️ [SQL 10sn SENKRONİZASYON] {new_count} yeni satır çekildi (Toplam: {total} satır, Filo: {len(fleet_data)} araç)"
+                print(f"{msg} | Filodaki Araçlar: {', '.join(v_list) if v_list else 'Henüz kayıt yok'}")
                 add_system_log(msg)
 
         except Exception as e:
             print(f"⚠️ [SQL Sync Hatası]: {e}")
 
-        # Her 60 saniyede bir çalışır
-        time.sleep(60.0)
+        # Her 10 saniyede bir çalışır (Kullanıcı talebi)
+        time.sleep(10.0)
 
 
 class PiSimRequestHandler(http.server.SimpleHTTPRequestHandler):
@@ -266,6 +266,8 @@ class PiSimRequestHandler(http.server.SimpleHTTPRequestHandler):
             qs = parse_qs(parsed_url.query)
             max_rows = int(qs.get('max_rows', [50])[0])
             v_code = qs.get('code', [None])[0]
+            # Modal açıldığında veya sorgulandığında hemen SQL dosyasını tara ve tazele
+            telemetry_db.sync_sql_data(discovered_ue5_ip)
             stats = telemetry_db.get_stats()
             rows = telemetry_db.get_recent_rows(max_rows, vehicle_code=v_code)
             res = {
