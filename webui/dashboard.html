@@ -226,17 +226,21 @@
             </div>
 
             <!-- KAMERA VE SENSÖR ÖNİZLEME PENCERESİ -->
-            <div class="camera-preview-frame">
-                <div style="display: flex; justify-content: space-between; font-size: 9px; color: var(--accent-color); font-weight: 800;">
+            <button id="btn-toggle-video" onclick="toggleVideoSubscription()" style="width: 100%; padding: 5px 8px; font-family: var(--font-mono); font-size: 10px; font-weight: 700; background: rgba(0, 223, 182, 0.12); border: 1px solid var(--accent-color); color: var(--accent-color); cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px; margin-top: 6px; margin-bottom: 4px; transition: all 0.2s; clip-path: polygon(0 0, calc(100% - 5px) 0, 100% 5px, 100% 100%, 5px 100%, 0 calc(100% - 5px));">
+                📹 CANLI VİDEO YAYININA ABONE OL
+            </button>
+            <div class="camera-preview-frame" style="position: relative; overflow: hidden;">
+                <img id="camera-live-feed" src="" alt="Canlı Kamera" style="display: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; z-index: 1;" />
+                <div style="position: relative; z-index: 2; display: flex; justify-content: space-between; font-size: 9px; color: var(--accent-color); font-weight: 800;">
                     <span>[FPV KAMERA / SENSÖR]</span>
                     <span id="cam-telemetry-overlay">FOV: 85° • EO/IR</span>
                 </div>
 
-                <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 28px; height: 28px; border: 1px solid var(--accent-color); border-radius: 50%; display: flex; align-items: center; justify-content: center; pointer-events: none;">
+                <div id="camera-placeholder-center" style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 28px; height: 28px; border: 1px solid var(--accent-color); border-radius: 50%; display: flex; align-items: center; justify-content: center; pointer-events: none; z-index: 2;">
                     <div style="width: 4px; height: 4px; background: var(--accent-color); border-radius: 50%;"></div>
                 </div>
 
-                <div style="display: flex; justify-content: space-between; font-size: 9px; color: var(--text-muted);">
+                <div style="position: relative; z-index: 2; display: flex; justify-content: space-between; font-size: 9px; color: var(--text-muted); margin-top: auto;">
                     <span id="detail-coords">--° N, --° E</span>
                     <span id="detail-alt-tag">ALT: -- m</span>
                 </div>
@@ -338,6 +342,7 @@
         let isConnected = false;
         let lastLoggedSec = 0;
         let wasConnectedLogFired = false;
+        const loggedHistory = new Set();
 
         async function syncLiveTelemetry() {
             try {
@@ -346,7 +351,7 @@
                 const data = await res.json();
                 if (!data) return;
 
-                // 1. Kendi IP'mizi ve Hedef IP'yi ilk adımda derhal güncelle (Asla YÜKLENİYOR... da takılmaz)
+                // 1. IP Bilgilerini Güncelle
                 if (data.local_ip) {
                     const lblLocalIp = document.getElementById('label-local-ip');
                     if (lblLocalIp) lblLocalIp.innerText = data.local_ip;
@@ -366,10 +371,10 @@
                     if (inpTarget && !inpTarget.value) inpTarget.placeholder = data.ue5_ip;
                 }
 
-                // 2. Canlı bağlantı bayrağı: Doğrudan sunucunun hesapladığı data.connected veya aktif filo araçları kontrol edilir.
-                // İstemci-sunucu saat uyumsuzluğunu (clock drift) önlemek için istemci tarafı Date.now() karşılaştırması kaldırıldı.
-                const hasFleet = Array.isArray(data.fleet) && data.fleet.some(v => v.connected);
-                isConnected = Boolean(data.connected === true || hasFleet);
+                // 2. KÖPRÜ DURUMU: UE5'ten keşif paketi / heartbeat / SQL verisi geliyorsa köprü bağlıdır
+                const isUeConnected = Boolean(data.connected === true);
+                const isStreaming = Boolean(data.streaming === true);
+                isConnected = isUeConnected;
 
                 const statusTag = document.getElementById('bridge-status-tag');
                 const headerBadge = document.getElementById('header-status-badge');
@@ -382,16 +387,29 @@
                 const detailGreeting = document.getElementById('detail-vehicle-greeting');
                 const nodeCenterMsg = document.getElementById('node-center-msg');
 
-                if (isConnected) {
-                    // Dinamik araç selamlaması (Örn: HI FROM rover_01_2810260020)
-                    const curCode = data.vehicle_code || ('rover_' + (Number(data.vehicle_id || 0) + 1));
-                    const curName = data.vehicle_name || ('Rover ' + String(Number(data.vehicle_id || 0) + 1).padStart(2, '0'));
-                    const fullLabel = `${curName} [${curCode}]`;
-                    const rxMsg = data.msg || `HI FROM ${curCode}`;
+                // 3. Sistem loglarını aktar (SQL çekimi, RX mesajları vb.)
+                if (Array.isArray(data.recent_logs)) {
+                    data.recent_logs.forEach(msg => {
+                        if (!loggedHistory.has(msg)) {
+                            loggedHistory.add(msg);
+                            addLog(msg);
+                            if (loggedHistory.size > 200) loggedHistory.clear();
+                        }
+                    });
+                }
 
-                    // 1. Durum Etiketleri
+                // 4. Veri Kanalları ve Düğüm Parlamaları
+                if (isUeConnected) {
+                    pipes.forEach(p => p.classList.add('connected'));
+                    const nPi5 = document.getElementById('node-pi5');
+                    const nUe5 = document.getElementById('node-ue5');
+                    const nCenter = document.getElementById('node-center-telemetry');
+                    if (nPi5) nPi5.classList.add('active-node');
+                    if (nUe5) nUe5.classList.add('active-node');
+                    if (nCenter) nCenter.classList.add('active-node');
+
                     if (statusTag) {
-                        statusTag.innerText = `CANLI [UE5: ${data.ue5_ip || '7400'}]`;
+                        statusTag.innerText = `UE5 BAĞLI [${data.ue5_ip || 'AĞ'}]`;
                         statusTag.style.background = "var(--accent-dim)";
                         statusTag.style.color = "var(--accent-color)";
                         statusTag.style.borderColor = "var(--accent-color)";
@@ -402,130 +420,7 @@
                         headerBadge.style.color = "var(--accent-color)";
                         headerBadge.style.borderColor = "var(--accent-color)";
                     }
-                    if (headerGreeting) {
-                        headerGreeting.style.display = "inline-block";
-                        headerGreeting.innerText = rxMsg;
-                    }
-                    if (activeBadge) {
-                        activeBadge.innerText = "[CANLI YAYIN]";
-                        activeBadge.style.color = "var(--accent-color)";
-                    }
-                    if (detailGreeting) {
-                        detailGreeting.innerText = `● "${rxMsg}"`;
-                        detailGreeting.style.color = "#00e5ff";
-                    }
-                    if (nodeCenterMsg) {
-                        nodeCenterMsg.innerText = rxMsg;
-                    }
-
-                    // 2. Veri Kanalları ve Düğüm Parlamaları
-                    pipes.forEach(p => p.classList.add('connected'));
-                    const nPi5 = document.getElementById('node-pi5');
-                    const nUe5 = document.getElementById('node-ue5');
-                    const nCenter = document.getElementById('node-center-telemetry');
-                    if (nPi5) nPi5.classList.add('active-node');
-                    if (nUe5) nUe5.classList.add('active-node');
-                    if (nCenter) nCenter.classList.add('active-node');
-
-                    // 3. SOL PANEL: CANLI FİLO LİSTESİ DOLDURMA (Çoklu Araç Desteği)
-                    const fleet = (Array.isArray(data.fleet) && data.fleet.length > 0) ? data.fleet : [{
-                        code: curCode,
-                        id: Number(data.vehicle_id || 0),
-                        name: curName,
-                        speed: data.speed || 0,
-                        altitude: data.altitude || 0,
-                        battery: data.battery || 98,
-                        flight_mode: data.flight_mode || 'AKTİF',
-                        is_selected: true,
-                        connected: isConnected
-                    }];
-
-                    const activeCount = fleet.filter(v => v.connected).length;
-                    if (countTag) countTag.innerText = `[${activeCount}/${fleet.length} ÇEVRİMİÇİ]`;
-                    if (cardsContainer) {
-                        cardsContainer.innerHTML = fleet.map(v => {
-                            const isSel = v.is_selected || (data.selected_vehicle_code === v.code);
-                            const isOnline = Boolean(v.connected);
-                            const cardBorder = isSel 
-                                ? 'border-left: 3px solid var(--accent-color); background: rgba(0, 223, 182, 0.12);' 
-                                : (isOnline ? 'border-left: 3px solid transparent; background: rgba(255, 255, 255, 0.03);' : 'border-left: 3px solid transparent; background: rgba(255, 255, 255, 0.01); opacity: 0.6;');
-                            const badgeHtml = isSel 
-                                ? '<span class="status-indicator online" style="color: var(--accent-color); font-weight: 800; font-size: 9.5px;">● SEÇİLİ (ABONE)</span>' 
-                                : (isOnline 
-                                    ? '<span style="color: #00e5ff; font-weight: 700; font-size: 9.5px;">● ÇEVRİMİÇİ</span>' 
-                                    : '<span style="color: var(--text-muted); font-weight: 600; font-size: 9.5px;">○ ÇEVRİMDIŞI</span>');
-                            return `
-                                <div class="vehicle-card ${isSel ? 'active' : ''}" onclick="selectVehicle('${v.code}')" style="${cardBorder} padding: 8px; border-radius: 4px; cursor: pointer; margin-bottom: 6px; transition: all 0.2s ease;">
-                                    <div class="vehicle-card-header" style="display: flex; justify-content: space-between; align-items: center;">
-                                        <span class="vehicle-card-title" style="font-weight: 800; color: ${isOnline ? '#ffffff' : 'var(--text-muted)'}; font-size: 11px;">
-                                            ${isOnline ? '🟢' : '⚪'} ${v.name}
-                                            <span style="font-size: 8.5px; opacity: 0.75; font-family: var(--font-mono); color: ${isOnline ? '#00e5ff' : 'var(--text-dark)'}; display: block;">[${v.code}]</span>
-                                        </span>
-                                        ${badgeHtml}
-                                    </div>
-                                    <div class="vehicle-card-body" style="display: grid; grid-template-columns: auto 1fr; gap: 2px 8px; font-size: 9.5px; margin-top: 5px;">
-                                        <span style="color: var(--text-muted);">Portlar:</span>
-                                        <span style="color: #00e5ff; font-family: var(--font-mono); font-weight: 700;">UDP 7400 (Tel) / 7401 (Vid)</span>
-                                        <span style="color: var(--text-muted);">Hız:</span>
-                                        <span style="color: var(--accent-color); font-weight: 800;">${v.speed || 0} km/s</span>
-                                        <span style="color: var(--text-muted);">İrtifa:</span>
-                                        <span style="color: #ffffff; font-weight: 700;">${v.altitude || 0} m</span>
-                                        <span style="color: var(--text-muted);">Batarya:</span>
-                                        <span style="color: #00dfb6; font-weight: 700;">% ${v.battery || 98}</span>
-                                        <span style="color: var(--text-muted);">Mod:</span>
-                                        <span style="color: #ffaa00; font-weight: 800;">${v.flight_mode || 'AKTİF'}</span>
-                                    </div>
-                                </div>
-                            `;
-                        }).join('');
-                    }
-
-                    // 4. RADAR & HARİTA
-                    if (radarBlip) {
-                        radarBlip.style.display = "flex";
-                        const blipLabel = document.getElementById('live-blip-label');
-                        if (blipLabel) blipLabel.innerText = `${fullLabel} [${data.speed || 0} km/s]`;
-                    }
-                    const targetLabel = document.getElementById('map-target-label');
-                    if (targetLabel) targetLabel.innerText = `${fullLabel} (Abone Olundu)`;
-                    const gnssLabel = document.getElementById('gnss-fix-label');
-                    if (gnssLabel) gnssLabel.innerText = "3D FIX [RTK CANLI]";
-
-                    // 5. SAĞ PANEL: ARAÇ TELEMETRİ DETAYLARI DOLDURMA
-                    const titleEl = document.getElementById('detail-vehicle-title');
-                    if (titleEl) titleEl.innerText = fullLabel;
-                    const speedEl = document.getElementById('detail-speed-val');
-                    if (speedEl) speedEl.innerText = `${data.speed || 0} km/s`;
-                    const battEl = document.getElementById('detail-battery-val');
-                    if (battEl) battEl.innerText = `% ${data.battery || 98}`;
-                    const missEl = document.getElementById('detail-mission-val');
-                    if (missEl) missEl.innerText = `${data.flight_mode || 'AKTİF'}`;
-                    const sensEl = document.getElementById('detail-sensors-val');
-                    if (sensEl) sensEl.innerText = `${data.altitude || 0} m`;
-                    const coordsEl = document.getElementById('detail-coords');
-                    if (coordsEl) coordsEl.innerText = `${data.lat ? data.lat.toFixed(4) : '39.9334'}° N, ${data.lon ? data.lon.toFixed(4) : '32.8597'}° E`;
-                    const altTagEl = document.getElementById('detail-alt-tag');
-                    if (altTagEl) altTagEl.innerText = `ALT: ${data.altitude || 0} m`;
-                    const camOverlayEl = document.getElementById('cam-telemetry-overlay');
-                    if (camOverlayEl) camOverlayEl.innerText = `R:${data.roll || 0}° P:${data.pitch || 0}° Y:${data.yaw || 0}° • SPD:${data.speed || 0}km/s`;
-
-                    // 6. ALT PANEL TERMİNALİ: CANLI PAKET AKIŞI
-                    const nowSec = Date.now() / 1000;
-                    if (nowSec - lastLoggedSec >= 1.0) {
-                        lastLoggedSec = nowSec;
-                        addPacketLog(`RX ← UE5 (${data.ue5_ip || 'Unreal'}:7400) | <b style="color:#00e5ff;">"${rxMsg}"</b> | R:${data.roll || 0}° P:${data.pitch || 0}° | ALT:${data.altitude || 0}m SPD:${data.speed || 0}km/s`);
-                        addPacketLog(`TX → UE5 (${data.ue5_ip || 'Unreal'}:7499) | <b style="color:var(--accent-color);">"HI FROM PI5"</b> [Heartbeat Aktif]`);
-                    }
-
-                    if (!wasConnectedLogFired) {
-                        wasConnectedLogFired = true;
-                        addLog(`✅ [BAĞLANTI AKTİF] Unreal Engine telemetrisi alınıyor: ${data.ue5_ip || 'Unreal'}:7400`);
-                        addLog(`📡 Araç kilitlendi: ${fullLabel} | Selamlama: "${rxMsg}"`);
-                    }
-
                 } else {
-                    wasConnectedLogFired = false;
-                    // Bağlı Değilken: Boruların animasyonunu ve parlaklığını tamamen durdur (SÖNÜK/GRİ KALIR)
                     pipes.forEach(p => p.classList.remove('connected'));
                     const nPi5 = document.getElementById('node-pi5');
                     const nUe5 = document.getElementById('node-ue5');
@@ -535,76 +430,167 @@
                     if (nCenter) nCenter.classList.remove('active-node');
 
                     if (statusTag) {
-                        statusTag.innerText = "BEKLİYOR [UDP 7400]";
+                        statusTag.innerText = "UE5 BEKLENİYOR [UDP 7499]";
                         statusTag.style.background = "rgba(255, 170, 0, 0.15)";
                         statusTag.style.color = "#ffaa00";
                         statusTag.style.borderColor = "#ffaa00";
                     }
                     if (headerBadge) {
-                        headerBadge.innerText = "BEKLİYOR";
+                        headerBadge.innerText = "BEKLEMEDE";
                         headerBadge.style.background = "rgba(255, 170, 0, 0.15)";
                         headerBadge.style.color = "#ffaa00";
                         headerBadge.style.borderColor = "#ffaa00";
                     }
-                    if (headerGreeting) {
-                        headerGreeting.style.display = "none";
-                    }
-                    if (activeBadge) {
-                        activeBadge.innerText = "[BEKLEMEDE]";
-                        activeBadge.style.color = "var(--text-muted)";
-                    }
-                    if (detailGreeting) {
-                        detailGreeting.innerText = "[SELAMLAMA BEKLENİYOR]";
-                        detailGreeting.style.color = "var(--text-muted)";
-                    }
-                    if (nodeCenterMsg) {
-                        nodeCenterMsg.innerText = "JSON / SITL";
-                    }
-                    if (countTag) countTag.innerText = `[0/${(data.fleet || []).length} ÇEVRİMİÇİ]`;
+                }
 
-                    if (cardsContainer) {
-                        if (Array.isArray(data.fleet) && data.fleet.length > 0) {
-                            cardsContainer.innerHTML = data.fleet.map(v => {
-                                const isSel = v.is_selected || (data.selected_vehicle_code === v.code);
-                                return `
-                                    <div class="vehicle-card ${isSel ? 'active' : ''}" onclick="selectVehicle('${v.code}')" style="border-left: 3px solid transparent; background: rgba(255, 255, 255, 0.01); opacity: 0.6; padding: 8px; border-radius: 4px; cursor: pointer; margin-bottom: 6px;">
-                                        <div class="vehicle-card-header" style="display: flex; justify-content: space-between; align-items: center;">
-                                            <span class="vehicle-card-title" style="font-weight: 800; color: var(--text-muted); font-size: 11px;">
-                                                ⚪ ${v.name}
-                                                <span style="font-size: 8.5px; opacity: 0.75; font-family: var(--font-mono); color: var(--text-dark); display: block;">[${v.code}]</span>
-                                            </span>
-                                            <span style="color: var(--text-muted); font-weight: 600; font-size: 9.5px;">○ ÇEVRİMDIŞI</span>
-                                        </div>
+                // 5. SOL PANEL: FİLO LİSTESİ DOLDURMA (SQL + Canlı Yayın)
+                const fleet = Array.isArray(data.fleet) ? data.fleet : [];
+                const activeCount = fleet.filter(v => v.connected).length;
+                if (countTag) countTag.innerText = `[${activeCount}/${fleet.length} AKTİF]`;
+
+                if (cardsContainer) {
+                    if (fleet.length === 0) {
+                        cardsContainer.innerHTML = '<div style="padding: 16px 8px; color: var(--text-muted); font-size: 10px; text-align: center; border: 1px dashed var(--mono-border); border-radius: 4px;">📡 Henüz kayıtlı araç bulunmuyor.<br>(SQL senkronizasyonu veya araç bekleniyor...)</div>';
+                    } else {
+                        cardsContainer.innerHTML = fleet.map(v => {
+                            const isSel = v.is_selected || (data.selected_vehicle_code === v.code);
+                            const isOnline = Boolean(v.connected);
+                            const cardBorder = isSel 
+                                ? 'border-left: 3px solid var(--accent-color); background: rgba(0, 223, 182, 0.15); box-shadow: 0 0 10px rgba(0, 223, 182, 0.2);' 
+                                : 'border-left: 3px solid rgba(255, 255, 255, 0.1); background: rgba(0, 0, 0, 0.35);';
+                            const badgeHtml = isOnline 
+                                ? '<span style="color: #00dfb6; font-weight: 800; font-size: 9px; background: rgba(0, 223, 182, 0.15); padding: 2px 5px; border-radius: 3px; border: 1px solid #00dfb6;">● CANLI (50Hz)</span>' 
+                                : '<span style="color: #ffaa00; font-weight: 700; font-size: 9px; background: rgba(255, 170, 0, 0.12); padding: 2px 5px; border-radius: 3px; border: 1px solid rgba(255, 170, 0, 0.4);">○ KAYITLI (SQL)</span>';
+
+                            return `
+                                <div class="vehicle-card ${isSel ? 'active' : ''}" onclick="selectVehicle('${v.code}')" style="${cardBorder} padding: 8px; border-radius: 4px; cursor: pointer; margin-bottom: 6px; transition: all 0.2s ease;">
+                                    <div class="vehicle-card-header" style="display: flex; justify-content: space-between; align-items: center;">
+                                        <span class="vehicle-card-title" style="font-weight: 800; color: ${isSel ? 'var(--accent-color)' : '#ffffff'}; font-size: 11px;">
+                                            ${isOnline ? '🟢' : '📁'} ${v.name}
+                                            <span style="font-size: 8.5px; opacity: 0.8; font-family: var(--font-mono); color: #00e5ff; display: block;">[${v.code}]</span>
+                                        </span>
+                                        ${badgeHtml}
                                     </div>
-                                `;
-                            }).join('');
-                        } else if (!document.getElementById('no-vehicles-msg')) {
-                            cardsContainer.innerHTML = `
-                                <div id="no-vehicles-msg" style="padding: 24px 12px; text-align: center; color: var(--text-muted); font-size: 11px; border: 1px dashed var(--mono-border); border-radius: 4px; margin-top: 8px;">
-                                    <div style="font-size: 24px; margin-bottom: 8px; opacity: 0.6;">📡</div>
-                                    <div style="font-weight: 800; color: #ffffff; margin-bottom: 4px;">BAĞLI ARAÇ YOK</div>
-                                    <div style="font-size: 9px; color: var(--text-dark); line-height: 1.4;">
-                                        Unreal Engine simülasyonu başlatıldığında (Port 7400) aktif araç burada listelenecektir.
+                                    <div class="vehicle-card-body" style="display: grid; grid-template-columns: auto 1fr; gap: 2px 8px; font-size: 9.5px; margin-top: 5px;">
+                                        <span style="color: var(--text-muted);">Durum:</span>
+                                        <span style="color: ${isSel ? '#00e5ff' : 'var(--text-muted)'}; font-family: var(--font-mono); font-weight: 700;">${isSel ? 'SEÇİLİ (ABONE)' : (isOnline ? 'YAYINDA' : 'BEKLEMEDE')}</span>
+                                        <span style="color: var(--text-muted);">Hız:</span>
+                                        <span style="color: var(--accent-color); font-weight: 800;">${v.speed || 0} km/s</span>
+                                        <span style="color: var(--text-muted);">İrtifa:</span>
+                                        <span style="color: #ffffff; font-weight: 700;">${v.altitude || 0} m</span>
+                                        <span style="color: var(--text-muted);">Batarya:</span>
+                                        <span style="color: #00dfb6; font-weight: 700;">${(v.battery !== undefined && v.battery !== null) ? "% " + v.battery : "--"}</span>
+                                        <span style="color: var(--text-muted);">Mod:</span>
+                                        <span style="color: #ffaa00; font-weight: 800;">${v.flight_mode || 'AKTİF'}</span>
                                     </div>
                                 </div>
                             `;
-                        }
+                        }).join('');
+                    }
+                }
+
+                // 6. SAĞ PANEL: SEÇİLİ ARAÇ DETAYLARI
+                if (data.vehicle_code) {
+                    const fullLabel = `${data.vehicle_name || 'Rover'} [${data.vehicle_code}]`;
+                    const rxMsg = data.msg || (isStreaming ? `TELEMETRİ (${data.vehicle_code})` : `KAYITLI (${data.vehicle_code})`);
+
+                    if (headerGreeting) {
+                        headerGreeting.style.display = "inline-block";
+                        headerGreeting.innerText = rxMsg;
+                    }
+                    if (activeBadge) {
+                        activeBadge.innerText = isStreaming ? "[CANLI YAYIN: 50Hz]" : "[BEKLEMEDE / SQL]";
+                        activeBadge.style.color = isStreaming ? "var(--accent-color)" : "#ffaa00";
+                    }
+                    if (detailGreeting) {
+                        detailGreeting.innerText = isStreaming ? `● "${rxMsg}"` : `○ [KAYITLI / SQL]`;
+                        detailGreeting.style.color = isStreaming ? "#00e5ff" : "#ffaa00";
+                    }
+                    if (nodeCenterMsg) {
+                        nodeCenterMsg.innerText = rxMsg;
                     }
 
-                    if (radarBlip) radarBlip.style.display = "none";
-                    const targetLabel = document.getElementById('map-target-label');
-                    if (targetLabel) targetLabel.innerText = "Simülasyon Bekleniyor";
-                    const gnssLabel = document.getElementById('gnss-fix-label');
-                    if (gnssLabel) gnssLabel.innerText = "SİNYAL BEKLENİYOR";
+                    const titleEl = document.getElementById('detail-vehicle-title');
+                    if (titleEl) titleEl.innerText = fullLabel;
+                    const speedEl = document.getElementById('detail-speed-val');
+                    if (speedEl) speedEl.innerText = `${data.speed || 0} km/s`;
+                    const battEl = document.getElementById('detail-battery-val');
+                    if (battEl) battEl.innerText = `% ${data.battery !== undefined ? data.battery : "--"}`;
+                    const missEl = document.getElementById('detail-mission-val');
+                    if (missEl) missEl.innerText = `${data.flight_mode || 'BEKLİYOR'}`;
+                    const sensEl = document.getElementById('detail-sensors-val');
+                    if (sensEl) sensEl.innerText = `${data.altitude || 0} m`;
+                    const coordsEl = document.getElementById('detail-coords');
+                    if (coordsEl) coordsEl.innerText = `${data.lat ? data.lat.toFixed(4) : '--'}° N, ${data.lon ? data.lon.toFixed(4) : '--'}° E`;
+                    const altTagEl = document.getElementById('detail-alt-tag');
+                    if (altTagEl) altTagEl.innerText = `ALT: ${data.altitude || 0} m`;
+                    const camOverlayEl = document.getElementById('cam-telemetry-overlay');
+                    if (camOverlayEl) camOverlayEl.innerText = `R:${data.roll || 0}° P:${data.pitch || 0}° Y:${data.yaw || 0}° • SPD:${data.speed || 0}km/s`;
 
-                    document.getElementById('detail-vehicle-title').innerText = "[BAĞLANTI BEKLENİYOR]";
+                    if (radarBlip) {
+                        radarBlip.style.display = "flex";
+                        const blipLabel = document.getElementById('live-blip-label');
+                        if (blipLabel) blipLabel.innerText = `${fullLabel} [${data.speed || 0} km/s]`;
+                    }
+                    const targetLabel = document.getElementById('map-target-label');
+                    if (targetLabel) targetLabel.innerText = `${fullLabel} (Seçili)`;
+                    const gnssLabel = document.getElementById('gnss-fix-label');
+                    if (gnssLabel) gnssLabel.innerText = isStreaming ? "3D FIX [RTK CANLI]" : "SQL SON KONUM";
+
+                    const nowSec = Date.now() / 1000;
+                    if (isStreaming && nowSec - lastLoggedSec >= 1.5) {
+                        lastLoggedSec = nowSec;
+                        addPacketLog(`RX ← UE5 (${data.ue5_ip || 'Unreal'}:7400) | <b style="color:#00e5ff;">"${rxMsg}"</b> | R:${data.roll || 0}° P:${data.pitch || 0}° | ALT:${data.altitude || 0}m SPD:${data.speed || 0}km/s`);
+                    }
+
+                    if (isStreaming && !wasConnectedLogFired) {
+                        wasConnectedLogFired = true;
+                        addLog(`✅ [CANLI YAYIN AKTİF] ${fullLabel} telemetrisi alınıyor: Port 7400`);
+                    } else if (!isStreaming) {
+                        wasConnectedLogFired = false;
+                    }
+                } else {
+                    document.getElementById('detail-vehicle-title').innerText = "[ARAÇ SEÇİNİZ]";
                     document.getElementById('detail-speed-val').innerText = "-- km/s";
                     document.getElementById('detail-battery-val').innerText = "-- %";
                     document.getElementById('detail-mission-val').innerText = "BEKLİYOR";
                     document.getElementById('detail-sensors-val').innerText = "-- m";
                     document.getElementById('detail-coords').innerText = "--° N, --° E";
                     document.getElementById('detail-alt-tag').innerText = "ALT: -- m";
-                    document.getElementById('cam-telemetry-overlay').innerText = "[SİNYAL BEKLENİYOR - PORT 7401]";
+                    if (headerGreeting) headerGreeting.style.display = "none";
+                    if (activeBadge) {
+                        activeBadge.innerText = "[ARAÇ BEKLENİYOR]";
+                        activeBadge.style.color = "var(--text-muted)";
+                    }
+                    if (detailGreeting) {
+                        detailGreeting.innerText = "[SOL PANEL DEN ARAÇ SEÇİNİZ]";
+                        detailGreeting.style.color = "var(--text-muted)";
+                    }
+                    if (radarBlip) radarBlip.style.display = "none";
+                }
+
+                // 7. VİDEO YAYINI GÜNCELLEMESİ
+                const camImg = document.getElementById('camera-live-feed');
+                const btnVid = document.getElementById('btn-toggle-video');
+                const camPlaceholder = document.getElementById('camera-placeholder-center');
+                if (data.video_subscribed) {
+                    if (camImg) camImg.style.display = 'block';
+                    if (camPlaceholder) camPlaceholder.style.display = 'none';
+                    if (btnVid) {
+                        btnVid.innerHTML = '🔴 VİDEO YAYINDA (KAPATMAK İÇİN TIKLAYIN)';
+                        btnVid.style.borderColor = '#ff3366';
+                        btnVid.style.color = '#ff3366';
+                        btnVid.style.background = 'rgba(255, 51, 102, 0.15)';
+                    }
+                } else {
+                    if (camImg) camImg.style.display = 'none';
+                    if (camPlaceholder) camPlaceholder.style.display = 'flex';
+                    if (btnVid) {
+                        btnVid.innerHTML = '📹 CANLI VİDEO YAYININA ABONE OL';
+                        btnVid.style.borderColor = 'var(--accent-color)';
+                        btnVid.style.color = 'var(--accent-color)';
+                        btnVid.style.background = 'rgba(0, 223, 182, 0.12)';
+                    }
                 }
             } catch (err) {
                 console.error("syncLiveTelemetry error:", err);
@@ -752,12 +738,28 @@
         }
 
         let isVideoSubscribed = false;
+        let videoRefreshTimer = null;
+
         async function toggleVideoSubscription() {
             try {
                 isVideoSubscribed = !isVideoSubscribed;
                 addLog(`📹 Canlı Video: ${isVideoSubscribed ? 'AÇILDI (Port 7401 On-Demand)' : 'KAPATILDI'}`);
                 addPacketLog(`TX → UE5 | SUB_VIDEO: ${isVideoSubscribed ? 'ENABLE' : 'DISABLE'} (Port 7401)`);
                 await fetch(`/api/subscribe_video?subscribe=${isVideoSubscribed}`);
+
+                const camImg = document.getElementById('camera-live-feed');
+                if (isVideoSubscribed) {
+                    if (videoRefreshTimer) clearInterval(videoRefreshTimer);
+                    videoRefreshTimer = setInterval(() => {
+                        if (camImg && isVideoSubscribed) {
+                            camImg.src = `/api/video_frame?t=${Date.now()}`;
+                        }
+                    }, 80);
+                } else {
+                    if (videoRefreshTimer) clearInterval(videoRefreshTimer);
+                    if (camImg) camImg.src = '';
+                }
+                syncLiveTelemetry();
             } catch (err) {
                 addLog(`[HATA] Video aboneliği güncellenemedi: ${err}`);
             }

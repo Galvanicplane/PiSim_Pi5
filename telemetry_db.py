@@ -14,7 +14,17 @@ import sqlite3
 import threading
 import queue
 import time
+import sys
 from pathlib import Path
+
+# Ensure UTF-8 output on all consoles (avoid cp1254 charmap error)
+try:
+    if hasattr(sys.stdout, 'reconfigure'):
+        sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+    if hasattr(sys.stderr, 'reconfigure'):
+        sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+except Exception:
+    pass
 
 DB_FILE = Path(__file__).parent / "pisim_telemetry.db"
 SQL_DUMP_FILE = Path(__file__).parent / "flight_telemetry.sql"
@@ -23,6 +33,104 @@ _pending_queue = queue.Queue(maxsize=20000)
 _total_logged = 0
 _writer_thread = None
 _writer_running = True
+_last_sql_file_pos = 0
+
+def get_ue5_sql_file_path() -> Path:
+    """Unreal Engine Saved/Telemetry/flight_telemetry.sql dosyasının yolunu arar."""
+    candidates = [
+        Path(__file__).resolve().parent.parent / "Saved" / "Telemetry" / "flight_telemetry.sql",
+        Path(__file__).resolve().parent / "flight_telemetry.sql"
+    ]
+    for p in candidates:
+        if p.exists() and p.stat().st_size > 0:
+            return p
+    return candidates[0]
+
+def sync_sql_data(discovered_ue5_ip: str = None) -> dict:
+    """
+    KURAL: SQL'den ilk açılışta ve sonrasında her 60 saniyede bir SADECE YENİ GELEN VERİLERİ çeker.
+    1. Yerel dosya (Saved/Telemetry/flight_telemetry.sql) varsa son okunan byte ofsetinden sonrasını okur.
+    2. Yeni INSERT INTO ifadelerini SQLite (pisim_telemetry.db) veritabanına yazar.
+    3. Kaç satır yeni veri çekildiğini ve filodaki araçları döner.
+    """
+    global _last_sql_file_pos, _total_logged
+    new_rows = 0
+    sql_file = get_ue5_sql_file_path()
+
+    if sql_file.exists():
+        try:
+            current_size = sql_file.stat().st_size
+            if current_size < _last_sql_file_pos:
+                _last_sql_file_pos = 0
+
+            if current_size > _last_sql_file_pos:
+                with open(sql_file, "r", encoding="utf-8", errors="ignore") as f:
+                    f.seek(_last_sql_file_pos)
+                    new_content = f.read()
+                    _last_sql_file_pos = f.tell()
+
+                lines = [l.strip() for l in new_content.splitlines() if l.strip().startswith("INSERT INTO vehicle_telemetry")]
+                if lines:
+                    conn = sqlite3.connect(str(DB_FILE), timeout=5.0)
+                    cursor = conn.cursor()
+                    for line in lines:
+                        try:
+                            cursor.execute(line)
+                            new_rows += 1
+                        except Exception:
+                            pass
+                    conn.commit()
+                    cursor.execute("SELECT COUNT(*) FROM vehicle_telemetry")
+                    _total_logged = cursor.fetchone()[0] or 0
+                    conn.close()
+        except Exception as e:
+            print(f"⚠️ [telemetry_db] SQL senkronizasyon hatası: {e}")
+
+    fleet = get_fleet_from_db()
+    vehicles = [v["code"] for v in fleet]
+    return {
+        "new_rows_count": new_rows,
+        "total_logged": _total_logged,
+        "vehicles": vehicles,
+        "fleet": fleet
+    }
+
+def add_sql_rows_from_network(rows: list) -> int:
+    """Ağ üzerinden (PISIM_RESP_SQL_TABLE) gelen telemetri satırlarını SQLite veritabanına ekler."""
+    global _total_logged
+    if not rows:
+        return 0
+    added = 0
+    try:
+        conn = sqlite3.connect(str(DB_FILE), timeout=5.0)
+        cursor = conn.cursor()
+        for r in rows:
+            cursor.execute("""
+                INSERT INTO vehicle_telemetry 
+                (timestamp_sec, vehicle_code, vehicle_id, roll_deg, pitch_deg, yaw_deg, altitude_m, airspeed_ms, battery_pct, lat, lon, flight_mode)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                float(r.get("time", time.time())),
+                str(r.get("vehicle_code", "rover_01")),
+                int(r.get("vehicle_id", 0)),
+                float(r.get("roll", 0.0)),
+                float(r.get("pitch", 0.0)),
+                float(r.get("yaw", 0.0)),
+                float(r.get("altitude", 0.0)),
+                float(r.get("speed", 0.0)),
+                float(r.get("battery", 98.0)),
+                float(r.get("lat", 39.9334)),
+                float(r.get("lon", 32.8597)),
+                str(r.get("mode", "AKTİF"))
+            ))
+            added += 1
+        conn.commit()
+        cursor.execute("SELECT COUNT(*) FROM vehicle_telemetry")
+        _total_logged = cursor.fetchone()[0] or 0
+        conn.close()
+    except Exception as e:
+        print(f"⚠️ [telemetry_db] Ağ satır ekleme hatası: {e}")
+    return added
 
 def _write_batch_to_disk(batch: list):
     """Kuyruktaki satırları SQLite ve SQL dosyasına atomik batch olarak yazar."""
@@ -104,8 +212,7 @@ def init_db():
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_telemetry_code ON vehicle_telemetry(vehicle_code)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_telemetry_vehicle ON vehicle_telemetry(vehicle_id)")
     
-    # Eski sahte test araçlarını temizle
-    cursor.execute("DELETE FROM vehicle_telemetry WHERE vehicle_code LIKE '%2810260100%' OR vehicle_code = 'rover_real_test'")
+    # Veritabanı bağlantısını kaydet
     conn.commit()
 
     try:
@@ -261,6 +368,8 @@ def get_fleet_from_db(max_age_sec: float = None) -> list:
 
 def clear_fleet(preserve_codes: list = None) -> bool:
     """Eski veya çevrimdışı araç kayıtlarını temizler."""
+    global _last_sql_file_pos
+    _last_sql_file_pos = 0
     try:
         conn = sqlite3.connect(str(DB_FILE), timeout=5.0)
         cursor = conn.cursor()

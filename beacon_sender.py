@@ -158,7 +158,7 @@ class PiSimDiscoveryService:
     def _heartbeat_loop(self):
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         while self.running:
-            if self.target_ue5_ip and self.target_ue5_ip not in ("127.0.0.1", self.local_ip):
+            if self.target_ue5_ip and (self.target_ue5_ip != self.local_ip or self.target_ue5_ip == "127.0.0.1"):
                 try:
                     hb_msg = json.dumps({
                         "magic": "PISIM_HEARTBEAT",
@@ -221,6 +221,11 @@ class PiSimDiscoveryService:
                     print(f"📤 [Keşif TX → UE5 ({sender_ip})]: \"HI FROM PI5\" (UDP Port {self.port})")
                     if self.on_probe_received:
                         self.on_probe_received(sender_ip)
+
+                elif msg.get("magic") == "PISIM_ACK_SUB":
+                    print(f"🎯 [Abonelik Onayı RX ← UE5 ({sender_ip})]: Araç '{msg.get('vehicle_code')}' abone yapıldı!")
+                elif msg.get("magic") == "PISIM_ACK_VIDEO":
+                    print(f"📹 [Video Onayı RX ← UE5 ({sender_ip})]: Araç '{msg.get('vehicle_code')}' video: {msg.get('subscribed')}")
 
             except socket.timeout:
                 continue
