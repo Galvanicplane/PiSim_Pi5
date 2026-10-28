@@ -42,6 +42,7 @@ PORT = 8080
 WEBUI_DIR = Path(__file__).parent / "webui"
 TELEMETRY_PORT = 7400
 VIDEO_PORT = 7401
+SWARM_COMMAND_PORT = 7402
 UE5_CONTROL_PORT = 9002
 
 # GERÇEK TELEMETRİ DURUMU (Sahte/Fake varsayılanlar kesinlikle kaldırıldı)
@@ -499,23 +500,36 @@ class PiSimRequestHandler(http.server.SimpleHTTPRequestHandler):
             self.wfile.write(json.dumps(res).encode('utf-8'))
             return
 
-        # 5. Araç komut fırlatma REST API (ARM, DISARM, ESTOP)
+        # 5. Araç komut fırlatma REST API (ARM, DISARM, ESTOP, STOP)
         if clean_path == '/api/command':
             qs = parse_qs(parsed_url.query)
-            cmd = qs.get('cmd', [''])[0]
+            cmd = qs.get('cmd', [''])[0].strip().upper()
+            target_code = selected_vehicle_code or "all"
             target_host = discovered_ue5_ip or "127.0.0.1"
 
             sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
             try:
-                cmd_payload = json.dumps({
-                    "command": cmd,
-                    "vehicle_code": selected_vehicle_code,
-                    "timestamp": time.time()
-                }).encode('utf-8')
-                sock.sendto(cmd_payload, (target_host, UE5_CONTROL_PORT))
-                add_system_log(f"[KOMUT TX] '{cmd}' -> Araç: {selected_vehicle_code}")
-            except Exception:
-                pass
+                # E-Stop veya STOP komutu: Doğrudan Port 7402 Swarm Broadcast'e acil durdurma bas
+                if cmd in ("ESTOP", "STOP", "EMERGENCY_STOP"):
+                    swarm_payload = json.dumps({
+                        "cmd": "stop",
+                        "target": target_code,
+                        "timestamp": time.time()
+                    }).encode('utf-8')
+                    sock.sendto(swarm_payload, ("255.255.255.255", SWARM_COMMAND_PORT))
+                    sock.sendto(swarm_payload, (target_host, SWARM_COMMAND_PORT))
+                    add_system_log(f"🛑 [E-STOP TX] Sürü Durdurma: Araç '{target_code}' (Port {SWARM_COMMAND_PORT})")
+                else:
+                    cmd_payload = json.dumps({
+                        "command": cmd,
+                        "vehicle_code": target_code,
+                        "timestamp": time.time()
+                    }).encode('utf-8')
+                    sock.sendto(cmd_payload, (target_host, UE5_CONTROL_PORT))
+                    add_system_log(f"[KOMUT TX] '{cmd}' -> Araç: {target_code}")
+            except Exception as e:
+                print(f"⚠️ [KOMUT TX Hatası]: {e}")
             finally:
                 sock.close()
 
@@ -523,7 +537,45 @@ class PiSimRequestHandler(http.server.SimpleHTTPRequestHandler):
             self.send_header('Content-Type', 'application/json')
             self.send_header('Access-Control-Allow-Origin', '*')
             self.end_headers()
-            self.wfile.write(json.dumps({"status": "OK", "command": cmd, "target": target_host}).encode('utf-8'))
+            self.wfile.write(json.dumps({"status": "OK", "command": cmd, "target": target_code}).encode('utf-8'))
+            return
+
+        # 5b. Doğrudan Sürü / Araç Hız Sürüş REST API (cmd_vel: linear_x, angular_z)
+        if clean_path == '/api/drive':
+            qs = parse_qs(parsed_url.query)
+            linear_x = float(qs.get('linear_x', [0.0])[0])
+            angular_z = float(qs.get('angular_z', [0.0])[0])
+            target_code = qs.get('target', [selected_vehicle_code or 'all'])[0].strip()
+            target_host = discovered_ue5_ip or "127.0.0.1"
+
+            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+            try:
+                drive_payload = json.dumps({
+                    "cmd": "cmd_vel",
+                    "target": target_code,
+                    "linear_x": linear_x,
+                    "angular_z": angular_z,
+                    "timeout_ms": 600,
+                    "timestamp": time.time()
+                }).encode('utf-8')
+                sock.sendto(drive_payload, ("255.255.255.255", SWARM_COMMAND_PORT))
+                sock.sendto(drive_payload, (target_host, SWARM_COMMAND_PORT))
+            except Exception as e:
+                print(f"⚠️ [DRIVE TX Hatası]: {e}")
+            finally:
+                sock.close()
+
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.end_headers()
+            self.wfile.write(json.dumps({
+                "status": "OK",
+                "target": target_code,
+                "linear_x": linear_x,
+                "angular_z": angular_z
+            }).encode('utf-8'))
             return
 
         return super().do_GET()
