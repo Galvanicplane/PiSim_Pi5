@@ -5,10 +5,77 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>PiSim - Taktik Görev Kontrol Kokpiti</title>
     <link rel="stylesheet" href="style.css?v=2.5.0">
+    <link rel="stylesheet" href="leaflet.css">
+    <script src="leaflet.js"></script>
     <style>
         html, body {
             background-color: #06090c !important;
             background: #06090c radial-gradient(ellipse at center, #0e141c 0%, #040608 100%) !important;
+        }
+        /* Leaflet Taktik Karanlık Tema & Marker Stilleri */
+        .leaflet-container {
+            background-color: #06090c !important;
+            font-family: var(--font-mono, monospace) !important;
+        }
+        .leaflet-bar a {
+            background-color: #0d131a !important;
+            color: #00dfb6 !important;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1) !important;
+        }
+        .leaflet-bar a:hover {
+            background-color: #1f2937 !important;
+            color: #ffffff !important;
+        }
+        .leaflet-popup-content-wrapper {
+            background: #090d12 !important;
+            color: #e6edf3 !important;
+            border: 1px solid #00dfb6 !important;
+            border-radius: 4px !important;
+            box-shadow: 0 0 15px rgba(0, 223, 182, 0.3) !important;
+            font-size: 11px !important;
+            font-family: var(--font-mono, monospace) !important;
+        }
+        .leaflet-popup-tip {
+            background: #090d12 !important;
+        }
+        .rover-marker-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            transform: translate(-50%, -50%);
+        }
+        .rover-marker-icon {
+            width: 28px;
+            height: 28px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .rover-marker-icon.active {
+            background: rgba(0, 223, 182, 0.25);
+            border: 2px solid #00dfb6;
+            box-shadow: 0 0 12px #00dfb6, inset 0 0 6px #00dfb6;
+            color: #00dfb6;
+        }
+        .rover-marker-icon.passive {
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            color: #8b949e;
+        }
+        .rover-label-tag {
+            background: rgba(6, 9, 12, 0.85);
+            border: 1px solid var(--mono-border);
+            color: #00e5ff;
+            font-size: 8.5px;
+            font-weight: 800;
+            padding: 1px 4px;
+            border-radius: 3px;
+            white-space: nowrap;
+            margin-top: 2px;
+            pointer-events: none;
         }
     </style>
 </head>
@@ -81,40 +148,32 @@
         <!-- 2. ORTA SÜTUN: HARİTA (DOTS DESENİ) + YÜKSEK VE IŞIK DÖNEN KÖPRÜ PANELİ -->
         <section class="fleet-center-area">
             
-            <!-- ORTA ÜST: TAKTİK HARİTA & RADAR (DOTS DESENİ) -->
-            <div class="tactical-map-viewport cod-panel">
-                <div style="display: flex; justify-content: space-between; align-items: center; z-index: 20;">
-                    <div style="font-size: 11px; font-weight: 800; color: #ffffff; letter-spacing: 1px;">
-                        // TAKTİK RADAR & UYDU HARİTASI
+            <!-- ORTA ÜST: TAKTİK DÜNYA HARİTASI (LEAFLET.JS İNTERAKTİF VEKTÖR & TAKİP) -->
+            <div class="tactical-map-viewport cod-panel" style="position: relative; overflow: hidden;">
+                <!-- LEAFLET HARİTA KANVASI (GOOGLE MAPS TARZI SÜRÜKLE, TEKERLEKLE ZOOM) -->
+                <div id="tactical-leaflet-map" style="position: absolute; inset: 0; z-index: 1;"></div>
+
+                <!-- ÜST BİLGİ ŞERİDİ (Z-INDEX 20) -->
+                <div style="display: flex; justify-content: space-between; align-items: center; z-index: 20; position: relative; pointer-events: none;">
+                    <div style="font-size: 11px; font-weight: 800; color: #ffffff; letter-spacing: 1px; background: rgba(6, 9, 12, 0.85); padding: 4px 10px; border-radius: 4px; border: 1px solid var(--mono-border); pointer-events: auto; backdrop-filter: blur(4px);">
+                        // TAKTİK HARİTA (CANLI GNSS)
                     </div>
-                    <div style="display: flex; gap: 6px; align-items: center;">
-                        <span style="font-size: 9px; color: var(--text-muted);">GNSS MODU:</span>
+                    <div style="display: flex; gap: 6px; align-items: center; background: rgba(6, 9, 12, 0.85); padding: 4px 10px; border-radius: 4px; border: 1px solid var(--mono-border); pointer-events: auto; backdrop-filter: blur(4px);">
+                        <span style="font-size: 9px; color: var(--text-muted);">GNSS:</span>
                         <span id="gnss-fix-label" style="font-size: 9px; font-weight: 800; color: var(--accent-color);">SİNYAL BEKLENİYOR</span>
                     </div>
                 </div>
 
-                <!-- RADAR ÇEMBERLERİ -->
-                <div class="radar-circle" style="width: 140px; height: 140px;"></div>
-                <div class="radar-circle" style="width: 280px; height: 280px;"></div>
-                <div class="radar-circle" style="width: 440px; height: 440px;"></div>
-                <div class="radar-axis-h"></div>
-                <div class="radar-axis-v"></div>
-
-                <!-- HARİTA ÜZERİNDEKİ CANLI ARAÇ İŞARETÇİSİ (Sadece gerçek veri gelince açılır) -->
-                <div id="live-radar-blip" class="map-blip active" style="top: 50%; left: 50%; display: none;">
-                    <span style="color: var(--accent-color);">▲</span>
-                    <span id="live-blip-label">ARAÇ 01 [CANLI]</span>
-                </div>
-
-                <!-- HARİTA KONTROL TUŞLARI -->
-                <div style="margin-top: auto; display: flex; justify-content: space-between; align-items: flex-end; z-index: 20;">
-                    <div style="font-size: 10px; color: var(--text-muted);">
-                        SEÇİLİ HEDEF: <b id="map-target-label" style="color: var(--accent-color);">Simülasyon Bekleniyor</b>
+                <!-- HARİTA KONTROL VE TAKİP TUŞLARI (Z-INDEX 20) -->
+                <div style="margin-top: auto; display: flex; justify-content: space-between; align-items: flex-end; z-index: 20; position: relative; pointer-events: none;">
+                    <div style="font-size: 10px; color: var(--text-muted); background: rgba(6, 9, 12, 0.85); padding: 4px 10px; border-radius: 4px; border: 1px solid var(--mono-border); pointer-events: auto; backdrop-filter: blur(4px);">
+                        HEDEF: <b id="map-target-label" style="color: var(--accent-color);">Simülasyon Bekleniyor</b>
                     </div>
-                    <div style="display: flex; gap: 4px;">
-                        <button class="cod-btn" style="padding: 3px 8px; font-size: 10px;" onclick="addLog('Harita: Yakınlaştırıldı')">[+]</button>
-                        <button class="cod-btn" style="padding: 3px 8px; font-size: 10px;" onclick="addLog('Harita: Uzaklaştırıldı')">[-]</button>
-                        <button class="cod-btn" style="padding: 3px 8px; font-size: 10px;" onclick="centerMap()">MERKEZLE</button>
+                    <div style="display: flex; gap: 5px; pointer-events: auto;">
+                        <button id="btn-toggle-follow" class="cod-btn" style="padding: 4px 10px; font-size: 10px; font-weight: 800; border-color: var(--accent-color); color: var(--accent-color); background: rgba(0, 223, 182, 0.18);" onclick="toggleFollowVehicle()">🎯 TAKİP: AÇIK</button>
+                        <button class="cod-btn" style="padding: 4px 10px; font-size: 10px;" onclick="zoomMapIn()">[+]</button>
+                        <button class="cod-btn" style="padding: 4px 10px; font-size: 10px;" onclick="zoomMapOut()">[-]</button>
+                        <button class="cod-btn" style="padding: 4px 10px; font-size: 10px;" onclick="centerMap()">MERKEZLE</button>
                     </div>
                 </div>
             </div>
@@ -450,6 +509,9 @@
                     }
                 }
 
+                // Harita işaretçilerini canlı telemetriyle güncelle
+                updateFleetMarkersOnMap(fleet, data.selected_vehicle_code, data);
+
                 // 5. SOL PANEL: FİLO LİSTESİ DOLDURMA (SQL + Canlı Yayın)
                 const fleet = Array.isArray(data.fleet) ? data.fleet : [];
                 const activeCount = fleet.filter(v => v.connected).length;
@@ -607,6 +669,7 @@
                 console.error("syncLiveTelemetry error:", err);
             }
         }
+        initTacticalMap();
         syncLiveTelemetry();
         setInterval(syncLiveTelemetry, 250);
 
@@ -731,8 +794,164 @@
             sendCommandToBackend('estop');
         }
 
+        // ==================== İNTERAKTİF TAKTİK HARİTA (LEAFLET.JS) ====================
+        let tacticalMap = null;
+        let isFollowingVehicle = true;
+        const fleetMarkers = {}; // vehicle_code -> L.marker
+        let lastSelectedLat = 39.9334;
+        let lastSelectedLon = 32.8597;
+
+        function initTacticalMap() {
+            try {
+                if (typeof L === 'undefined') {
+                    console.warn("Leaflet kütüphanesi yüklenemedi!");
+                    return;
+                }
+                const mapContainer = document.getElementById('tactical-leaflet-map');
+                if (!mapContainer || tacticalMap) return;
+
+                // Varsayılan merkez: Ankara ODTÜ / Simülasyon Koordinatları
+                tacticalMap = L.map('tactical-leaflet-map', {
+                    center: [39.9334, 32.8597],
+                    zoom: 16,
+                    zoomControl: false,
+                    attributionControl: false
+                });
+
+                // CartoDB Dark Matter (Ultra-Hafif Taktik Karanlık Vektör Haritası - Sadece ~10KB/karo)
+                L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+                    maxZoom: 20,
+                    subdomains: 'abcd',
+                    attribution: '&copy; CartoDB &copy; OpenStreetMap'
+                }).addTo(tacticalMap);
+
+                // Kullanıcı haritayı elle kaydırdığında takibi serbest bırak
+                tacticalMap.on('dragstart', () => {
+                    isFollowingVehicle = false;
+                    updateFollowButton();
+                    addLog("Harita: Serbest gezinme modu (Takip duraklatıldı).");
+                });
+
+                // Tıklanan konuma harita kaydırma
+                tacticalMap.on('click', (e) => {
+                    addLog(`Harita Tıklandı: ${e.latlng.lat.toFixed(5)}° N, ${e.latlng.lng.toFixed(5)}° E`);
+                });
+
+                setTimeout(() => { tacticalMap.invalidateSize(); }, 300);
+            } catch (e) {
+                console.error("Harita başlatma hatası:", e);
+            }
+        }
+
+        function updateFollowButton() {
+            const btn = document.getElementById('btn-toggle-follow');
+            if (!btn) return;
+            if (isFollowingVehicle) {
+                btn.innerText = "🎯 TAKİP: AÇIK";
+                btn.style.borderColor = "var(--accent-color)";
+                btn.style.color = "var(--accent-color)";
+                btn.style.background = "rgba(0, 223, 182, 0.18)";
+            } else {
+                btn.innerText = "⚪ TAKİP: KAPALI";
+                btn.style.borderColor = "rgba(255, 255, 255, 0.25)";
+                btn.style.color = "var(--text-muted)";
+                btn.style.background = "rgba(0, 0, 0, 0.35)";
+            }
+        }
+
+        function toggleFollowVehicle() {
+            isFollowingVehicle = !isFollowingVehicle;
+            updateFollowButton();
+            if (isFollowingVehicle) {
+                centerMap();
+                addLog("Harita: Seçili araç otomatik takip moduna alındı.");
+            }
+        }
+
+        function zoomMapIn() {
+            if (tacticalMap) tacticalMap.zoomIn();
+        }
+
+        function zoomMapOut() {
+            if (tacticalMap) tacticalMap.zoomOut();
+        }
+
         function centerMap() {
-            addLog("Harita: Merkez odaklandı.");
+            if (tacticalMap) {
+                tacticalMap.panTo([lastSelectedLat, lastSelectedLon], { animate: true, duration: 0.6 });
+                isFollowingVehicle = true;
+                updateFollowButton();
+                addLog("Harita: Seçili araca odaklandı.");
+            }
+        }
+
+        function createRoverIconHtml(vCode, vName, yawDeg, isSelected, isOnline) {
+            const yaw = Number(yawDeg || 0);
+            const activeClass = isSelected ? 'active' : (isOnline ? 'active' : 'passive');
+            const color = isSelected ? '#00dfb6' : (isOnline ? '#00e5ff' : '#8b949e');
+            return `
+                <div class="rover-marker-container">
+                    <div class="rover-marker-icon ${activeClass}" style="transform: rotate(${yaw}deg);">
+                        <svg viewBox="0 0 24 24" width="16" height="16" style="display:block;">
+                            <polygon points="12,2 22,22 12,17 2,22" fill="${color}" stroke="#06090c" stroke-width="1.5" />
+                        </svg>
+                    </div>
+                    <div class="rover-label-tag" style="border-color:${color}; color:${color};">${vName || vCode}</div>
+                </div>
+            `;
+        }
+
+        function updateFleetMarkersOnMap(fleet, selectedCode, liveData) {
+            if (!tacticalMap || typeof L === 'undefined') return;
+
+            // 1. Filodaki tüm araçları haritada güncelle veya oluştur
+            const activeCodes = new Set();
+            fleet.forEach(v => {
+                const code = v.code;
+                activeCodes.add(code);
+                const isSel = (code === selectedCode);
+                const lat = Number(isSel && liveData.lat ? liveData.lat : (v.lat || 39.9334));
+                const lon = Number(isSel && liveData.lon ? liveData.lon : (v.lon || 32.8597));
+                const yaw = Number(isSel && liveData.yaw !== undefined ? liveData.yaw : (v.yaw || 0));
+                const isOnline = Boolean(v.connected);
+
+                if (isSel) {
+                    lastSelectedLat = lat;
+                    lastSelectedLon = lon;
+                }
+
+                const iconHtml = createRoverIconHtml(code, v.name, yaw, isSel, isOnline);
+                const customIcon = L.divIcon({
+                    html: iconHtml,
+                    className: 'custom-rover-div-icon',
+                    iconSize: [40, 48],
+                    iconAnchor: [20, 24]
+                });
+
+                if (fleetMarkers[code]) {
+                    fleetMarkers[code].setLatLng([lat, lon]);
+                    fleetMarkers[code].setIcon(customIcon);
+                } else {
+                    const marker = L.marker([lat, lon], { icon: customIcon }).addTo(tacticalMap);
+                    marker.on('click', () => { selectVehicle(code); });
+                    fleetMarkers[code] = marker;
+                }
+
+                // Popup içeriğini canlı tut
+                fleetMarkers[code].bindPopup(`
+                    <div style="font-family:var(--font-mono); font-size:10.5px;">
+                        <b style="color:${isSel ? '#00dfb6' : '#00e5ff'};">${v.name}</b> [${code}]<br>
+                        Hız: <b>${v.speed || 0} km/s</b> | İrtifa: <b>${v.altitude || 0} m</b><br>
+                        Batarya: <b>%${v.battery || '--'}</b> | Mod: <b>${v.flight_mode || 'AUTO'}</b><br>
+                        Konum: <b>${lat.toFixed(5)}°N, ${lon.toFixed(5)}°E</b>
+                    </div>
+                `);
+            });
+
+            // 2. Takip modu açıksa seçili araca yumuşakça odaklan
+            if (isFollowingVehicle && liveData.lat && liveData.lon) {
+                tacticalMap.panTo([liveData.lat, liveData.lon], { animate: true, duration: 0.3 });
+            }
         }
 
         function openModal(type) {
