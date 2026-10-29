@@ -170,6 +170,7 @@
                         HEDEF: <b id="map-target-label" style="color: var(--accent-color);">Simülasyon Bekleniyor</b>
                     </div>
                     <div style="display: flex; gap: 5px; pointer-events: auto;">
+                        <button id="btn-map-layer" class="cod-btn" style="padding: 4px 10px; font-size: 10px; font-weight: 800; border-color: #00e5ff; color: #00e5ff; background: rgba(0, 229, 255, 0.12);" onclick="cycleMapLayer()">🗺️ UYDU: GOOGLE</button>
                         <button id="btn-toggle-follow" class="cod-btn" style="padding: 4px 10px; font-size: 10px; font-weight: 800; border-color: var(--accent-color); color: var(--accent-color); background: rgba(0, 223, 182, 0.18);" onclick="toggleFollowVehicle()">🎯 TAKİP: AÇIK</button>
                         <button class="cod-btn" style="padding: 4px 10px; font-size: 10px;" onclick="zoomMapIn()">[+]</button>
                         <button class="cod-btn" style="padding: 4px 10px; font-size: 10px;" onclick="zoomMapOut()">[-]</button>
@@ -801,6 +802,54 @@
         let lastSelectedLat = 39.9334;
         let lastSelectedLon = 32.8597;
 
+        let currentTileKey = 'google_hybrid';
+        let currentTileLayer = null;
+
+        function getTileLayer(key) {
+            if (key === 'google_hybrid') {
+                return L.tileLayer('https://mt{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', {
+                    maxZoom: 20,
+                    subdomains: ['0', '1', '2', '3'],
+                    attribution: '&copy; Google Maps Satellite'
+                });
+            } else if (key === 'dark_matter') {
+                return L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+                    maxZoom: 20,
+                    subdomains: 'abcd',
+                    attribution: '&copy; CartoDB &copy; OpenStreetMap'
+                });
+            } else {
+                return L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                    maxZoom: 19,
+                    attribution: '&copy; OpenStreetMap'
+                });
+            }
+        }
+
+        function setTileLayer(key) {
+            if (!tacticalMap || typeof L === 'undefined') return;
+            if (currentTileLayer) {
+                tacticalMap.removeLayer(currentTileLayer);
+            }
+            currentTileKey = key;
+            currentTileLayer = getTileLayer(key);
+            currentTileLayer.addTo(tacticalMap);
+
+            const btn = document.getElementById('btn-map-layer');
+            if (btn) {
+                if (key === 'google_hybrid') btn.innerText = "🛰️ UYDU: GOOGLE";
+                else if (key === 'dark_matter') btn.innerText = "🌑 MOD: KARANLIK";
+                else btn.innerText = "🗺️ MOD: SOKAK";
+            }
+        }
+
+        function cycleMapLayer() {
+            const keys = ['google_hybrid', 'dark_matter', 'osm'];
+            const nextIdx = (keys.indexOf(currentTileKey) + 1) % keys.length;
+            setTileLayer(keys[nextIdx]);
+            addLog(`Harita Katmanı Değiştirildi: ${keys[nextIdx].toUpperCase()}`);
+        }
+
         function initTacticalMap() {
             try {
                 if (typeof L === 'undefined') {
@@ -813,17 +862,13 @@
                 // Varsayılan merkez: Ankara ODTÜ / Simülasyon Koordinatları
                 tacticalMap = L.map('tactical-leaflet-map', {
                     center: [39.9334, 32.8597],
-                    zoom: 16,
+                    zoom: 17,
                     zoomControl: false,
                     attributionControl: false
                 });
 
-                // CartoDB Dark Matter (Ultra-Hafif Taktik Karanlık Vektör Haritası - Sadece ~10KB/karo)
-                L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-                    maxZoom: 20,
-                    subdomains: 'abcd',
-                    attribution: '&copy; CartoDB &copy; OpenStreetMap'
-                }).addTo(tacticalMap);
+                // Varsayılan olarak Google Uydu (Hybrid) katmanını yükle
+                setTileLayer('google_hybrid');
 
                 // Kullanıcı haritayı elle kaydırdığında takibi serbest bırak
                 tacticalMap.on('dragstart', () => {
@@ -837,7 +882,8 @@
                     addLog(`Harita Tıklandı: ${e.latlng.lat.toFixed(5)}° N, ${e.latlng.lng.toFixed(5)}° E`);
                 });
 
-                setTimeout(() => { tacticalMap.invalidateSize(); }, 300);
+                setTimeout(() => { if (tacticalMap) tacticalMap.invalidateSize(); }, 300);
+                setTimeout(() => { if (tacticalMap) tacticalMap.invalidateSize(); }, 1500);
             } catch (e) {
                 console.error("Harita başlatma hatası:", e);
             }
@@ -910,8 +956,11 @@
                 const code = v.code;
                 activeCodes.add(code);
                 const isSel = (code === selectedCode);
-                const lat = Number(isSel && liveData.lat ? liveData.lat : (v.lat || 39.9334));
-                const lon = Number(isSel && liveData.lon ? liveData.lon : (v.lon || 32.8597));
+                const rawLat = Number(isSel && liveData.lat ? liveData.lat : (v.lat || 0));
+                const rawLon = Number(isSel && liveData.lon ? liveData.lon : (v.lon || 0));
+                const vId = Number(v.id || 1);
+                const lat = (Math.abs(rawLat) > 0.001) ? rawLat : (39.9334 + (vId - 1) * 0.00018);
+                const lon = (Math.abs(rawLon) > 0.001) ? rawLon : (32.8597 + (vId - 1) * 0.00018);
                 const yaw = Number(isSel && liveData.yaw !== undefined ? liveData.yaw : (v.yaw || 0));
                 const isOnline = Boolean(v.connected);
 

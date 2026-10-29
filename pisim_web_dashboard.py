@@ -185,95 +185,76 @@ class PiSimRequestHandler(http.server.SimpleHTTPRequestHandler):
             with telemetry_lock:
                 now = time.time()
                 latest_telemetry["local_ip"] = get_local_ip()
-                latest_telemetry["ue5_ip"] = discovered_ue5_ip or latest_telemetry.get("ue5_ip")
                 latest_telemetry["now"] = now
 
-                # 🛢️ KESİN KURAL: Araçlar sol panele SADECE VE SADECE SQL'DE VARSA EKLENİR!
-                # UDP mesajı geldi diye, keşif için geldi diye veya anlık mesaj attı diye ASLA ARAÇ EKLENMEZ!
-                fleet_map = {}
-                for item in cached_db_fleet:
-                    code = item["code"]
-                    vrx = float(item.get("last_rx_time", 0.0))
-                    item_copy = dict(item)
-                    item_copy["is_selected"] = (code == selected_vehicle_code)
-                    item_copy["connected"] = (now - vrx < VEHICLE_OFFLINE_TIMEOUT_SEC) if vrx > 0 else False
-                    item_copy["has_sql"] = True
-                    fleet_map[code] = item_copy
+                # GERÇEK HEARTBEAT TESPİTİ: Unreal Engine'den son 5.0 saniyede probe veya telemetri geldiyse bağlıdır!
+                # Simülasyon durduğunda 5 saniye içinde kesinlikle KOPAR ve KESİLDİ moduna geçer!
+                is_ue5_online = bool((now - last_ue5_contact_time < VEHICLE_OFFLINE_TIMEOUT_SEC) and (last_ue5_contact_time > 0))
 
-                # Canlı UDP telemetri SADECE SQL'de zaten kayıtlı olan araçların anlık sensörlerini günceller.
-                # SQL'de OLMAYAN HİÇBİR ARAÇ LİSTEYE KESİNLİKLE EKLENMEZ!
-                for code, vdata in fleet_telemetry.items():
-                    if code in fleet_map:
-                        vrx = float(vdata.get("last_rx_time", 0.0))
-                        is_conn = (now - vrx < VEHICLE_OFFLINE_TIMEOUT_SEC)
-                        fleet_map[code].update({
-                            "speed": vdata.get("speed", fleet_map[code].get("speed", 0.0)),
-                            "altitude": vdata.get("altitude", fleet_map[code].get("altitude", 0.0)),
-                            "battery": vdata.get("battery", fleet_map[code].get("battery", 0.0)),
-                            "flight_mode": vdata.get("flight_mode", fleet_map[code].get("flight_mode", "AKTİF")),
-                            "lat": vdata.get("lat", fleet_map[code].get("lat", 0.0)),
-                            "lon": vdata.get("lon", fleet_map[code].get("lon", 0.0)),
-                            "roll": vdata.get("roll", fleet_map[code].get("roll", 0.0)),
-                            "pitch": vdata.get("pitch", fleet_map[code].get("pitch", 0.0)),
-                            "yaw": vdata.get("yaw", fleet_map[code].get("yaw", 0.0)),
-                            "connected": is_conn,
-                            "last_rx_time": vrx
-                        })
-                        if vdata.get("msg"):
-                            fleet_map[code]["msg"] = vdata["msg"]
+                fleet_list = []
+                for code, vdata in list(fleet_telemetry.items()):
+                    vrx = float(vdata.get("last_rx_time", 0.0))
+                    is_conn = bool((now - vrx < VEHICLE_OFFLINE_TIMEOUT_SEC) and is_ue5_online and (vrx > 0))
+                    is_sel = (code == selected_vehicle_code)
 
-                fleet_list = list(fleet_map.values())
-                # Çevrimiçi araçları öne, ardından araç ID sırasına göre diz
+                    item = {
+                        "code": code,
+                        "name": vdata.get("vehicle_name") or f"Rover {vdata.get('vehicle_id', 0):02d}",
+                        "id": vdata.get("vehicle_id", 0),
+                        "speed": vdata.get("speed", 0.0),
+                        "altitude": vdata.get("altitude", 0.0),
+                        "battery": vdata.get("battery", 98.0),
+                        "flight_mode": vdata.get("flight_mode", "AKTİF"),
+                        "lat": vdata.get("lat", 0.0),
+                        "lon": vdata.get("lon", 0.0),
+                        "roll": vdata.get("roll", 0.0),
+                        "pitch": vdata.get("pitch", 0.0),
+                        "yaw": vdata.get("yaw", 0.0),
+                        "connected": is_conn,
+                        "is_selected": is_sel,
+                        "last_rx_time": vrx,
+                        "msg": vdata.get("msg", "")
+                    }
+                    fleet_list.append(item)
+
                 fleet_list.sort(key=lambda x: (not x.get("connected", False), x.get("id", 0)))
 
-                # SQL'de hiç araç yoksa göstergeleri tamamen sıfırla
-                if not fleet_list:
-                    selected_vehicle_code = None
+                if not selected_vehicle_code or selected_vehicle_code not in fleet_telemetry:
+                    if fleet_list:
+                        selected_vehicle_code = fleet_list[0]["code"]
+
+                for f in fleet_list:
+                    f["is_selected"] = (f["code"] == selected_vehicle_code)
+
+                sel_is_streaming = False
+                if selected_vehicle_code and selected_vehicle_code in fleet_telemetry:
+                    sel_item = fleet_telemetry[selected_vehicle_code]
+                    sel_rx = float(sel_item.get("last_rx_time", 0.0))
+                    sel_is_streaming = bool((now - sel_rx < VEHICLE_OFFLINE_TIMEOUT_SEC and sel_rx > 0.0) and is_ue5_online)
+
+                    latest_telemetry["vehicle_code"] = sel_item.get("vehicle_code")
+                    latest_telemetry["vehicle_id"] = sel_item.get("vehicle_id")
+                    latest_telemetry["vehicle_name"] = sel_item.get("vehicle_name")
+                    latest_telemetry["roll"] = sel_item.get("roll", 0.0)
+                    latest_telemetry["pitch"] = sel_item.get("pitch", 0.0)
+                    latest_telemetry["yaw"] = sel_item.get("yaw", 0.0)
+                    latest_telemetry["altitude"] = sel_item.get("altitude", 0.0)
+                    latest_telemetry["speed"] = sel_item.get("speed", 0.0)
+                    latest_telemetry["battery"] = sel_item.get("battery", 98.0)
+                    latest_telemetry["lat"] = sel_item.get("lat", 0.0)
+                    latest_telemetry["lon"] = sel_item.get("lon", 0.0)
+                    latest_telemetry["flight_mode"] = sel_item.get("flight_mode", "AKTİF")
+                    latest_telemetry["msg"] = sel_item.get("msg")
+                else:
                     latest_telemetry["vehicle_code"] = None
                     latest_telemetry["vehicle_id"] = None
                     latest_telemetry["vehicle_name"] = None
-                    latest_telemetry["roll"] = 0.0
-                    latest_telemetry["pitch"] = 0.0
-                    latest_telemetry["yaw"] = 0.0
-                    latest_telemetry["altitude"] = 0.0
-                    latest_telemetry["speed"] = 0.0
-                    latest_telemetry["battery"] = 0.0
-                    latest_telemetry["flight_mode"] = "SQL BEKLENİYOR"
-                    latest_telemetry["msg"] = None
+                    latest_telemetry["flight_mode"] = "BEKLİYOR"
                     latest_telemetry["streaming"] = False
-                else:
-                    # Sadece SQL'deki araçlar arasından seçim yapılabilir
-                    if not selected_vehicle_code or selected_vehicle_code not in fleet_map:
-                        selected_vehicle_code = fleet_list[0]["code"]
 
-                    for f in fleet_list:
-                        f["is_selected"] = (f["code"] == selected_vehicle_code)
-
-                # Seçili aracın durumunu göstergelere yansıt
-                sel_is_streaming = False
-                if selected_vehicle_code and selected_vehicle_code in fleet_map:
-                    sel_item = fleet_map[selected_vehicle_code]
-                    vrx = float(sel_item.get("last_rx_time", 0.0))
-                    sel_is_streaming = (now - vrx < VEHICLE_OFFLINE_TIMEOUT_SEC and vrx > 0.0)
-
-                    latest_telemetry["vehicle_code"] = sel_item["code"]
-                    latest_telemetry["vehicle_id"] = sel_item["id"]
-                    latest_telemetry["vehicle_name"] = sel_item["name"]
-                    latest_telemetry["roll"] = sel_item["roll"]
-                    latest_telemetry["pitch"] = sel_item["pitch"]
-                    latest_telemetry["yaw"] = sel_item["yaw"]
-                    latest_telemetry["altitude"] = sel_item["altitude"]
-                    latest_telemetry["speed"] = sel_item["speed"]
-                    latest_telemetry["battery"] = sel_item["battery"]
-                    latest_telemetry["lat"] = sel_item["lat"]
-                    latest_telemetry["lon"] = sel_item["lon"]
-                    latest_telemetry["flight_mode"] = sel_item["flight_mode"]
-                    latest_telemetry["msg"] = sel_item.get("msg")
-
-                # BAĞLANTI DURUMU: UE5'ten keşif sinyali alınmışsa köprü bağlıdır (4 saniyede bir kopmaz!)
-                is_ue5_online = (discovered_ue5_ip is not None) or (now - last_ue5_contact_time < 15.0) or (len(fleet_list) > 0)
                 latest_telemetry["connected"] = is_ue5_online
                 latest_telemetry["streaming"] = sel_is_streaming
+                latest_telemetry["ue5_ip"] = discovered_ue5_ip if is_ue5_online else None
                 latest_telemetry["fleet"] = fleet_list
                 latest_telemetry["selected_vehicle_code"] = selected_vehicle_code
                 latest_telemetry["video_subscribed"] = is_video_subscribed
@@ -704,20 +685,19 @@ def run_udp_telemetry_listener():
                     }
 
                     fleet_telemetry[v_code] = entry
+                    last_ue5_contact_time = now_ts
+                    discovered_ue5_ip = sender_ip
 
-                    # Gelen 2Hz telemetri paketini 10 saniyelik RAM tamponuna ekle (10 sn'de bir diske/SQL'e yazılır)
+                    # Gelen 2Hz telemetri paketini 10 saniyelik RAM tamponuna ekle (Pi 5 kendi SQLite'ına yazar)
                     telemetry_db.queue_telemetry_row(entry)
 
-                    # KESİN KURAL: Sadece araç SQL veritabanında VARSA seçilebilir ve göstergelere yansıtılır!
-                    sql_codes = [v["code"] for v in cached_db_fleet]
-                    if v_code in sql_codes:
-                        if not selected_vehicle_code:
-                            selected_vehicle_code = v_code
+                    if not selected_vehicle_code:
+                        selected_vehicle_code = v_code
 
-                        if selected_vehicle_code == v_code:
-                            latest_telemetry.update(entry)
-                            latest_telemetry["connected"] = True
-                            latest_telemetry["streaming"] = True
+                    if selected_vehicle_code == v_code:
+                        latest_telemetry.update(entry)
+                        latest_telemetry["connected"] = True
+                        latest_telemetry["streaming"] = True
 
                 # Terminal log basımı (1.5 saniyede bir)
                 current_time = time.time()
@@ -855,9 +835,8 @@ def main():
     discovery.on_sql_rows_received = on_sql_rows_received
     discovery.start()
 
-    # 2. Arka Plan SQL Senkronizasyon İşçisini Başlat (Her 60 saniyede bir ve başlangıçta)
-    sql_thread = threading.Thread(target=run_sql_sync_worker, daemon=True, name="SqlSyncWorker")
-    sql_thread.start()
+    # 2. SQL Senkronizasyon işçisi kaldırıldı: Her araç 2Hz doğrudan atar ve Pi 5 kendi SQLite'ına yazar.
+    # telemetry_db.init_db() başlangıçta veritabanını ve 10 saniyelik RAM tampon işçisini zaten kurar.
 
     # 3. UDP Canlı Telemetri Dinleyicisini Başlat (Port 7400)
     t_telemetry = threading.Thread(target=run_udp_telemetry_listener, daemon=True, name="TelemetryListener")
