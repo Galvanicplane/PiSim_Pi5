@@ -375,13 +375,30 @@ def queue_telemetry_row(data: dict):
     except queue.Full:
         pass # Kuyruk dolarsa eskiyi geç
 
-def get_recent_rows(max_rows: int = 50, vehicle_code: str = None) -> list:
-    """En son kaydedilen N satırı liste olarak döner (En yeni satırlar önce)."""
+def get_recent_rows(max_rows: int = 50, vehicle_code: str = None, unique_only: bool = False) -> list:
+    """
+    En son kaydedilen N satırı liste olarak döner (En yeni satırlar önce).
+    unique_only=True ise, veritabanındaki her benzersiz aracın (unique vehicle_code) en son kaydını döner.
+    """
     try:
         conn = sqlite3.connect(str(DB_FILE), timeout=3.0)
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
-        if vehicle_code:
+        if unique_only:
+            cursor.execute("""
+                SELECT t.id, t.created_at, t.timestamp_sec, t.vehicle_code, t.vehicle_name, t.vehicle_id,
+                       t.roll_deg, t.pitch_deg, t.yaw_deg, t.altitude_m, t.airspeed_ms, t.battery_pct,
+                       t.lat, t.lon, t.flight_mode
+                FROM vehicle_telemetry t
+                INNER JOIN (
+                    SELECT vehicle_code, MAX(id) as max_id
+                    FROM vehicle_telemetry
+                    GROUP BY vehicle_code
+                ) m ON t.id = m.max_id
+                ORDER BY t.vehicle_id ASC, t.id DESC
+                LIMIT ?
+            """, (max_rows,))
+        elif vehicle_code:
             cursor.execute("""
                 SELECT id, created_at, timestamp_sec, vehicle_code, vehicle_name, vehicle_id, roll_deg, pitch_deg, yaw_deg, altitude_m, airspeed_ms, battery_pct, lat, lon, flight_mode
                 FROM vehicle_telemetry

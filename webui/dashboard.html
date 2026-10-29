@@ -510,13 +510,13 @@
                     }
                 }
 
-                // Harita işaretçilerini canlı telemetriyle güncelle
-                updateFleetMarkersOnMap(fleet, data.selected_vehicle_code, data);
-
                 // 5. SOL PANEL: FİLO LİSTESİ DOLDURMA (SQL + Canlı Yayın)
                 const fleet = Array.isArray(data.fleet) ? data.fleet : [];
                 const activeCount = fleet.filter(v => v.connected).length;
                 if (countTag) countTag.innerText = `[${activeCount}/${fleet.length} AKTİF]`;
+
+                // Harita işaretçilerini canlı telemetriyle güncelle
+                updateFleetMarkersOnMap(fleet, data.selected_vehicle_code, data);
 
                 if (cardsContainer) {
                     if (fleet.length === 0) {
@@ -1079,6 +1079,25 @@
 
         // ==================== SQL TABLOSU MODAL MOTORU ====================
         let sqlRefreshInterval = null;
+        let sqlUniqueOnly = false;
+
+        function toggleSqlUniqueOnly() {
+            sqlUniqueOnly = !sqlUniqueOnly;
+            const btn = document.getElementById('btn-toggle-sql-unique');
+            if (btn) {
+                if (sqlUniqueOnly) {
+                    btn.innerText = '📋 TÜM KAYITLARI GÖSTER (50 Satır)';
+                    btn.style.color = '#ffaa00';
+                    btn.style.borderColor = '#ffaa00';
+                } else {
+                    btn.innerText = '🎯 SADECE BENZERSİZ ARAÇLAR';
+                    btn.style.color = '#00e5ff';
+                    btn.style.borderColor = '#00e5ff';
+                }
+            }
+            fetchSqlTable();
+        }
+
         function openSqlModal() {
             const modal = document.getElementById('modal-sql-table');
             if (modal) modal.style.display = 'flex';
@@ -1099,12 +1118,16 @@
 
         async function fetchSqlTable() {
             try {
-                const res = await fetch('/api/sql_table?max_rows=50');
+                const url = sqlUniqueOnly ? '/api/sql_table?unique=1&max_rows=50' : '/api/sql_table?max_rows=50';
+                const res = await fetch(url);
                 if (!res.ok) return;
                 const data = await res.json();
                 const tbody = document.getElementById('sql-table-tbody');
                 const status = document.getElementById('sql-table-status-tag');
-                if (status) status.innerText = `Toplam: ${data.total_logged || 0} satır | SQLite`;
+                if (status) {
+                    const modeDesc = sqlUniqueOnly ? 'SADECE BENZERSİZ ARAÇLAR (Son Durum)' : 'TÜM KAYITLAR';
+                    status.innerText = `[${modeDesc} | Toplam: ${data.total_logged || 0} satır | SQLite]`;
+                }
                 if (!data.rows || data.rows.length === 0) {
                     tbody.innerHTML = '<tr><td colspan="11" style="text-align:center; padding:20px; color:#ffaa00;">Henüz SQL satırı bulunamadı. Unreal Engine 10 saniyede bir batch yazar.</td></tr>';
                     return;
@@ -1152,6 +1175,7 @@
                 </div>
                 <div style="display:flex; gap:8px; align-items:center;">
                     <span id="sql-table-status-tag" style="font-size:9.5px; color:#00dfb6; font-family:var(--font-mono);">[10 sn'de bir otomatik yenilenir]</span>
+                    <button id="btn-toggle-sql-unique" class="cod-btn" onclick="toggleSqlUniqueOnly()" style="padding:3px 10px; font-size:9.5px; color:#00e5ff; border-color:#00e5ff;">🎯 SADECE BENZERSİZ ARAÇLAR</button>
                     <button class="cod-btn" onclick="fetchSqlTable()" style="padding:3px 10px; font-size:9.5px;">🔄 YENİLE</button>
                     <button class="cod-btn" onclick="closeSqlModal()" style="padding:3px 10px; font-size:9.5px;">✕ KAPAT</button>
                 </div>

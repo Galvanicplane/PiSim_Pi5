@@ -289,15 +289,17 @@ class PiSimRequestHandler(http.server.SimpleHTTPRequestHandler):
             qs = parse_qs(parsed_url.query)
             max_rows = int(qs.get('max_rows', [50])[0])
             v_code = qs.get('code', [None])[0]
+            unique_only = qs.get('unique', ['0'])[0] in ('1', 'true', 'True')
             # Modal açıldığında veya sorgulandığında hemen SQL dosyasını tara ve tazele
             telemetry_db.sync_sql_data(discovered_ue5_ip)
             stats = telemetry_db.get_stats()
-            rows = telemetry_db.get_recent_rows(max_rows, vehicle_code=v_code)
+            rows = telemetry_db.get_recent_rows(max_rows, vehicle_code=v_code, unique_only=unique_only)
             res = {
                 "status": "OK",
                 "total_logged": stats["total_logged"],
                 "db_path": stats["db_path"],
                 "sql_dump_path": stats["sql_dump_path"],
+                "unique_only": unique_only,
                 "rows": rows
             }
             self.wfile.write(json.dumps(res).encode('utf-8'))
@@ -310,15 +312,15 @@ class PiSimRequestHandler(http.server.SimpleHTTPRequestHandler):
             v_id = int(qs.get('id', [-1])[0])
             target_host = discovered_ue5_ip or "127.0.0.1"
 
-            # KESİN KURAL: Araç SQL veritabanında yoksa ASLA abone olunamaz ve seçilemez!
-            sql_codes = [v["code"] for v in cached_db_fleet]
-            if code and sql_codes and code not in sql_codes:
+            # Araç canlı telemetride veya veritabanında varsa seçilebilir
+            db_codes = [v['code'] for v in telemetry_db.get_fleet_from_db()]
+            if code and code not in fleet_telemetry and db_codes and code not in db_codes:
                 self.send_response(400)
                 self.send_header('Content-Type', 'application/json')
                 self.end_headers()
                 self.wfile.write(json.dumps({
-                    "status": "REJECTED",
-                    "msg": f"Araç '{code}' SQL veritabanında bulunmuyor! Sadece SQL'de kayıtlı araçlara abone olunabilir."
+                    'status': 'REJECTED',
+                    'msg': f"Araç '{code}' bulunamadı!"
                 }).encode('utf-8'))
                 return
 

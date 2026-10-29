@@ -83,6 +83,7 @@
         <div style="display: flex; gap: 8px; align-items: center;">
             <span class="stat-badge" id="badge-total-rows" style="color: #00e5ff; font-weight: 800;">Toplam: -- satır</span>
             <span class="stat-badge" id="badge-file-size" style="color: #ffaa00;">SQL: -- KB</span>
+            <button id="btn-toggle-unique" class="btn-action" onclick="toggleUniqueOnly()" style="color:#00e5ff; border-color:#00e5ff;">🎯 SADECE BENZERSİZ ARAÇLAR</button>
             <button class="btn-action" onclick="fetchTable()">🔄 YENİLE</button>
             <a href="/dashboard.html" class="btn-action" style="text-decoration: none; display: inline-block;">⬅ DASHBOARD'A DÖN</a>
         </div>
@@ -99,7 +100,7 @@
             | Gösterilen: <span id="label-shown-count" style="color: #fff; font-weight: 700;">--</span> satır (En yeni üstte)
         </div>
         <div style="color: #00e5ff;">
-            ● Canlı Otomatik Yenileme (Her 2 saniyede bir)
+            ● Otomatik Yenileme (Her 10 saniyede bir)
         </div>
     </div>
 
@@ -129,10 +130,30 @@
     </div>
 
     <script>
+        let uniqueOnly = false;
+
+        function toggleUniqueOnly() {
+            uniqueOnly = !uniqueOnly;
+            const btn = document.getElementById('btn-toggle-unique');
+            if (btn) {
+                if (uniqueOnly) {
+                    btn.innerText = '📋 TÜM KAYITLARI GÖSTER (50 Satır)';
+                    btn.style.color = '#ffaa00';
+                    btn.style.borderColor = '#ffaa00';
+                } else {
+                    btn.innerText = '🎯 SADECE BENZERSİZ ARAÇLAR';
+                    btn.style.color = '#00e5ff';
+                    btn.style.borderColor = '#00e5ff';
+                }
+            }
+            fetchTable();
+        }
+
         async function fetchTable() {
             try {
                 const codeFilter = document.getElementById('filter-code').value;
-                const url = codeFilter ? `/api/sql_table?max_rows=50&code=${encodeURIComponent(codeFilter)}` : '/api/sql_table?max_rows=50';
+                let url = uniqueOnly ? '/api/sql_table?unique=1&max_rows=50' : '/api/sql_table?max_rows=50';
+                if (codeFilter) url += `&code=${encodeURIComponent(codeFilter)}`;
                 const res = await fetch(url);
                 if (!res.ok) return;
                 const data = await res.json();
