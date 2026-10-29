@@ -45,6 +45,9 @@ VIDEO_PORT = 7401
 SWARM_COMMAND_PORT = 7402
 UE5_CONTROL_PORT = 9002
 
+# Araç Pasif / Çevrimdışı Zaman Aşımı Süresi (Kullanıcı İsteği: 5.0 saniye, istenirse 10.0 yapılabilir)
+VEHICLE_OFFLINE_TIMEOUT_SEC = 5.0
+
 # GERÇEK TELEMETRİ DURUMU (Sahte/Fake varsayılanlar kesinlikle kaldırıldı)
 latest_telemetry = {
     "timestamp": 0.0,
@@ -193,7 +196,7 @@ class PiSimRequestHandler(http.server.SimpleHTTPRequestHandler):
                     vrx = float(item.get("last_rx_time", 0.0))
                     item_copy = dict(item)
                     item_copy["is_selected"] = (code == selected_vehicle_code)
-                    item_copy["connected"] = (now - vrx < 4.0) if vrx > 0 else False
+                    item_copy["connected"] = (now - vrx < VEHICLE_OFFLINE_TIMEOUT_SEC) if vrx > 0 else False
                     item_copy["has_sql"] = True
                     fleet_map[code] = item_copy
 
@@ -202,7 +205,7 @@ class PiSimRequestHandler(http.server.SimpleHTTPRequestHandler):
                 for code, vdata in fleet_telemetry.items():
                     if code in fleet_map:
                         vrx = float(vdata.get("last_rx_time", 0.0))
-                        is_conn = (now - vrx < 4.0)
+                        is_conn = (now - vrx < VEHICLE_OFFLINE_TIMEOUT_SEC)
                         fleet_map[code].update({
                             "speed": vdata.get("speed", fleet_map[code].get("speed", 0.0)),
                             "altitude": vdata.get("altitude", fleet_map[code].get("altitude", 0.0)),
@@ -251,7 +254,7 @@ class PiSimRequestHandler(http.server.SimpleHTTPRequestHandler):
                 if selected_vehicle_code and selected_vehicle_code in fleet_map:
                     sel_item = fleet_map[selected_vehicle_code]
                     vrx = float(sel_item.get("last_rx_time", 0.0))
-                    sel_is_streaming = (now - vrx < 4.0 and vrx > 0.0)
+                    sel_is_streaming = (now - vrx < VEHICLE_OFFLINE_TIMEOUT_SEC and vrx > 0.0)
 
                     latest_telemetry["vehicle_code"] = sel_item["code"]
                     latest_telemetry["vehicle_id"] = sel_item["id"]
@@ -701,6 +704,9 @@ def run_udp_telemetry_listener():
                     }
 
                     fleet_telemetry[v_code] = entry
+
+                    # Gelen 2Hz telemetri paketini 10 saniyelik RAM tamponuna ekle (10 sn'de bir diske/SQL'e yazılır)
+                    telemetry_db.queue_telemetry_row(entry)
 
                     # KESİN KURAL: Sadece araç SQL veritabanında VARSA seçilebilir ve göstergelere yansıtılır!
                     sql_codes = [v["code"] for v in cached_db_fleet]

@@ -253,25 +253,34 @@ def _write_batch_to_disk(batch: list):
         print(f"⚠️ [telemetry_db] Disk flush hatası: {e}")
         return 0
 
+RAM_BUFFER_FLUSH_INTERVAL_SEC = 10.0  # RAM tamponunu 10 sn'de bir diske/SQL'e bas ve RAM'i boşalt
+
 def _db_writer_worker():
-    """Arka planda çalışan ve SQLite yazımlarını batch olarak gerçekleştiren iş parçacığı."""
+    """Gelen telemetri paketlerini RAM'de biriktirir ve her 10 saniyede bir toplu batch olarak SQL'e yazıp RAM'i boşaltır."""
+    last_flush_time = time.time()
+    buffered_rows = []
+
     while _writer_running:
-        rows = []
         try:
-            # 0.2 saniye veya veri gelene kadar bekle
-            first_row = _pending_queue.get(timeout=0.2)
-            rows.append(first_row)
-            # Kuyrukta biriken diğer paketleri de al (Maksimum 100 satırlık paketler)
-            while len(rows) < 100:
+            # 0.5 saniye aralıklarla kuyruktaki yeni verileri RAM listesine çek
+            row = _pending_queue.get(timeout=0.5)
+            buffered_rows.append(row)
+            while not _pending_queue.empty() and len(buffered_rows) < 5000:
                 try:
-                    rows.append(_pending_queue.get_nowait())
+                    buffered_rows.append(_pending_queue.get_nowait())
                 except queue.Empty:
                     break
         except queue.Empty:
             pass
 
-        if rows:
-            _write_batch_to_disk(rows)
+        now = time.time()
+        # Her 10 saniyede bir birikmiş RAM tamponunu atomik olarak diske bas ve RAM'i temizle
+        if (now - last_flush_time >= RAM_BUFFER_FLUSH_INTERVAL_SEC) and buffered_rows:
+            count = len(buffered_rows)
+            _write_batch_to_disk(buffered_rows)
+            buffered_rows.clear()
+            last_flush_time = now
+            print(f"🛢️ [telemetry_db] 10 saniyelik RAM tamponu SQL'e kaydedildi ({count} satır) ve RAM temizlendi.")
 
 def init_db():
     """Veritabanını ve tablo şemasını oluşturur, eski test araçlarını temizler."""
