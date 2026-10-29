@@ -242,11 +242,14 @@ class PiSimDiscoveryService:
                         "timestamp": time.time()
                     }
                     sock.sendto(json.dumps(resp).encode('utf-8'), addr)
+                    v_name = msg.get("vehicle_name") or "Rover"
+                    v_code = msg.get("vehicle_code") or "rover"
+                    rx_msg = msg.get("msg") or f"HI FROM {v_name}"
                     if is_first:
-                        print(f"📡 [Keşif RX ← UE5 ({sender_ip})]: Unreal Engine köprüsü bağlandı! (UDP Port {self.port})")
-                        print(f"📤 [Keşif TX → UE5 ({sender_ip})]: Pi 5 Beacon iletildi (UDP Port {self.port})")
+                        print(f"📡 [Keşif RX ← {v_name} ({v_code}) @ {sender_ip}]: \"{rx_msg}\" (Port {self.port})")
+                        print(f"📤 [Keşif TX → {v_name} ({sender_ip})]: Pi 5 Beacon iletildi (Port {self.port})")
                     if self.on_probe_received:
-                        self.on_probe_received(sender_ip)
+                        self.on_probe_received(sender_ip, msg)
 
                 elif msg.get("magic") == "PISIM_ACK_SUB":
                     print(f"🎯 [Abonelik Onayı RX ← UE5 ({sender_ip})]: Araç '{msg.get('vehicle_code')}' abone yapıldı!")

@@ -1084,7 +1084,7 @@
             if (modal) modal.style.display = 'flex';
             fetchSqlTable();
             if (!sqlRefreshInterval) {
-                sqlRefreshInterval = setInterval(fetchSqlTable, 1500);
+                sqlRefreshInterval = setInterval(fetchSqlTable, 10000); // 10 saniyede bir otomatik yenile
             }
         }
 
@@ -1151,7 +1151,7 @@
                     🛢️ PISIM RASPBERRY PI 5 - SQL TELEMETRİ VERİTABANI (pisim_telemetry.db)
                 </div>
                 <div style="display:flex; gap:8px; align-items:center;">
-                    <span id="sql-table-status-tag" style="font-size:9.5px; color:var(--text-muted); font-family:var(--font-mono);">Yükleniyor...</span>
+                    <span id="sql-table-status-tag" style="font-size:9.5px; color:#00dfb6; font-family:var(--font-mono);">[10 sn'de bir otomatik yenilenir]</span>
                     <button class="cod-btn" onclick="fetchSqlTable()" style="padding:3px 10px; font-size:9.5px;">🔄 YENİLE</button>
                     <button class="cod-btn" onclick="closeSqlModal()" style="padding:3px 10px; font-size:9.5px;">✕ KAPAT</button>
                 </div>

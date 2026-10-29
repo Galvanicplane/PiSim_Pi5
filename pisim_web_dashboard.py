@@ -191,32 +191,46 @@ class PiSimRequestHandler(http.server.SimpleHTTPRequestHandler):
                 # Simülasyon durduğunda 5 saniye içinde kesinlikle KOPAR ve KESİLDİ moduna geçer!
                 is_ue5_online = bool((now - last_ue5_contact_time < VEHICLE_OFFLINE_TIMEOUT_SEC) and (last_ue5_contact_time > 0))
 
-                fleet_list = []
-                for code, vdata in list(fleet_telemetry.items()):
+                fleet_map = {}
+                # 1. Önce SQLite veritabanındaki kayıtlı araçları yükle (Sol panel asla boş kalmaz!)
+                try:
+                    for db_v in telemetry_db.get_fleet_from_db():
+                        c = db_v.get("code")
+                        if c:
+                            v_id = int(db_v.get("id", 0))
+                            fleet_map[c] = {
+                                "code": c,
+                                "name": db_v.get("name") or f"Rover {v_id:02d}",
+                                "id": v_id,
+                                "speed": float(db_v.get("speed", 0.0)),
+                                "altitude": float(db_v.get("altitude", 0.0)),
+                                "battery": float(db_v.get("battery", 95.0)),
+                                "flight_mode": str(db_v.get("flight_mode", "AUTO")),
+                                "lat": float(db_v.get("lat", 39.9334)),
+                                "lon": float(db_v.get("lon", 32.8597)),
+                                "roll": float(db_v.get("roll", 0.0)),
+                                "pitch": float(db_v.get("pitch", 0.0)),
+                                "yaw": float(db_v.get("yaw", 0.0)),
+                                "connected": False,
+                                "is_selected": False,
+                                "last_rx_time": 0.0,
+                                "msg": f"KAYITLI ({c})"
+                            }
+                except Exception:
+                    pass
+
+                # 2. Canlı gelen UDP telemetrilerini anında haritaya ve listeye işle
+                for c, vdata in list(fleet_telemetry.items()):
                     vrx = float(vdata.get("last_rx_time", 0.0))
                     is_conn = bool((now - vrx < VEHICLE_OFFLINE_TIMEOUT_SEC) and is_ue5_online and (vrx > 0))
-                    is_sel = (code == selected_vehicle_code)
 
-                    item = {
-                        "code": code,
-                        "name": vdata.get("vehicle_name") or f"Rover {vdata.get('vehicle_id', 0):02d}",
-                        "id": vdata.get("vehicle_id", 0),
-                        "speed": vdata.get("speed", 0.0),
-                        "altitude": vdata.get("altitude", 0.0),
-                        "battery": vdata.get("battery", 98.0),
-                        "flight_mode": vdata.get("flight_mode", "AKTİF"),
-                        "lat": vdata.get("lat", 0.0),
-                        "lon": vdata.get("lon", 0.0),
-                        "roll": vdata.get("roll", 0.0),
-                        "pitch": vdata.get("pitch", 0.0),
-                        "yaw": vdata.get("yaw", 0.0),
-                        "connected": is_conn,
-                        "is_selected": is_sel,
-                        "last_rx_time": vrx,
-                        "msg": vdata.get("msg", "")
-                    }
-                    fleet_list.append(item)
+                    if c not in fleet_map:
+                        fleet_map[c] = dict(vdata)
+                    else:
+                        fleet_map[c].update(vdata)
+                    fleet_map[c]["connected"] = is_conn
 
+                fleet_list = list(fleet_map.values())
                 fleet_list.sort(key=lambda x: (not x.get("connected", False), x.get("id", 0)))
 
                 if not selected_vehicle_code or selected_vehicle_code not in fleet_telemetry:
@@ -613,12 +627,11 @@ def run_udp_telemetry_listener():
                     if not was_connected:
                         was_connected = True
                         print(f"\n========================================================")
-                        print(f"  ✅ [CANLI YAYIN BAŞLADI] Unreal Engine'den telemetri akıyor!")
+                        print(f"  ✅ [CANLI TELEMETRİ] {v_name} ({v_code}) bağlandı!")
                         print(f"     Kaynak IP  : {sender_ip} -> Dinlenen Port: {TELEMETRY_PORT}")
-                        print(f"     Araç Kodu  : {v_code} ({v_name})")
-                        print(f"     Selamlama  : \"{rx_msg_content}\"")
+                        print(f"     Mesaj      : \"{rx_msg_content}\"")
                         print(f"========================================================\n")
-                        add_system_log(f"✅ [CANLI AKIŞ] Unreal Engine ({sender_ip}) telemetrisi alınıyor: '{rx_msg_content}'")
+                        add_system_log(f"✅ [{v_name}] Canlı telemetri akışı başladı ({v_code} @ {sender_ip}): '{rx_msg_content}'")
 
                     # 1. Oryantasyon / Tutum (Roll, Pitch, Yaw)
                     roll, pitch, yaw = 0.0, 0.0, 0.0
@@ -812,14 +825,18 @@ def main():
     discovery = PiSimDiscoveryService(port=DISCOVERY_PORT)
     discovery_service_ref = discovery
 
-    def on_probe_discovered(ue_ip):
+    def on_probe_discovered(ue_ip, msg_dict=None):
         global discovered_ue5_ip, last_ue5_contact_time
         discovered_ue5_ip = ue_ip
         last_ue5_contact_time = time.time()
+        v_name = msg_dict.get("vehicle_name") if isinstance(msg_dict, dict) else "Rover"
+        v_code = msg_dict.get("vehicle_code") if isinstance(msg_dict, dict) else "rover"
+        rx_msg = msg_dict.get("msg") if isinstance(msg_dict, dict) else f"HI FROM {v_name}"
         with telemetry_lock:
             latest_telemetry["ue5_ip"] = ue_ip
             latest_telemetry["connected"] = True
-        add_system_log(f"[KEŞİF] Unreal Engine eşleştirildi: {ue_ip}")
+            latest_telemetry["msg"] = rx_msg
+        add_system_log(f"📡 [{v_name}] Ping alındı ({v_code} @ {ue_ip}): \"{rx_msg}\"")
 
     discovery.on_probe_received = on_probe_discovered
 
