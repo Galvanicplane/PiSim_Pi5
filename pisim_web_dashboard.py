@@ -191,51 +191,30 @@ class PiSimRequestHandler(http.server.SimpleHTTPRequestHandler):
                 # Simülasyon durduğunda 5 saniye içinde kesinlikle KOPAR ve KESİLDİ moduna geçer!
                 is_ue5_online = bool((now - last_ue5_contact_time < VEHICLE_OFFLINE_TIMEOUT_SEC) and (last_ue5_contact_time > 0))
 
-                fleet_map = {}
-                # 1. Önce SQLite veritabanındaki kayıtlı araçları yükle (Sol panel asla boş kalmaz!)
-                try:
-                    for db_v in telemetry_db.get_fleet_from_db():
-                        c = db_v.get("code")
-                        if c:
-                            v_id = int(db_v.get("id", 0))
-                            fleet_map[c] = {
-                                "code": c,
-                                "name": db_v.get("name") or f"Rover {v_id:02d}",
-                                "id": v_id,
-                                "speed": float(db_v.get("speed", 0.0)),
-                                "altitude": float(db_v.get("altitude", 0.0)),
-                                "battery": float(db_v.get("battery", 95.0)),
-                                "flight_mode": str(db_v.get("flight_mode", "AUTO")),
-                                "lat": float(db_v.get("lat", 39.9334)),
-                                "lon": float(db_v.get("lon", 32.8597)),
-                                "roll": float(db_v.get("roll", 0.0)),
-                                "pitch": float(db_v.get("pitch", 0.0)),
-                                "yaw": float(db_v.get("yaw", 0.0)),
-                                "connected": False,
-                                "is_selected": False,
-                                "last_rx_time": 0.0,
-                                "msg": f"KAYITLI ({c})"
-                            }
-                except Exception:
-                    pass
-
-                # 2. Canlı gelen UDP telemetrilerini anında haritaya ve listeye işle
+                # DOĞRUDAN GELEN CANLI MESAJLARDAN FİLO LİSTESİ OLUŞTUR (SQL'den eski araç çekilmez!)
+                fleet_list = []
                 for c, vdata in list(fleet_telemetry.items()):
                     vrx = float(vdata.get("last_rx_time", 0.0))
-                    is_conn = bool((now - vrx < VEHICLE_OFFLINE_TIMEOUT_SEC) and is_ue5_online and (vrx > 0))
+                    age = now - vrx if vrx > 0 else 9999.0
+                    # 5 saniye boyunca mesaj gelmezse araç PASİF (connected=False) olur ama listeden silinmez!
+                    is_conn = bool((age < VEHICLE_OFFLINE_TIMEOUT_SEC) and (vrx > 0))
 
-                    if c not in fleet_map:
-                        fleet_map[c] = dict(vdata)
-                    else:
-                        fleet_map[c].update(vdata)
-                    fleet_map[c]["connected"] = is_conn
+                    item = dict(vdata)
+                    item["code"] = c
+                    item["vehicle_code"] = c
+                    item["id"] = int(vdata.get("vehicle_id", vdata.get("id", 1)))
+                    item["vehicle_id"] = item["id"]
+                    item["name"] = str(vdata.get("vehicle_name") or vdata.get("name") or c)
+                    item["vehicle_name"] = item["name"]
+                    item["connected"] = is_conn
+                    item["offline_sec"] = round(age, 1)
+                    fleet_list.append(item)
 
-                fleet_list = list(fleet_map.values())
-                fleet_list.sort(key=lambda x: (not x.get("connected", False), x.get("id", 0)))
+                # Sıralama: Araç ID ve koda göre sabit sırada tut (Pasife düşünce kartların yeri zıplamasın)
+                fleet_list.sort(key=lambda x: (x.get("id", 0), x.get("code", "")))
 
-                if not selected_vehicle_code or selected_vehicle_code not in fleet_telemetry:
-                    if fleet_list:
-                        selected_vehicle_code = fleet_list[0]["code"]
+                if (not selected_vehicle_code or selected_vehicle_code not in fleet_telemetry) and fleet_list:
+                    selected_vehicle_code = fleet_list[0]["code"]
 
                 for f in fleet_list:
                     f["is_selected"] = (f["code"] == selected_vehicle_code)
@@ -244,21 +223,26 @@ class PiSimRequestHandler(http.server.SimpleHTTPRequestHandler):
                 if selected_vehicle_code and selected_vehicle_code in fleet_telemetry:
                     sel_item = fleet_telemetry[selected_vehicle_code]
                     sel_rx = float(sel_item.get("last_rx_time", 0.0))
-                    sel_is_streaming = bool((now - sel_rx < VEHICLE_OFFLINE_TIMEOUT_SEC and sel_rx > 0.0) and is_ue5_online)
+                    sel_age = now - sel_rx if sel_rx > 0 else 9999.0
+                    sel_is_streaming = bool((sel_age < VEHICLE_OFFLINE_TIMEOUT_SEC) and (sel_rx > 0.0))
 
-                    latest_telemetry["vehicle_code"] = sel_item.get("vehicle_code")
-                    latest_telemetry["vehicle_id"] = sel_item.get("vehicle_id")
-                    latest_telemetry["vehicle_name"] = sel_item.get("vehicle_name")
+                    latest_telemetry["vehicle_code"] = sel_item.get("vehicle_code", selected_vehicle_code)
+                    latest_telemetry["vehicle_id"] = sel_item.get("vehicle_id", 1)
+                    latest_telemetry["vehicle_name"] = sel_item.get("vehicle_name", selected_vehicle_code)
+                    latest_telemetry["pos_x"] = sel_item.get("pos_x", 0.0)
+                    latest_telemetry["pos_y"] = sel_item.get("pos_y", 0.0)
+                    latest_telemetry["pos_z"] = sel_item.get("pos_z", 0.0)
                     latest_telemetry["roll"] = sel_item.get("roll", 0.0)
                     latest_telemetry["pitch"] = sel_item.get("pitch", 0.0)
                     latest_telemetry["yaw"] = sel_item.get("yaw", 0.0)
                     latest_telemetry["altitude"] = sel_item.get("altitude", 0.0)
                     latest_telemetry["speed"] = sel_item.get("speed", 0.0)
                     latest_telemetry["battery"] = sel_item.get("battery", 98.0)
-                    latest_telemetry["lat"] = sel_item.get("lat", 0.0)
-                    latest_telemetry["lon"] = sel_item.get("lon", 0.0)
+                    latest_telemetry["lat"] = sel_item.get("lat", 39.9334)
+                    latest_telemetry["lon"] = sel_item.get("lon", 32.8597)
                     latest_telemetry["flight_mode"] = sel_item.get("flight_mode", "AKTİF")
-                    latest_telemetry["msg"] = sel_item.get("msg")
+                    latest_telemetry["msg"] = sel_item.get("msg", f"HI FROM {sel_item.get('vehicle_name', selected_vehicle_code)}")
+                    latest_telemetry["offline_sec"] = round(sel_age, 1)
                 else:
                     latest_telemetry["vehicle_code"] = None
                     latest_telemetry["vehicle_id"] = None
@@ -593,6 +577,11 @@ def run_udp_telemetry_listener():
     global latest_telemetry, discovered_ue5_ip, last_ue5_contact_time, selected_vehicle_code
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    if hasattr(socket, 'SO_REUSEPORT'):
+        try:
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
+        except Exception:
+            pass
     try:
         sock.bind(("0.0.0.0", TELEMETRY_PORT))
         print(f"[Telemetri Dinleyici] 🎧 UDP Port {TELEMETRY_PORT} dinleniyor (Abone olunan araç bekleniyor...)")
@@ -605,7 +594,7 @@ def run_udp_telemetry_listener():
 
     while True:
         try:
-            data, addr = sock.recvfrom(4096)
+            data, addr = sock.recvfrom(65535)
             if not data:
                 continue
 
@@ -677,17 +666,32 @@ def run_udp_telemetry_listener():
 
                     flight_mode = str(msg.get("flight_mode", "AKTİF"))
 
-                    # Gerçek canlı araç kaydı
+                    # 6. 3B Dünya Konumu (Metre: X, Y, Z)
+                    pos_arr = msg.get("position", [])
+                    pos_x = round(float(msg.get("pos_x", pos_arr[0] if isinstance(pos_arr, list) and len(pos_arr) > 0 else 0.0)), 2)
+                    pos_y = round(float(msg.get("pos_y", pos_arr[1] if isinstance(pos_arr, list) and len(pos_arr) > 1 else 0.0)), 2)
+                    pos_z = round(float(msg.get("pos_z", pos_arr[2] if isinstance(pos_arr, list) and len(pos_arr) > 2 else altitude)), 2)
+
+                    prev_rx_count = fleet_telemetry.get(v_code, {}).get("rx_count", 0)
+
+                    # Gerçek canlı araç kaydı (Hem sol panel hem sağ panel için tam anahtar seti)
                     entry = {
                         "timestamp": now_ts,
                         "sim_timestamp": float(msg.get("timestamp", 0.0)),
                         "last_rx_time": now_ts,
+                        "rx_count": prev_rx_count + 1,
+                        "code": v_code,
+                        "id": v_id,
+                        "name": v_name,
                         "vehicle_code": v_code,
                         "vehicle_id": v_id,
                         "vehicle_name": v_name,
                         "connected": True,
                         "ue5_ip": sender_ip,
                         "msg": rx_msg_content,
+                        "pos_x": pos_x,
+                        "pos_y": pos_y,
+                        "pos_z": pos_z,
                         "roll": roll,
                         "pitch": pitch,
                         "yaw": yaw,
@@ -811,16 +815,13 @@ def main():
     print(f" [+] Canlı Video RX: UDP Port {VIDEO_PORT}")
     print("=================================================================")
 
-    # 0. Başlangıçta SQL veritabanından mevcut filoyu hemen senkronize et
-    init_res = telemetry_db.sync_sql_data()
+    # 0. KURAL: Program her başladığında SQL veritabanı ve RAM filosu tamamen temizlenir!
+    telemetry_db.clear_fleet()
     with telemetry_lock:
-        cached_db_fleet = init_res.get("fleet", [])
-    sql_vehicle_codes = [v["code"] for v in cached_db_fleet]
-    print(f" [+] SQL Veritabanı: {init_res.get('total_logged', 0)} satır kayıtlı | Araçlar: {', '.join(sql_vehicle_codes) if sql_vehicle_codes else '0 araç (SQL bekleniyor)'}")
-    if cached_db_fleet:
-        add_system_log(f"🛢️ [SQL BAŞLANGIÇ] {init_res.get('total_logged', 0)} satır bulundu. SQL Filosu: {', '.join(sql_vehicle_codes)}")
-    else:
-        add_system_log("🛢️ [SQL BAŞLANGIÇ] Veritabanı boş (0 satır). Unreal Engine'in ilk 10 saniyelik batch yazması bekleniyor...")
+        fleet_telemetry.clear()
+        cached_db_fleet.clear()
+    print(" [+] SQL Veritabanı: Temizlendi (0 satır). Yalnızca bu oturumda gelen canlı araçlar kaydedilecek.")
+    add_system_log("🧹 [TEMİZ BAŞLANGIÇ] SQL tablosu sıfırlandı. Canlı UDP 7400 araç telemetrileri bekleniyor...")
 
     global discovery_service_ref
     # 1. Keşif Dinleyici Servisini Başlat (UDP Port 7499)

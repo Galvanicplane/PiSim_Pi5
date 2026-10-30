@@ -110,10 +110,10 @@
                 <tr>
                     <th>ID</th>
                     <th>KAYIT SAATİ</th>
-                    <th>ZAMAN DAMGASI (s)</th>
-                    <th>ARAÇ KODU</th>
+                    <th>EŞSİZ KOD (UID)</th>
                     <th>ARAÇ ADI</th>
                     <th>ARAÇ ID</th>
+                    <th>KONUM (X, Y, Z)</th>
                     <th>ROLL</th>
                     <th>PITCH</th>
                     <th>YAW</th>
@@ -130,7 +130,7 @@
     </div>
 
     <script>
-        let uniqueOnly = false;
+        let uniqueOnly = true; // Varsayılan: Sadece Benzersiz (Unique) Araçlar
 
         function toggleUniqueOnly() {
             uniqueOnly = !uniqueOnly;
@@ -177,16 +177,19 @@
                     const spd = (r.speed !== undefined && r.speed !== null) ? Number(r.speed).toFixed(2) : '0.00';
                     const batt = (r.battery !== undefined && r.battery !== null) ? Number(r.battery).toFixed(0) : '--';
                     const t = (r.time !== undefined && r.time !== null) ? Number(r.time).toFixed(2) : '--';
-                    const code = r.vehicle_code || ('rover_' + (r.vehicle_id + 1));
+                    const code = r.vehicle_code || ('RV0' + r.vehicle_id);
+                    const px = (r.pos_x !== undefined && r.pos_x !== null) ? Number(r.pos_x).toFixed(1) : '0.0';
+                    const py = (r.pos_y !== undefined && r.pos_y !== null) ? Number(r.pos_y).toFixed(1) : '0.0';
+                    const pz = (r.pos_z !== undefined && r.pos_z !== null) ? Number(r.pos_z).toFixed(1) : alt;
 
                     return `
                         <tr>
                             <td style="color: #8b949e;">${r.id}</td>
                             <td style="color: #ffaa00; font-size: 11px;">${r.created_at || '--'}</td>
-                            <td style="color: #ffffff; font-weight: 700;">${t}s</td>
                             <td style="color: #00e5ff; font-weight: 800;">${code}</td>
                             <td style="color: #00dfb6; font-weight: 800;">${r.vehicle_name || code}</td>
                             <td style="color: #fff;">#${r.vehicle_id}</td>
+                            <td style="color: #00e5ff; font-weight: 700;">X:${px}m Y:${py}m Z:${pz}m</td>
                             <td style="color: ${Number(roll) > 0 ? '#00dfb6' : '#ff7700'};">${Number(roll) > 0 ? '+' : ''}${roll}°</td>
                             <td style="color: ${Number(pitch) > 0 ? '#00dfb6' : '#ff7700'};">${Number(pitch) > 0 ? '+' : ''}${pitch}°</td>
                             <td>${yaw}°</td>

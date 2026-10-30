@@ -314,6 +314,14 @@
 
             <!-- MODÜL TELEMETRİ VERİLERİ (GERÇEK VERİLER) -->
             <div class="telemetry-module-grid">
+                <div class="module-stat-card" style="grid-column: span 2;">
+                    <div class="label">3B DÜNYA KONUMU (X, Y, Z METRE):</div>
+                    <div class="val" id="detail-xyz-val" style="color: #00e5ff; font-size: 11.5px; font-family: var(--font-mono);">X: 0.0m | Y: 0.0m | Z: 0.0m</div>
+                </div>
+                <div class="module-stat-card" style="grid-column: span 2;">
+                    <div class="label">ORYANTASYON (ROLL / PITCH / YAW):</div>
+                    <div class="val" id="detail-rpy-val" style="color: #ffaa00; font-size: 11px; font-family: var(--font-mono);">R: 0.0° | P: 0.0° | Y: 0.0°</div>
+                </div>
                 <div class="module-stat-card">
                     <div class="label">HIZ:</div>
                     <div class="val" id="detail-speed-val">-- km/s</div>
@@ -510,52 +518,60 @@
                     }
                 }
 
-                // 5. SOL PANEL: FİLO LİSTESİ DOLDURMA (SQL + Canlı Yayın)
+                // 5. SOL PANEL: DOĞRUDAN GELEN CANLI MESAJLARDAN FİLO KARTLARINI ÇİZ
                 const fleet = Array.isArray(data.fleet) ? data.fleet : [];
                 const activeCount = fleet.filter(v => v.connected).length;
                 if (countTag) countTag.innerText = `[${activeCount}/${fleet.length} AKTİF]`;
 
+                const activeSelCode = window.userSelectedVehicleCode || data.selected_vehicle_code || (fleet[0] ? fleet[0].code : null);
+                const selVeh = fleet.find(v => v.code === activeSelCode) || fleet[0] || null;
+
                 // Harita işaretçilerini canlı telemetriyle güncelle
-                updateFleetMarkersOnMap(fleet, data.selected_vehicle_code, data);
+                updateFleetMarkersOnMap(fleet, activeSelCode, selVeh || data);
 
                 if (cardsContainer) {
                     if (fleet.length === 0) {
-                        cardsContainer.innerHTML = '<div style="padding: 16px 8px; color: var(--text-muted); font-size: 10px; text-align: center; border: 1px dashed var(--mono-border); border-radius: 4px;">📡 Henüz kayıtlı araç bulunmuyor.<br>(SQL senkronizasyonu veya araç bekleniyor...)</div>';
+                        cardsContainer.innerHTML = '<div style="padding: 16px 8px; color: var(--text-muted); font-size: 10px; text-align: center; border: 1px dashed var(--mono-border); border-radius: 4px;">📡 Henüz bağlı araç bulunmuyor.<br>(Unreal Engine UDP 7400 mesajları bekleniyor...)</div>';
                     } else {
                         cardsContainer.innerHTML = fleet.map(v => {
-                            const isSel = v.is_selected || (data.selected_vehicle_code === v.code);
+                            const vCode = v.code || v.vehicle_code;
+                            const vName = v.name || v.vehicle_name || vCode;
+                            const isSel = (activeSelCode === vCode);
                             const isOnline = Boolean(v.connected);
-                            const cardOpacity = isOnline ? '1.0' : '0.45';
-                            const cardFilter = isOnline ? 'none' : 'grayscale(60%)';
+                            const offlineSec = v.offline_sec !== undefined ? v.offline_sec : 5;
+                            const cardOpacity = isOnline ? '1.0' : '0.52';
+                            const cardFilter = isOnline ? 'none' : 'grayscale(45%)';
                             const cardBorder = isSel 
-                                ? 'border-left: 3px solid var(--accent-color); background: rgba(0, 223, 182, 0.15); box-shadow: 0 0 10px rgba(0, 223, 182, 0.2);' 
+                                ? 'border-left: 4px solid var(--accent-color); background: rgba(0, 223, 182, 0.16); box-shadow: 0 0 12px rgba(0, 223, 182, 0.25);' 
                                 : (isOnline 
-                                    ? 'border-left: 3px solid rgba(0, 223, 182, 0.4); background: rgba(0, 0, 0, 0.35);' 
-                                    : 'border-left: 3px solid rgba(255, 255, 255, 0.15); background: rgba(0, 0, 0, 0.2);');
+                                    ? 'border-left: 3px solid rgba(0, 223, 182, 0.45); background: rgba(0, 0, 0, 0.35);' 
+                                    : 'border-left: 3px solid #ff4444; background: rgba(40, 10, 10, 0.35);');
                             const badgeHtml = isOnline 
                                 ? '<span style="color: #00dfb6; font-weight: 800; font-size: 9px; background: rgba(0, 223, 182, 0.15); padding: 2px 5px; border-radius: 3px; border: 1px solid #00dfb6;">● CANLI (2Hz)</span>' 
-                                : '<span style="color: #8b949e; font-weight: 700; font-size: 9px; background: rgba(255, 255, 255, 0.05); padding: 2px 5px; border-radius: 3px; border: 1px solid rgba(255, 255, 255, 0.15);">○ PASİF (Sinyal Yok)</span>';
+                                : `<span style="color: #ff5555; font-weight: 800; font-size: 9px; background: rgba(255, 68, 68, 0.15); padding: 2px 5px; border-radius: 3px; border: 1px solid #ff5555;">🔴 PASİF (${Math.round(offlineSec)}sn)</span>`;
+
+                            const px = Number(v.pos_x || 0).toFixed(1);
+                            const py = Number(v.pos_y || 0).toFixed(1);
+                            const pz = Number(v.pos_z || v.altitude || 0).toFixed(1);
 
                             return `
-                                <div class="vehicle-card ${isSel ? 'active' : ''}" onclick="selectVehicle('${v.code}')" style="${cardBorder} opacity: ${cardOpacity}; filter: ${cardFilter}; padding: 8px; border-radius: 4px; cursor: pointer; margin-bottom: 6px; transition: all 0.3s ease;">
+                                <div class="vehicle-card ${isSel ? 'active' : ''}" onclick="selectVehicle('${vCode}')" style="${cardBorder} opacity: ${cardOpacity}; filter: ${cardFilter}; padding: 8px; border-radius: 4px; cursor: pointer; margin-bottom: 6px; transition: all 0.2s ease;">
                                     <div class="vehicle-card-header" style="display: flex; justify-content: space-between; align-items: center;">
-                                        <span class="vehicle-card-title" style="font-weight: 800; color: ${isSel ? 'var(--accent-color)' : (isOnline ? '#ffffff' : '#8b949e')}; font-size: 11px;">
-                                            ${isOnline ? '🟢' : '⚪'} ${v.name}
-                                            <span style="font-size: 8.5px; opacity: 0.8; font-family: var(--font-mono); color: ${isOnline ? '#00e5ff' : '#8b949e'}; display: block;">[${v.code}]</span>
+                                        <span class="vehicle-card-title" style="font-weight: 800; color: ${isSel ? 'var(--accent-color)' : (isOnline ? '#ffffff' : '#ff8888')}; font-size: 11px;">
+                                            ${isOnline ? '🟢' : '🔴'} ${vName}
+                                            <span style="font-size: 8.5px; opacity: 0.9; font-family: var(--font-mono); color: ${isOnline ? '#00e5ff' : '#ff7777'}; display: block;">EŞSİZ KOD: [${vCode}]</span>
                                         </span>
                                         ${badgeHtml}
                                     </div>
                                     <div class="vehicle-card-body" style="display: grid; grid-template-columns: auto 1fr; gap: 2px 8px; font-size: 9.5px; margin-top: 5px;">
                                         <span style="color: var(--text-muted);">Durum:</span>
-                                        <span style="color: ${isSel ? '#00e5ff' : (isOnline ? '#00dfb6' : 'var(--text-muted)')}; font-family: var(--font-mono); font-weight: 700;">${isSel ? (isOnline ? 'SEÇİLİ (CANLI)' : 'SEÇİLİ (PASİF)') : (isOnline ? 'CANLI (2Hz)' : 'PASİF (5s+)')}</span>
-                                        <span style="color: var(--text-muted);">Hız:</span>
-                                        <span style="color: var(--accent-color); font-weight: 800;">${v.speed || 0} km/s</span>
-                                        <span style="color: var(--text-muted);">İrtifa:</span>
-                                        <span style="color: #ffffff; font-weight: 700;">${v.altitude || 0} m</span>
-                                        <span style="color: var(--text-muted);">Batarya:</span>
-                                        <span style="color: #00dfb6; font-weight: 700;">${(v.battery !== undefined && v.battery !== null) ? "% " + v.battery : "--"}</span>
-                                        <span style="color: var(--text-muted);">Mod:</span>
-                                        <span style="color: #ffaa00; font-weight: 800;">${v.flight_mode || 'AKTİF'}</span>
+                                        <span style="color: ${isOnline ? '#00dfb6' : '#ff5555'}; font-family: var(--font-mono); font-weight: 700;">${isSel ? (isOnline ? 'SEÇİLİ (CANLI)' : 'SEÇİLİ (BAĞLANTI KOPTU)') : (isOnline ? 'AKTİF (2Hz)' : 'BAĞLANTI KOPTU (5s+)')}</span>
+                                        <span style="color: var(--text-muted);">Konum:</span>
+                                        <span style="color: #00e5ff; font-family: var(--font-mono); font-weight: 700;">X:${px}m Y:${py}m Z:${pz}m</span>
+                                        <span style="color: var(--text-muted);">Hız / İrtifa:</span>
+                                        <span style="color: var(--accent-color); font-weight: 800;">${v.speed || 0} km/s | ${v.altitude || 0} m</span>
+                                        <span style="color: var(--text-muted);">Batarya / Mod:</span>
+                                        <span style="color: #ffaa00; font-weight: 700;">% ${v.battery !== undefined ? v.battery : 98} • ${v.flight_mode || 'AKTİF'}</span>
                                     </div>
                                 </div>
                             `;
@@ -563,68 +579,86 @@
                     }
                 }
 
-                // 6. SAĞ PANEL: SEÇİLİ ARAÇ DETAYLARI
-                if (data.vehicle_code) {
-                    const fullLabel = `${data.vehicle_name || 'Rover'} [${data.vehicle_code}]`;
-                    const rxMsg = data.msg || (isStreaming ? `TELEMETRİ (${data.vehicle_code})` : `KAYITLI (${data.vehicle_code})`);
+                // 6. SAĞ PANEL: SEÇİLİ ARAÇ DETAYLARI (Sol panelde tıklanan aracın tüm verilerini anında sağ panele bas)
+                if (selVeh) {
+                    const vCode = selVeh.code || selVeh.vehicle_code;
+                    const vName = selVeh.name || selVeh.vehicle_name || vCode;
+                    const isVehOnline = Boolean(selVeh.connected);
+                    const fullLabel = `${vName} [${vCode}]`;
+                    const rxMsg = selVeh.msg || (isVehOnline ? `HI FROM ${vName}` : `SON BİLİNEN DURUM (${vCode})`);
 
                     if (headerGreeting) {
                         headerGreeting.style.display = "inline-block";
                         headerGreeting.innerText = rxMsg;
                     }
                     if (activeBadge) {
-                        activeBadge.innerText = isStreaming ? "[CANLI YAYIN: 50Hz]" : "[BEKLEMEDE / SQL]";
-                        activeBadge.style.color = isStreaming ? "var(--accent-color)" : "#ffaa00";
+                        activeBadge.innerText = isVehOnline ? "[CANLI YAYIN: 2Hz]" : `[BAĞLANTI KOPTU: ${Math.round(selVeh.offline_sec || 5)}sn]`;
+                        activeBadge.style.color = isVehOnline ? "var(--accent-color)" : "#ff5555";
                     }
                     if (detailGreeting) {
-                        detailGreeting.innerText = isStreaming ? `● "${rxMsg}"` : `○ [KAYITLI / SQL]`;
-                        detailGreeting.style.color = isStreaming ? "#00e5ff" : "#ffaa00";
+                        detailGreeting.innerText = isVehOnline ? `● "${rxMsg}"` : `🔴 BAĞLANTI KOPTU (Son sinyal ${Math.round(selVeh.offline_sec || 5)}sn önce)`;
+                        detailGreeting.style.color = isVehOnline ? "#00e5ff" : "#ff5555";
                     }
                     if (nodeCenterMsg) {
                         nodeCenterMsg.innerText = rxMsg;
                     }
 
+                    const px = Number(selVeh.pos_x || 0).toFixed(2);
+                    const py = Number(selVeh.pos_y || 0).toFixed(2);
+                    const pz = Number(selVeh.pos_z || selVeh.altitude || 0).toFixed(2);
+                    const rDeg = Number(selVeh.roll || 0).toFixed(1);
+                    const pDeg = Number(selVeh.pitch || 0).toFixed(1);
+                    const yDeg = Number(selVeh.yaw || 0).toFixed(1);
+
                     const titleEl = document.getElementById('detail-vehicle-title');
                     if (titleEl) titleEl.innerText = fullLabel;
+                    const xyzEl = document.getElementById('detail-xyz-val');
+                    if (xyzEl) xyzEl.innerText = `X: ${px}m | Y: ${py}m | Z: ${pz}m`;
+                    const rpyEl = document.getElementById('detail-rpy-val');
+                    if (rpyEl) rpyEl.innerText = `R: ${rDeg}° | P: ${pDeg}° | Y: ${yDeg}°`;
                     const speedEl = document.getElementById('detail-speed-val');
-                    if (speedEl) speedEl.innerText = `${data.speed || 0} km/s`;
+                    if (speedEl) speedEl.innerText = `${selVeh.speed || 0} km/s`;
                     const battEl = document.getElementById('detail-battery-val');
-                    if (battEl) battEl.innerText = `% ${data.battery !== undefined ? data.battery : "--"}`;
+                    if (battEl) battEl.innerText = `% ${selVeh.battery !== undefined ? selVeh.battery : 98}`;
                     const missEl = document.getElementById('detail-mission-val');
-                    if (missEl) missEl.innerText = `${data.flight_mode || 'BEKLİYOR'}`;
+                    if (missEl) missEl.innerText = `${selVeh.flight_mode || 'AKTİF'}`;
                     const sensEl = document.getElementById('detail-sensors-val');
-                    if (sensEl) sensEl.innerText = `${data.altitude || 0} m`;
+                    if (sensEl) sensEl.innerText = `${selVeh.altitude || 0} m`;
                     const coordsEl = document.getElementById('detail-coords');
-                    if (coordsEl) coordsEl.innerText = `${data.lat ? data.lat.toFixed(4) : '--'}° N, ${data.lon ? data.lon.toFixed(4) : '--'}° E`;
+                    if (coordsEl) coordsEl.innerText = `${selVeh.lat ? Number(selVeh.lat).toFixed(5) : '39.93340'}°N, ${selVeh.lon ? Number(selVeh.lon).toFixed(5) : '32.85970'}°E`;
                     const altTagEl = document.getElementById('detail-alt-tag');
-                    if (altTagEl) altTagEl.innerText = `ALT: ${data.altitude || 0} m`;
+                    if (altTagEl) altTagEl.innerText = `ALT: ${selVeh.altitude || 0} m`;
                     const camOverlayEl = document.getElementById('cam-telemetry-overlay');
-                    if (camOverlayEl) camOverlayEl.innerText = `R:${data.roll || 0}° P:${data.pitch || 0}° Y:${data.yaw || 0}° • SPD:${data.speed || 0}km/s`;
+                    if (camOverlayEl) camOverlayEl.innerText = `X:${px}m Y:${py}m • R:${rDeg}° P:${pDeg}° Y:${yDeg}°`;
 
                     if (radarBlip) {
                         radarBlip.style.display = "flex";
                         const blipLabel = document.getElementById('live-blip-label');
-                        if (blipLabel) blipLabel.innerText = `${fullLabel} [${data.speed || 0} km/s]`;
+                        if (blipLabel) blipLabel.innerText = `${fullLabel} [${selVeh.speed || 0} km/s]`;
                     }
                     const targetLabel = document.getElementById('map-target-label');
-                    if (targetLabel) targetLabel.innerText = `${fullLabel} (Seçili)`;
+                    if (targetLabel) targetLabel.innerText = `${fullLabel} (X:${px}m, Y:${py}m)`;
                     const gnssLabel = document.getElementById('gnss-fix-label');
-                    if (gnssLabel) gnssLabel.innerText = isStreaming ? "3D FIX [RTK CANLI]" : "SQL SON KONUM";
+                    if (gnssLabel) gnssLabel.innerText = isVehOnline ? "3D FIX [RTK CANLI]" : "PASİF (SON KONUM)";
 
                     const nowSec = Date.now() / 1000;
-                    if (isStreaming && nowSec - lastLoggedSec >= 1.5) {
+                    if (isVehOnline && nowSec - lastLoggedSec >= 1.5) {
                         lastLoggedSec = nowSec;
-                        addPacketLog(`RX ← UE5 (${data.ue5_ip || 'Unreal'}:7400) | <b style="color:#00e5ff;">"${rxMsg}"</b> | R:${data.roll || 0}° P:${data.pitch || 0}° | ALT:${data.altitude || 0}m SPD:${data.speed || 0}km/s`);
+                        addPacketLog(`RX ← UE5 (${data.ue5_ip || 'Unreal'}:7400) | <b style="color:#00e5ff;">[${vCode}]</b> X:${px}m Y:${py}m Z:${pz}m | R:${rDeg}° P:${pDeg}° | SPD:${selVeh.speed || 0}km/s`);
                     }
 
-                    if (isStreaming && !wasConnectedLogFired) {
+                    if (isVehOnline && !wasConnectedLogFired) {
                         wasConnectedLogFired = true;
                         addLog(`✅ [CANLI YAYIN AKTİF] ${fullLabel} telemetrisi alınıyor: Port 7400`);
-                    } else if (!isStreaming) {
+                    } else if (!isVehOnline) {
                         wasConnectedLogFired = false;
                     }
                 } else {
                     document.getElementById('detail-vehicle-title').innerText = "[ARAÇ SEÇİNİZ]";
+                    const xyzEl = document.getElementById('detail-xyz-val');
+                    if (xyzEl) xyzEl.innerText = "X: -- | Y: -- | Z: --";
+                    const rpyEl = document.getElementById('detail-rpy-val');
+                    if (rpyEl) rpyEl.innerText = "R: --° | P: --° | Y: --°";
                     document.getElementById('detail-speed-val').innerText = "-- km/s";
                     document.getElementById('detail-battery-val').innerText = "-- %";
                     document.getElementById('detail-mission-val').innerText = "BEKLİYOR";
@@ -797,7 +831,7 @@
 
         // ==================== İNTERAKTİF TAKTİK HARİTA (LEAFLET.JS) ====================
         let tacticalMap = null;
-        let isFollowingVehicle = true;
+        let isFollowingVehicle = false; // Varsayılan: Serbest sürükleme/zoom açık (Google Maps gibi rahatça oynatılabilir)
         const fleetMarkers = {}; // vehicle_code -> L.marker
         let lastSelectedLat = 39.9334;
         let lastSelectedLon = 32.8597;
@@ -870,11 +904,37 @@
                 // Varsayılan olarak Google Uydu (Hybrid) katmanını yükle
                 setTileLayer('google_hybrid');
 
+                // İnternet olmasa bile haritanın hareket ettiğini ve koordinatları gösteren Taktik Canvas Izgara Katmanı
+                const TacticalGridLayer = L.GridLayer.extend({
+                    createTile: function (coords) {
+                        const tile = document.createElement('canvas');
+                        const size = this.getTileSize();
+                        tile.width = size.x;
+                        tile.height = size.y;
+                        const ctx = tile.getContext('2d');
+                        ctx.strokeStyle = 'rgba(0, 223, 182, 0.22)';
+                        ctx.lineWidth = 1;
+                        ctx.strokeRect(0, 0, size.x, size.y);
+                        ctx.strokeStyle = 'rgba(0, 229, 255, 0.08)';
+                        ctx.beginPath();
+                        ctx.moveTo(size.x / 2, 0); ctx.lineTo(size.x / 2, size.y);
+                        ctx.moveTo(0, size.y / 2); ctx.lineTo(size.x, size.y / 2);
+                        ctx.stroke();
+                        ctx.fillStyle = 'rgba(0, 223, 182, 0.45)';
+                        ctx.font = '10px Consolas, monospace';
+                        ctx.fillText(`Z:${coords.z} [${coords.x},${coords.y}]`, 6, 14);
+                        return tile;
+                    }
+                });
+                new TacticalGridLayer({ zIndex: 10 }).addTo(tacticalMap);
+                updateFollowButton();
+
                 // Kullanıcı haritayı elle kaydırdığında takibi serbest bırak
                 tacticalMap.on('dragstart', () => {
-                    isFollowingVehicle = false;
-                    updateFollowButton();
-                    addLog("Harita: Serbest gezinme modu (Takip duraklatıldı).");
+                    if (isFollowingVehicle) {
+                        isFollowingVehicle = false;
+                        updateFollowButton();
+                    }
                 });
 
                 // Tıklanan konuma harita kaydırma
@@ -997,9 +1057,12 @@
                 `);
             });
 
-            // 2. Takip modu açıksa seçili araca yumuşakça odaklan
-            if (isFollowingVehicle && liveData.lat && liveData.lon) {
-                tacticalMap.panTo([liveData.lat, liveData.lon], { animate: true, duration: 0.3 });
+            // 2. Takip modu açıksa ve konum anlamlı değiştiyse seçili araca odaklan
+            if (isFollowingVehicle && lastSelectedLat && lastSelectedLon) {
+                const c = tacticalMap.getCenter();
+                if (Math.abs(c.lat - lastSelectedLat) > 0.00001 || Math.abs(c.lng - lastSelectedLon) > 0.00001) {
+                    tacticalMap.panTo([lastSelectedLat, lastSelectedLon], { animate: false });
+                }
             }
         }
 
@@ -1026,11 +1089,14 @@
         // ==================== ARAÇ SEÇİMİ VE VİDEO ABONELİK FONKSİYONLARI ====================
         async function selectVehicle(code) {
             try {
-                addLog(`🎯 Araç Seçildi: ${code} (Telemetri Abonesi Değiştiriliyor...)`);
-                addPacketLog(`TX → UE5 | SUB_VEHICLE: ${code} (Port 7400 Telemetri Talebi)`);
+                window.userSelectedVehicleCode = code;
+                addLog(`🎯 Araç Seçildi: ${code} (Sağ panel detayları güncellendi)`);
+                syncLiveTelemetry();
                 const res = await fetch(`/api/select_vehicle?code=${encodeURIComponent(code)}`);
-                const data = await res.json();
-                addLog(`[BAĞLANTI ACK] Abone Olunan Araç: ${data.selected}`);
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data.selected) window.userSelectedVehicleCode = data.selected;
+                }
                 syncLiveTelemetry();
             } catch (err) {
                 addLog(`[HATA] Araç seçilemedi: ${err}`);
@@ -1079,7 +1145,7 @@
 
         // ==================== SQL TABLOSU MODAL MOTORU ====================
         let sqlRefreshInterval = null;
-        let sqlUniqueOnly = false;
+        let sqlUniqueOnly = true; // Varsayılan olarak SADECE BENZERSİZ (UNIQUE) ARAÇLARI göster
 
         function toggleSqlUniqueOnly() {
             sqlUniqueOnly = !sqlUniqueOnly;
@@ -1141,22 +1207,26 @@
                     const batt = (r.battery !== undefined && r.battery !== null) ? Number(r.battery).toFixed(0) : '--';
                     const t = (r.time !== undefined && r.time !== null) ? Number(r.time).toFixed(1) : '--';
                     const dt = r.created_at || '--';
-                    const code = r.vehicle_code || ('rover_' + (r.vehicle_id + 1));
+                    const code = r.vehicle_code || ('RV0' + r.vehicle_id);
+                    const vName = r.vehicle_name || code;
+                    const px = (r.pos_x !== undefined && r.pos_x !== null) ? Number(r.pos_x).toFixed(1) : '0.0';
+                    const py = (r.pos_y !== undefined && r.pos_y !== null) ? Number(r.pos_y).toFixed(1) : '0.0';
+                    const pz = (r.pos_z !== undefined && r.pos_z !== null) ? Number(r.pos_z).toFixed(1) : alt;
 
                     return `
                         <tr style="border-bottom: 1px solid rgba(255,255,255,0.05); font-size:10px;">
                             <td style="padding:4px 6px; color:var(--text-muted);">${r.id}</td>
                             <td style="padding:4px 6px; color:#ffaa00; font-size:9px;">${dt}</td>
-                            <td style="padding:4px 6px;">${t}s</td>
-                            <td style="padding:4px 6px; color:#00e5ff; font-weight:700;">${code}</td>
-                            <td style="padding:4px 6px; color:#ffffff;">#${r.vehicle_id}</td>
+                            <td style="padding:4px 6px; color:#00e5ff; font-weight:800;">${code}</td>
+                            <td style="padding:4px 6px; color:#ffffff; font-weight:700;">${vName}</td>
+                            <td style="padding:4px 6px; color:#00dfb6; font-weight:700;">X:${px} Y:${py} Z:${pz}m</td>
                             <td style="padding:4px 6px;">${Number(roll) > 0 ? '+' : ''}${roll}°</td>
                             <td style="padding:4px 6px;">${Number(pitch) > 0 ? '+' : ''}${pitch}°</td>
                             <td style="padding:4px 6px;">${yaw}°</td>
                             <td style="padding:4px 6px; color:#00dfb6;">${alt}m</td>
                             <td style="padding:4px 6px;">${spd} km/s</td>
                             <td style="padding:4px 6px; color:#ffaa00;">${batt}%</td>
-                            <td style="padding:4px 6px; color:var(--accent-color); font-weight:800;">${r.mode || 'AUTO'}</td>
+                            <td style="padding:4px 6px; color:var(--accent-color); font-weight:800;">${r.mode || 'AKTİF'}</td>
                         </tr>
                     `;
                 }).join('');
@@ -1189,9 +1259,9 @@
                         <tr style="background:rgba(0,223,182,0.12); border-bottom:1px solid #00dfb6; color:#00dfb6; text-align:left;">
                             <th style="padding:6px;">ID</th>
                             <th style="padding:6px;">KAYIT SAATİ</th>
-                            <th style="padding:6px;">ZAMAN</th>
-                            <th style="padding:6px;">ARAÇ KODU</th>
-                            <th style="padding:6px;">ARAÇ ID</th>
+                            <th style="padding:6px;">EŞSİZ KOD (UID)</th>
+                            <th style="padding:6px;">ARAÇ ADI</th>
+                            <th style="padding:6px;">KONUM (X, Y, Z)</th>
                             <th style="padding:6px;">ROLL</th>
                             <th style="padding:6px;">PITCH</th>
                             <th style="padding:6px;">YAW</th>
