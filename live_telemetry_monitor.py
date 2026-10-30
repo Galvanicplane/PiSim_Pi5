@@ -10,7 +10,8 @@ live_telemetry_monitor.py - PiSim Canlı Sabit Ekran (In-Place) Telemetri & SQL 
    Batarya, GPS Lat/Lon, Mod, Paket Sayısı) tek tabloda gösterir.
 4. Bir araçtan 5 saniye (OFFLINE_TIMEOUT_SEC) boyunca mesaj gelmezse satırı silmez; KIRMIZI renkle
    "🔴 BAĞLANTI KOPTU (PASİF)" olarak işaretler.
-5. Hem tek başına (UDP 7400 + 7499 Beacon) hem de pisim_web_dashboard.py ile aynı anda çalışabilir.
+5. pisim_web_dashboard.py çalışıyorsa port 7400 paketlerini bölmemek (SO_REUSEPORT çakışmasını önlemek) için
+   veriyi doğrudan yerel HTTP API'den (200ms) okur; çalışmıyorsa doğrudan UDP 7400 portunu dinler.
 """
 
 import os
@@ -54,9 +55,12 @@ CURSOR_HOME = "\033[H"
 CLEAR_SCREEN = "\033[2J\033[H"
 CLEAR_TO_END = "\033[J"
 
-vehicles_lock = threading.Lock()
+# Re-entrant Lock (RLock) kullanarak iç içe fonksiyon çağrılarında kilitlenmeyi (deadlock) tamamen engelle
+vehicles_lock = threading.RLock()
 unique_vehicles = {}  # vehicle_code -> dict
 total_packets_received = 0
+dashboard_api_active = False
+data_source_mode = "BAŞLATILIYOR..."
 running = True
 
 
@@ -71,7 +75,7 @@ def get_local_ip() -> str:
         return "127.0.0.1"
 
 
-def update_vehicle_from_packet(msg: dict, sender_ip: str = "AĞ"):
+def update_vehicle_from_packet(msg: dict, sender_ip: str = "AĞ", from_api: bool = False):
     global total_packets_received
     now = time.time()
     v_id = int(msg.get("vehicle_id", msg.get("id", 1)))
@@ -100,10 +104,25 @@ def update_vehicle_from_packet(msg: dict, sender_ip: str = "AĞ"):
     greeting = str(msg.get("msg", f"HI FROM {v_name}"))
 
     with vehicles_lock:
-        total_packets_received += 1
         prev = unique_vehicles.get(v_code, {})
-        rx_count = int(msg.get("rx_count", prev.get("rx_count", 0) + 1))
-        last_rx = float(msg.get("last_rx_time", now))
+        prev_rx_count = int(prev.get("rx_count", 0))
+
+        if from_api:
+            new_rx_count = int(msg.get("rx_count", prev_rx_count))
+            if new_rx_count > prev_rx_count:
+                total_packets_received += (new_rx_count - prev_rx_count)
+            elif not prev:
+                total_packets_received += 1
+            rx_count = max(new_rx_count, 1)
+            # API'den gelen offline_sec varsa gerçek zaman farkını koru
+            if "offline_sec" in msg:
+                last_rx = now - float(msg.get("offline_sec", 0.0))
+            else:
+                last_rx = float(msg.get("last_rx_time", now))
+        else:
+            total_packets_received += 1
+            rx_count = prev_rx_count + 1
+            last_rx = now
 
         unique_vehicles[v_code] = {
             "vehicle_code": v_code,
@@ -129,29 +148,74 @@ def update_vehicle_from_packet(msg: dict, sender_ip: str = "AĞ"):
         }
 
 
-def udp_listener_worker():
-    """UDP Port 7400 üzerinden gelen ham telemetri paketlerini doğrudan yakalar."""
-    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    if hasattr(socket, "SO_REUSEPORT"):
-        try:
-            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
-        except Exception:
-            pass
-    try:
-        sock.bind(("0.0.0.0", TELEMETRY_PORT))
-    except Exception:
-        # Port 7400 başka süreç tarafından kilitliyse HTTP API yedek işçisi devralır
-        return
-
-    sock.settimeout(1.0)
+def dashboard_api_sync_worker():
+    """
+    Eğer pisim_web_dashboard.py (Port 8080) çalışıyorsa, UDP 7400 soketini paylaşarak paketleri bölmemek için
+    canlı filo verilerini doğrudan yerel API'den (200ms'de bir) çeker.
+    """
+    global dashboard_api_active, data_source_mode
     while running:
+        try:
+            req = urllib.request.Request(
+                "http://127.0.0.1:8080/api/telemetry",
+                headers={"Cache-Control": "no-cache", "Pragma": "no-cache"}
+            )
+            with urllib.request.urlopen(req, timeout=0.45) as resp:
+                raw = resp.read().decode("utf-8", errors="ignore")
+                data = json.loads(raw)
+                dashboard_api_active = True
+                data_source_mode = "WEB DASHBOARD KÖPRÜSÜ (Port 8080 -> 7400)"
+                fleet = data.get("fleet", [])
+                ue_ip = data.get("ue5_ip") or "AĞ"
+                for v in fleet:
+                    v_code = v.get("code") or v.get("vehicle_code")
+                    if not v_code:
+                        continue
+                    update_vehicle_from_packet(v, sender_ip=v.get("ue5_ip") or ue_ip, from_api=True)
+        except Exception:
+            dashboard_api_active = False
+        time.sleep(0.20)
+
+
+def udp_listener_worker():
+    """
+    Yalnızca pisim_web_dashboard.py çalışmıyorsa UDP Port 7400'ü doğrudan dinler.
+    (SO_REUSEPORT kullanılmaz; böylece Linux çekirdeğinin paketleri iki süreç arasında bölmesi engellenir!)
+    """
+    global data_source_mode
+    sock = None
+
+    while running:
+        if dashboard_api_active:
+            if sock is not None:
+                try:
+                    sock.close()
+                except Exception:
+                    pass
+                sock = None
+            time.sleep(0.5)
+            continue
+
+        if sock is None:
+            try:
+                s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                s.bind(("0.0.0.0", TELEMETRY_PORT))
+                s.settimeout(0.5)
+                sock = s
+                data_source_mode = f"DOĞRUDAN UDP DİNLEYİCİ (Port {TELEMETRY_PORT})"
+            except Exception:
+                # Port 7400 zaten pisim_web_dashboard.py tarafından dinleniyor
+                sock = None
+                time.sleep(0.5)
+                continue
+
         try:
             data, addr = sock.recvfrom(65535)
             if not data:
                 continue
             msg = json.loads(data.decode("utf-8", errors="ignore"))
-            update_vehicle_from_packet(msg, sender_ip=addr[0])
+            update_vehicle_from_packet(msg, sender_ip=addr[0], from_api=False)
         except socket.timeout:
             continue
         except Exception:
@@ -165,39 +229,18 @@ def beacon_sender_worker():
     local_ip = get_local_ip()
     while running:
         try:
-            beacon = json.dumps({
-                "magic": "PISIM_BEACON",
-                "device": "Raspberry Pi 5 (Companion)",
-                "ip": local_ip,
-                "telemetry_port": TELEMETRY_PORT,
-                "msg": "HI FROM PI5"
-            }).encode("utf-8")
-            sock.sendto(beacon, ("255.255.255.255", DISCOVERY_PORT))
+            if not dashboard_api_active:
+                beacon = json.dumps({
+                    "magic": "PISIM_BEACON",
+                    "device": "Raspberry Pi 5 (Companion)",
+                    "ip": local_ip,
+                    "telemetry_port": TELEMETRY_PORT,
+                    "msg": "HI FROM PI5"
+                }).encode("utf-8")
+                sock.sendto(beacon, ("255.255.255.255", DISCOVERY_PORT))
         except Exception:
             pass
         time.sleep(2.0)
-
-
-def dashboard_api_fallback_worker():
-    """Eğer pisim_web_dashboard.py aynı cihazda çalışıyorsa oradaki canlı filoyu da senkronize eder."""
-    while running:
-        try:
-            req = urllib.request.Request("http://127.0.0.1:8080/api/telemetry", headers={"Cache-Control": "no-cache"})
-            with urllib.request.urlopen(req, timeout=0.6) as resp:
-                data = json.loads(resp.read().decode("utf-8"))
-                fleet = data.get("fleet", [])
-                for v in fleet:
-                    v_code = v.get("code") or v.get("vehicle_code")
-                    if not v_code:
-                        continue
-                    with vehicles_lock:
-                        existing = unique_vehicles.get(v_code)
-                        v_rx = float(v.get("last_rx_time", 0.0))
-                        if not existing or v_rx > existing.get("last_rx_time", 0.0):
-                            update_vehicle_from_packet(v, sender_ip=data.get("ue5_ip") or "127.0.0.1")
-        except Exception:
-            pass
-        time.sleep(0.35)
 
 
 def render_fixed_screen():
@@ -218,10 +261,14 @@ def render_fixed_screen():
         lines = []
         lines.append(f"{BOLD}{CYAN}========================================================================================================================================{RESET}")
         lines.append(
-            f" 📡 {BOLD}{WHITE}PISIM CANLI TELEMETRİ & SQL SATIR MONİTÖRÜ (SABİT EKRAN){RESET}   | "
-            f"Yerel IP: {YELLOW}{local_ip}:{TELEMETRY_PORT}{RESET} | "
-            f"Toplam Araç: {BOLD}{len(v_list)}{RESET} ({GREEN}{active_count} Aktif{RESET}, {RED}{offline_count} Pasif{RESET}) | "
-            f"Paket: {CYAN}{pkt_total}{RESET}"
+            f" 📡 {BOLD}{WHITE}PISIM CANLI TELEMETRİ & SQL SATIR MONİTÖRÜ (SABİT EKRAN){RESET} | "
+            f"IP: {YELLOW}{local_ip}:{TELEMETRY_PORT}{RESET} | "
+            f"Kaynak: {GREEN}{data_source_mode}{RESET}"
+        )
+        lines.append(
+            f" 📊 Toplam Eşsiz Araç: {BOLD}{len(v_list)}{RESET} "
+            f"({GREEN}{active_count} Aktif{RESET}, {RED}{offline_count} Pasif{RESET}) | "
+            f"Alınan Toplam Telemetri Paketi: {CYAN}{BOLD}{pkt_total}{RESET}"
         )
         lines.append(f"{BOLD}{CYAN}========================================================================================================================================{RESET}")
 
@@ -246,7 +293,7 @@ def render_fixed_screen():
             lines.append(f"\n   {YELLOW}⏳ Henüz hiçbir araçtan veri gelmedi. Unreal Engine simülasyonunun (UDP Port 7400) başlaması bekleniyor...{RESET}\n")
         else:
             for v in v_list:
-                age = now - v["last_rx_time"]
+                age = max(0.0, now - v["last_rx_time"])
                 is_online = age < OFFLINE_TIMEOUT_SEC
 
                 xyz_str = f"X:{v['pos_x']:>6.1f} Y:{v['pos_y']:>6.1f} Z:{v['pos_z']:>5.1f}"
@@ -280,7 +327,7 @@ def render_fixed_screen():
             lines.append(f"{CYAN}{'-' * 136}{RESET}")
             lines.append(f"{BOLD}{YELLOW} 📌 SON GELEN TAM SQL SATIRI DETAYLARI (DOĞRULAMA KANITI):{RESET}")
             for v in v_list:
-                age = now - v["last_rx_time"]
+                age = max(0.0, now - v["last_rx_time"])
                 c_tag = GREEN if age < OFFLINE_TIMEOUT_SEC else RED
                 state_txt = "ONLINE" if age < OFFLINE_TIMEOUT_SEC else f"OFFLINE ({age:.1f} sn önce kesildi!)"
                 lines.append(
@@ -296,14 +343,14 @@ def render_fixed_screen():
         output = CURSOR_HOME + "\n".join(lines) + CLEAR_TO_END
         sys.stdout.write(output)
         sys.stdout.flush()
-        time.sleep(0.25)
+        time.sleep(0.20)
 
 
 def main():
     global running
-    t1 = threading.Thread(target=udp_listener_worker, daemon=True)
-    t2 = threading.Thread(target=beacon_sender_worker, daemon=True)
-    t3 = threading.Thread(target=dashboard_api_fallback_worker, daemon=True)
+    t1 = threading.Thread(target=dashboard_api_sync_worker, daemon=True)
+    t2 = threading.Thread(target=udp_listener_worker, daemon=True)
+    t3 = threading.Thread(target=beacon_sender_worker, daemon=True)
     t1.start()
     t2.start()
     t3.start()

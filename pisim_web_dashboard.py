@@ -577,19 +577,14 @@ def run_udp_telemetry_listener():
     global latest_telemetry, discovered_ue5_ip, last_ue5_contact_time, selected_vehicle_code
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    if hasattr(socket, 'SO_REUSEPORT'):
-        try:
-            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
-        except Exception:
-            pass
     try:
         sock.bind(("0.0.0.0", TELEMETRY_PORT))
-        print(f"[Telemetri Dinleyici] 🎧 UDP Port {TELEMETRY_PORT} dinleniyor (Abone olunan araç bekleniyor...)")
+        print(f"[Telemetri Dinleyici] 🎧 UDP Port {TELEMETRY_PORT} dinleniyor (Tüm araçların 2Hz canlı telemetrisi aktif)...")
     except Exception as e:
         print(f"[Telemetri Dinleyici] ⚠️ UDP Port {TELEMETRY_PORT} bağlanamadı: {e}")
         return
 
-    was_connected = False
+    connected_vehicles_set = set()
     last_print_time = 0.0
 
     while True:
@@ -615,8 +610,8 @@ def run_udp_telemetry_listener():
                     v_name = str(msg.get("vehicle_name") or msg.get("name") or (f"Rover {v_id:02d}" if v_id > 0 else v_code))
                     rx_msg_content = str(msg.get("msg") or f"TELEMETRİ_{v_code}")
 
-                    if not was_connected:
-                        was_connected = True
+                    if v_code not in connected_vehicles_set:
+                        connected_vehicles_set.add(v_code)
                         print(f"\n========================================================")
                         print(f"  ✅ [CANLI TELEMETRİ] {v_name} ({v_code}) bağlandı!")
                         print(f"     Kaynak IP  : {sender_ip} -> Dinlenen Port: {TELEMETRY_PORT}")
