@@ -844,11 +844,19 @@
         let lastSelectedLat = 39.9334;
         let lastSelectedLon = 32.8597;
 
-        let currentTileKey = 'google_hybrid';
+        let lastInitialCenterDone = false;
+        let currentTileKey = 'google_streets';
         let currentTileLayer = null;
 
         function getTileLayer(key) {
-            if (key === 'google_hybrid') {
+            if (key === 'google_streets') {
+                // Standart Google Haritalar Vektörel / Yol / Sokak Görünümü (lyrs=m)
+                return L.tileLayer('https://mt{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}', {
+                    maxZoom: 20,
+                    subdomains: ['0', '1', '2', '3'],
+                    attribution: '&copy; Google Maps Streets'
+                });
+            } else if (key === 'google_hybrid') {
                 return L.tileLayer('https://mt{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', {
                     maxZoom: 20,
                     subdomains: ['0', '1', '2', '3'],
@@ -879,14 +887,15 @@
 
             const btn = document.getElementById('btn-map-layer');
             if (btn) {
-                if (key === 'google_hybrid') btn.innerText = "🛰️ UYDU: GOOGLE";
+                if (key === 'google_streets') btn.innerText = "🗺️ MOD: GOOGLE SOKAK";
+                else if (key === 'google_hybrid') btn.innerText = "🛰️ UYDU: GOOGLE";
                 else if (key === 'dark_matter') btn.innerText = "🌑 MOD: KARANLIK";
-                else btn.innerText = "🗺️ MOD: SOKAK";
+                else btn.innerText = "🌍 MOD: OSM";
             }
         }
 
         function cycleMapLayer() {
-            const keys = ['google_hybrid', 'dark_matter', 'osm'];
+            const keys = ['google_streets', 'google_hybrid', 'dark_matter', 'osm'];
             const nextIdx = (keys.indexOf(currentTileKey) + 1) % keys.length;
             setTileLayer(keys[nextIdx]);
             addLog(`Harita Katmanı Değiştirildi: ${keys[nextIdx].toUpperCase()}`);
@@ -910,7 +919,7 @@
                 });
 
                 // Varsayılan olarak Google Uydu (Hybrid) katmanını yükle
-                setTileLayer('google_hybrid');
+                setTileLayer('google_streets');
 
                 // İnternet olmasa bile haritanın hareket ettiğini ve koordinatları gösteren Taktik Canvas Izgara Katmanı
                 const TacticalGridLayer = L.GridLayer.extend({
@@ -1065,7 +1074,13 @@
                 `);
             });
 
-            // 2. Takip modu açıksa ve konum anlamlı değiştiyse seçili araca odaklan
+            // 2. İlk araç tespit edildiğinde haritayı anında aracın koordinatına merkezle!
+            if (!lastInitialCenterDone && fleet.length > 0 && lastSelectedLat && lastSelectedLon) {
+                lastInitialCenterDone = true;
+                tacticalMap.setView([lastSelectedLat, lastSelectedLon], 18);
+            }
+
+            // 3. Takip modu açıksa ve konum anlamlı değiştiyse seçili araca odaklan
             if (isFollowingVehicle && lastSelectedLat && lastSelectedLon) {
                 const c = tacticalMap.getCenter();
                 if (Math.abs(c.lat - lastSelectedLat) > 0.00001 || Math.abs(c.lng - lastSelectedLon) > 0.00001) {
