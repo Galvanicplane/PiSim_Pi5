@@ -5,8 +5,14 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>PiSim - Taktik Görev Kontrol Kokpiti</title>
     <link rel="stylesheet" href="style.css?v=2.5.0">
-    <link rel="stylesheet" href="leaflet.css">
+    <link rel="stylesheet" href="leaflet.css" onerror="this.onerror=null;this.href='https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';">
     <script src="leaflet.js"></script>
+    <script>
+        if (typeof L === 'undefined') {
+            document.write('<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">');
+            document.write('<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"><\/script>');
+        }
+    </script>
     <style>
         html, body {
             background-color: #06090c !important;
@@ -149,9 +155,9 @@
         <section class="fleet-center-area">
             
             <!-- ORTA ÜST: TAKTİK DÜNYA HARİTASI (LEAFLET.JS İNTERAKTİF VEKTÖR & TAKİP) -->
-            <div class="tactical-map-viewport cod-panel" style="position: relative; overflow: hidden;">
+            <div class="tactical-map-viewport cod-panel" style="position: relative; overflow: hidden; padding: 10px;">
                 <!-- LEAFLET HARİTA KANVASI (GOOGLE MAPS TARZI SÜRÜKLE, TEKERLEKLE ZOOM) -->
-                <div id="tactical-leaflet-map" style="position: absolute; inset: 0; z-index: 1;"></div>
+                <div id="tactical-leaflet-map" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 1;"></div>
 
                 <!-- ÜST BİLGİ ŞERİDİ (Z-INDEX 20) -->
                 <div style="display: flex; justify-content: space-between; align-items: center; z-index: 20; position: relative; pointer-events: none;">
@@ -412,7 +418,178 @@
             }
         }
 
-        // ==================== CANLI VE GERÇEK TELEMETRİ KÖPRÜSÜ ====================
+                // ==================== İNTERAKTİF TAKTİK HARİTA (LEAFLET.JS) ====================
+        let tacticalMap = null;
+        let isFollowingVehicle = false;
+        const fleetMarkers = {};
+        let lastSelectedLat = 39.9334;
+        let lastSelectedLon = 32.8597;
+        let lastInitialCenterDone = false;
+        let currentTileKey = 'google_hybrid';
+        let currentTileLayer = null;
+
+        function getTileLayer(key) {
+            if (key === 'google_streets') {
+                return L.tileLayer('https://mt{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}', {
+                    maxZoom: 20,
+                    subdomains: ['0', '1', '2', '3'],
+                    attribution: '&copy; Google Maps Streets'
+                });
+            } else if (key === 'esri_satellite') {
+                return L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+                    maxZoom: 19,
+                    attribution: '&copy; Esri World Imagery'
+                });
+            } else if (key === 'google_hybrid') {
+                return L.tileLayer('https://mt{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', {
+                    maxZoom: 20,
+                    subdomains: ['0', '1', '2', '3'],
+                    attribution: '&copy; Google Maps Satellite'
+                });
+            } else if (key === 'dark_matter') {
+                return L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+                    maxZoom: 20,
+                    subdomains: 'abcd',
+                    attribution: '&copy; CartoDB &copy; OpenStreetMap'
+                });
+            } else {
+                return L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                    maxZoom: 19,
+                    attribution: '&copy; OpenStreetMap'
+                });
+            }
+        }
+
+        function setTileLayer(key) {
+            if (!tacticalMap || typeof L === 'undefined') return;
+            if (currentTileLayer) {
+                try { tacticalMap.removeLayer(currentTileLayer); } catch(e){}
+            }
+            currentTileKey = key;
+            currentTileLayer = getTileLayer(key);
+            currentTileLayer.addTo(tacticalMap);
+
+            const btn = document.getElementById('btn-map-layer');
+            if (btn) {
+                if (key === 'google_hybrid') {
+                    btn.innerText = "🛰️ UYDU: GOOGLE (CANLI)";
+                    btn.style.color = "#00dfb6";
+                    btn.style.borderColor = "#00dfb6";
+                } else if (key === 'esri_satellite') {
+                    btn.innerText = "🛰️ UYDU: ESRI ARCGIS";
+                    btn.style.color = "#00e5ff";
+                    btn.style.borderColor = "#00e5ff";
+                } else if (key === 'google_streets') {
+                    btn.innerText = "🗺️ MOD: GOOGLE SOKAK";
+                    btn.style.color = "#ffaa00";
+                    btn.style.borderColor = "#ffaa00";
+                } else if (key === 'dark_matter') {
+                    btn.innerText = "🌑 MOD: KARANLIK";
+                    btn.style.color = "#8b949e";
+                    btn.style.borderColor = "#8b949e";
+                } else {
+                    btn.innerText = "🌍 MOD: OSM";
+                    btn.style.color = "#ffffff";
+                    btn.style.borderColor = "#ffffff";
+                }
+            }
+        }
+
+        function cycleMapLayer() {
+            const keys = ['google_hybrid', 'esri_satellite', 'google_streets', 'dark_matter', 'osm'];
+            const nextIdx = (keys.indexOf(currentTileKey) + 1) % keys.length;
+            setTileLayer(keys[nextIdx]);
+            addLog(`Harita Katmanı Değiştirildi: ${keys[nextIdx].toUpperCase()}`);
+        }
+
+        function initTacticalMap() {
+            try {
+                if (typeof L === 'undefined') {
+                    console.warn("Leaflet kütüphanesi henüz yüklenmedi, 300ms sonra tekrar denenecek...");
+                    setTimeout(initTacticalMap, 300);
+                    return;
+                }
+                const mapContainer = document.getElementById('tactical-leaflet-map');
+                if (!mapContainer || tacticalMap) return;
+
+                // Varsayılan merkez: Ankara ODTÜ / Simülasyon Koordinatları
+                tacticalMap = L.map('tactical-leaflet-map', {
+                    center: [39.9334, 32.8597],
+                    zoom: 17,
+                    zoomControl: false,
+                    attributionControl: false
+                });
+
+                // Varsayılan olarak Google Uydu (Hybrid) katmanını yükle
+                setTileLayer('google_hybrid');
+                updateFollowButton();
+
+                // Kullanıcı haritayı elle kaydırdığında takibi serbest bırak
+                tacticalMap.on('dragstart', () => {
+                    if (isFollowingVehicle) {
+                        isFollowingVehicle = false;
+                        updateFollowButton();
+                    }
+                });
+
+                // Tıklanan konuma harita kaydırma
+                tacticalMap.on('click', (e) => {
+                    addLog(`Harita Tıklandı: ${e.latlng.lat.toFixed(5)}° N, ${e.latlng.lng.toFixed(5)}° E`);
+                });
+
+                // Sayfa ilk yüklendiğinde ve pencere değiştiğinde Leaflet boyutunu düzelt
+                setTimeout(() => { if (tacticalMap) tacticalMap.invalidateSize(); }, 200);
+                setTimeout(() => { if (tacticalMap) tacticalMap.invalidateSize(); }, 800);
+                setTimeout(() => { if (tacticalMap) tacticalMap.invalidateSize(); }, 2000);
+                window.addEventListener('resize', () => { if (tacticalMap) tacticalMap.invalidateSize(); });
+            } catch (e) {
+                console.error("Harita başlatma hatası:", e);
+            }
+        }
+
+        function updateFollowButton() {
+            const btn = document.getElementById('btn-toggle-follow');
+            if (!btn) return;
+            if (isFollowingVehicle) {
+                btn.innerText = "🎯 TAKİP: AÇIK";
+                btn.style.borderColor = "var(--accent-color)";
+                btn.style.color = "var(--accent-color)";
+                btn.style.background = "rgba(0, 223, 182, 0.18)";
+            } else {
+                btn.innerText = "⚪ TAKİP: KAPALI";
+                btn.style.borderColor = "rgba(255, 255, 255, 0.25)";
+                btn.style.color = "var(--text-muted)";
+                btn.style.background = "rgba(0, 0, 0, 0.35)";
+            }
+        }
+
+        function toggleFollowVehicle() {
+            isFollowingVehicle = !isFollowingVehicle;
+            updateFollowButton();
+            if (isFollowingVehicle) {
+                centerMap();
+                addLog("Harita: Seçili araç otomatik takip moduna alındı.");
+            }
+        }
+
+        function zoomMapIn() {
+            if (tacticalMap) tacticalMap.zoomIn();
+        }
+
+        function zoomMapOut() {
+            if (tacticalMap) tacticalMap.zoomOut();
+        }
+
+        function centerMap() {
+            if (tacticalMap) {
+                tacticalMap.panTo([lastSelectedLat, lastSelectedLon], { animate: true, duration: 0.6 });
+                isFollowingVehicle = true;
+                updateFollowButton();
+                addLog("Harita: Seçili araca odaklandı.");
+            }
+        }
+
+// ==================== CANLI VE GERÇEK TELEMETRİ KÖPRÜSÜ ====================
         let isConnected = false;
         let isFetchingTelemetry = false;
         let lastLoggedSec = 0;
@@ -712,9 +889,16 @@
                 isFetchingTelemetry = false;
             }
         }
-        initTacticalMap();
-        syncLiveTelemetry();
-        setInterval(syncLiveTelemetry, 150);
+        window.addEventListener('DOMContentLoaded', () => {
+            initTacticalMap();
+            syncLiveTelemetry();
+            setInterval(syncLiveTelemetry, 150);
+        });
+        if (document.readyState === 'complete' || document.readyState === 'interactive') {
+            initTacticalMap();
+            syncLiveTelemetry();
+            setInterval(syncLiveTelemetry, 150);
+        }
 
         function applyManualTargetConnection() {
             const ipInput = document.getElementById('input-manual-target-ip');
@@ -835,194 +1019,6 @@
 
         function emergencyStopCurrentVehicle() {
             sendCommandToBackend('estop');
-        }
-
-        // ==================== İNTERAKTİF TAKTİK HARİTA (LEAFLET.JS) ====================
-        let tacticalMap = null;
-        let isFollowingVehicle = false; // Varsayılan: Serbest sürükleme/zoom açık (Google Maps gibi rahatça oynatılabilir)
-        const fleetMarkers = {}; // vehicle_code -> L.marker
-        let lastSelectedLat = 39.9334;
-        let lastSelectedLon = 32.8597;
-
-        let lastInitialCenterDone = false;
-        let currentTileKey = 'google_hybrid';
-        let currentTileLayer = null;
-
-        function getTileLayer(key) {
-            if (key === 'google_streets') {
-                // Standart Google Haritalar Vektörel / Yol / Sokak Görünümü (lyrs=m)
-                return L.tileLayer('https://mt{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}', {
-                    maxZoom: 20,
-                    subdomains: ['0', '1', '2', '3'],
-                    attribution: '&copy; Google Maps Streets'
-                });
-            } else if (key === 'google_hybrid') {
-                return L.tileLayer('https://mt{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', {
-                    maxZoom: 20,
-                    subdomains: ['0', '1', '2', '3'],
-                    attribution: '&copy; Google Maps Satellite'
-                });
-            } else if (key === 'dark_matter') {
-                return L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-                    maxZoom: 20,
-                    subdomains: 'abcd',
-                    attribution: '&copy; CartoDB &copy; OpenStreetMap'
-                });
-            } else {
-                return L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-                    maxZoom: 19,
-                    attribution: '&copy; OpenStreetMap'
-                });
-            }
-        }
-
-        function setTileLayer(key) {
-            if (!tacticalMap || typeof L === 'undefined') return;
-            if (currentTileLayer) {
-                tacticalMap.removeLayer(currentTileLayer);
-            }
-            currentTileKey = key;
-            currentTileLayer = getTileLayer(key);
-            currentTileLayer.addTo(tacticalMap);
-
-            const btn = document.getElementById('btn-map-layer');
-            if (btn) {
-                if (key === 'google_hybrid') {
-                    btn.innerText = "🛰️ UYDU: GOOGLE (CANLI)";
-                    btn.style.color = "#00dfb6";
-                    btn.style.borderColor = "#00dfb6";
-                } else if (key === 'esri_satellite') {
-                    btn.innerText = "🛰️ UYDU: ESRI ARCGIS";
-                    btn.style.color = "#00e5ff";
-                    btn.style.borderColor = "#00e5ff";
-                } else if (key === 'google_streets') {
-                    btn.innerText = "🗺️ MOD: GOOGLE SOKAK";
-                    btn.style.color = "#ffaa00";
-                    btn.style.borderColor = "#ffaa00";
-                } else if (key === 'dark_matter') {
-                    btn.innerText = "🌑 MOD: KARANLIK";
-                    btn.style.color = "#8b949e";
-                    btn.style.borderColor = "#8b949e";
-                } else {
-                    btn.innerText = "🌍 MOD: OSM";
-                    btn.style.color = "#ffffff";
-                    btn.style.borderColor = "#ffffff";
-                }
-            }
-        }
-
-        function cycleMapLayer() {
-            const keys = ['google_hybrid', 'esri_satellite', 'google_streets', 'dark_matter', 'osm'];
-            const nextIdx = (keys.indexOf(currentTileKey) + 1) % keys.length;
-            setTileLayer(keys[nextIdx]);
-            addLog(`Harita Katmanı Değiştirildi: ${keys[nextIdx].toUpperCase()}`);
-        }
-
-        function initTacticalMap() {
-            try {
-                if (typeof L === 'undefined') {
-                    console.warn("Leaflet kütüphanesi yüklenemedi!");
-                    return;
-                }
-                const mapContainer = document.getElementById('tactical-leaflet-map');
-                if (!mapContainer || tacticalMap) return;
-
-                // Varsayılan merkez: Ankara ODTÜ / Simülasyon Koordinatları
-                tacticalMap = L.map('tactical-leaflet-map', {
-                    center: [39.9334, 32.8597],
-                    zoom: 17,
-                    zoomControl: false,
-                    attributionControl: false
-                });
-
-                // Varsayılan olarak Google Uydu (Hybrid) katmanını yükle
-                setTileLayer('google_hybrid');
-
-                // İnternet olmasa bile haritanın hareket ettiğini ve koordinatları gösteren Taktik Canvas Izgara Katmanı
-                const TacticalGridLayer = L.GridLayer.extend({
-                    createTile: function (coords) {
-                        const tile = document.createElement('canvas');
-                        const size = this.getTileSize();
-                        tile.width = size.x;
-                        tile.height = size.y;
-                        const ctx = tile.getContext('2d');
-                        ctx.strokeStyle = 'rgba(0, 223, 182, 0.22)';
-                        ctx.lineWidth = 1;
-                        ctx.strokeRect(0, 0, size.x, size.y);
-                        ctx.strokeStyle = 'rgba(0, 229, 255, 0.08)';
-                        ctx.beginPath();
-                        ctx.moveTo(size.x / 2, 0); ctx.lineTo(size.x / 2, size.y);
-                        ctx.moveTo(0, size.y / 2); ctx.lineTo(size.x, size.y / 2);
-                        ctx.stroke();
-                        ctx.fillStyle = 'rgba(0, 223, 182, 0.45)';
-                        ctx.font = '10px Consolas, monospace';
-                        ctx.fillText(`Z:${coords.z} [${coords.x},${coords.y}]`, 6, 14);
-                        return tile;
-                    }
-                });
-                new TacticalGridLayer({ zIndex: 10 }).addTo(tacticalMap);
-                updateFollowButton();
-
-                // Kullanıcı haritayı elle kaydırdığında takibi serbest bırak
-                tacticalMap.on('dragstart', () => {
-                    if (isFollowingVehicle) {
-                        isFollowingVehicle = false;
-                        updateFollowButton();
-                    }
-                });
-
-                // Tıklanan konuma harita kaydırma
-                tacticalMap.on('click', (e) => {
-                    addLog(`Harita Tıklandı: ${e.latlng.lat.toFixed(5)}° N, ${e.latlng.lng.toFixed(5)}° E`);
-                });
-
-                setTimeout(() => { if (tacticalMap) tacticalMap.invalidateSize(); }, 300);
-                setTimeout(() => { if (tacticalMap) tacticalMap.invalidateSize(); }, 1500);
-            } catch (e) {
-                console.error("Harita başlatma hatası:", e);
-            }
-        }
-
-        function updateFollowButton() {
-            const btn = document.getElementById('btn-toggle-follow');
-            if (!btn) return;
-            if (isFollowingVehicle) {
-                btn.innerText = "🎯 TAKİP: AÇIK";
-                btn.style.borderColor = "var(--accent-color)";
-                btn.style.color = "var(--accent-color)";
-                btn.style.background = "rgba(0, 223, 182, 0.18)";
-            } else {
-                btn.innerText = "⚪ TAKİP: KAPALI";
-                btn.style.borderColor = "rgba(255, 255, 255, 0.25)";
-                btn.style.color = "var(--text-muted)";
-                btn.style.background = "rgba(0, 0, 0, 0.35)";
-            }
-        }
-
-        function toggleFollowVehicle() {
-            isFollowingVehicle = !isFollowingVehicle;
-            updateFollowButton();
-            if (isFollowingVehicle) {
-                centerMap();
-                addLog("Harita: Seçili araç otomatik takip moduna alındı.");
-            }
-        }
-
-        function zoomMapIn() {
-            if (tacticalMap) tacticalMap.zoomIn();
-        }
-
-        function zoomMapOut() {
-            if (tacticalMap) tacticalMap.zoomOut();
-        }
-
-        function centerMap() {
-            if (tacticalMap) {
-                tacticalMap.panTo([lastSelectedLat, lastSelectedLon], { animate: true, duration: 0.6 });
-                isFollowingVehicle = true;
-                updateFollowButton();
-                addLog("Harita: Seçili araca odaklandı.");
-            }
         }
 
         function createRoverIconHtml(vCode, vName, yawDeg, isSelected, isOnline) {
