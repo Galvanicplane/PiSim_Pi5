@@ -182,9 +182,10 @@ class PiSimRequestHandler(http.server.SimpleHTTPRequestHandler):
             self.send_header('Cache-Control', 'no-cache, no-store, must-revalidate')
             self.end_headers()
 
+            local_ip = get_local_ip()
             with telemetry_lock:
                 now = time.time()
-                latest_telemetry["local_ip"] = get_local_ip()
+                latest_telemetry["local_ip"] = local_ip
                 latest_telemetry["now"] = now
 
                 # GERÇEK HEARTBEAT TESPİTİ: Unreal Engine'den son 5.0 saniyede probe veya telemetri geldiyse bağlıdır!
@@ -291,22 +292,25 @@ class PiSimRequestHandler(http.server.SimpleHTTPRequestHandler):
 
         # 2c. Belirtilen araca abone olma REST API (Sol panelden araca tıklandığında)
         if clean_path == '/api/select_vehicle':
+            global latest_jpeg_frame
             qs = parse_qs(parsed_url.query)
             code = qs.get('code', [''])[0].strip()
             v_id = int(qs.get('id', [-1])[0])
             target_host = discovered_ue5_ip or "127.0.0.1"
+            local_ip = get_local_ip()
 
-            # Araç canlı telemetride veya veritabanında varsa seçilebilir
-            db_codes = [v['code'] for v in telemetry_db.get_fleet_from_db()]
-            if code and code not in fleet_telemetry and db_codes and code not in db_codes:
-                self.send_response(400)
-                self.send_header('Content-Type', 'application/json')
-                self.end_headers()
-                self.wfile.write(json.dumps({
-                    'status': 'REJECTED',
-                    'msg': f"Araç '{code}' bulunamadı!"
-                }).encode('utf-8'))
-                return
+            # Önce RAM'deki canlı filoya bak; sadece RAM'de yoksa SQL'e sor (Tıklama gecikmesini 0ms'ye indirir!)
+            if code and code not in fleet_telemetry:
+                db_codes = [v['code'] for v in telemetry_db.get_fleet_from_db()]
+                if db_codes and code not in db_codes:
+                    self.send_response(400)
+                    self.send_header('Content-Type', 'application/json')
+                    self.end_headers()
+                    self.wfile.write(json.dumps({
+                        'status': 'REJECTED',
+                        'msg': f"Araç '{code}' bulunamadı!"
+                    }).encode('utf-8'))
+                    return
 
             with telemetry_lock:
                 if code:
@@ -334,7 +338,7 @@ class PiSimRequestHandler(http.server.SimpleHTTPRequestHandler):
                                 "msg": f"SQL_SON_KAYIT ({r['vehicle_code']})"
                             })
 
-            # KURAL: Sol panelde seçilen araç aktif araç olur ve onun telemetrisine abone olunur (Port 7400)
+            # KURAL: Sol panelde seçilen araç aktif araç olur (Port 7400)
             sub_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             sub_sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
             try:
@@ -342,7 +346,7 @@ class PiSimRequestHandler(http.server.SimpleHTTPRequestHandler):
                     "cmd": "SUB_VEHICLE",
                     "vehicle_code": code,
                     "vehicle_id": v_id,
-                    "client_ip": get_local_ip(),
+                    "client_ip": local_ip,
                     "telemetry_port": TELEMETRY_PORT
                 }
                 payload_bytes = json.dumps(cmd_dict).encode('utf-8')
@@ -355,7 +359,26 @@ class PiSimRequestHandler(http.server.SimpleHTTPRequestHandler):
                     except Exception:
                         pass
 
-                msg_log = f"🎯 [ABONELİK TALEBİ] Araç '{code}' seçildi -> Unreal Engine'e abone olma isteği gönderildi (Port {TELEMETRY_PORT})"
+                # Eğer canlı video yayını açıksa, yeni seçilen aracın kamerasına anında geçiş yap!
+                if is_video_subscribed and code:
+                    with video_lock:
+                        latest_jpeg_frame = None
+                    vid_cmd = {
+                        "cmd": "SUB_VIDEO",
+                        "vehicle_code": code,
+                        "subscribe": True,
+                        "client_ip": local_ip,
+                        "video_port": VIDEO_PORT
+                    }
+                    vid_bytes = json.dumps(vid_cmd).encode('utf-8')
+                    sub_sock.sendto(vid_bytes, (target_host, DISCOVERY_PORT))
+                    for b_tgt, b_prt in get_broadcast_targets(DISCOVERY_PORT):
+                        try:
+                            sub_sock.sendto(vid_bytes, (b_tgt, b_prt))
+                        except Exception:
+                            pass
+
+                msg_log = f"🎯 [ABONELİK TALEBİ] Araç '{code}' seçildi -> Unreal Engine'e odak bildirildi (Port {TELEMETRY_PORT})"
                 print(msg_log)
                 add_system_log(msg_log)
 
@@ -378,6 +401,9 @@ class PiSimRequestHandler(http.server.SimpleHTTPRequestHandler):
             subscribe_str = qs.get('subscribe', ['true'])[0].strip().lower()
             b_sub = (subscribe_str in ('true', '1', 'yes'))
             is_video_subscribed = b_sub
+            if not b_sub:
+                with video_lock:
+                    latest_jpeg_frame = None
 
             target_host = discovered_ue5_ip or "127.0.0.1"
             sub_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -736,6 +762,10 @@ def run_udp_video_listener():
     global latest_jpeg_frame
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    try:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 524288)
+    except Exception:
+        pass
     try:
         sock.bind(("0.0.0.0", VIDEO_PORT))
         print(f"[Video Dinleyici] 📹 UDP Port {VIDEO_PORT} dinleniyor (On-Demand JPEG video yayını)...")

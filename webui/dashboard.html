@@ -414,11 +414,14 @@
 
         // ==================== CANLI VE GERÇEK TELEMETRİ KÖPRÜSÜ ====================
         let isConnected = false;
+        let isFetchingTelemetry = false;
         let lastLoggedSec = 0;
         let wasConnectedLogFired = false;
         const loggedHistory = new Set();
 
         async function syncLiveTelemetry() {
+            if (isFetchingTelemetry) return;
+            isFetchingTelemetry = true;
             try {
                 const res = await fetch('/api/telemetry');
                 if (!res.ok) return;
@@ -555,7 +558,7 @@
                             const pz = Number(v.pos_z || v.altitude || 0).toFixed(1);
 
                             return `
-                                <div class="vehicle-card ${isSel ? 'active' : ''}" onclick="selectVehicle('${vCode}')" style="${cardBorder} opacity: ${cardOpacity}; filter: ${cardFilter}; padding: 8px; border-radius: 4px; cursor: pointer; margin-bottom: 6px; transition: all 0.2s ease;">
+                                <div class="vehicle-card ${isSel ? 'active' : ''}" onmousedown="selectVehicle('${vCode}')" onclick="selectVehicle('${vCode}')" style="${cardBorder} opacity: ${cardOpacity}; filter: ${cardFilter}; padding: 8px; border-radius: 4px; cursor: pointer; margin-bottom: 6px; transition: all 0.15s ease;">
                                     <div class="vehicle-card-header" style="display: flex; justify-content: space-between; align-items: center;">
                                         <span class="vehicle-card-title" style="font-weight: 800; color: ${isSel ? 'var(--accent-color)' : (isOnline ? '#ffffff' : '#ff8888')}; font-size: 11px;">
                                             ${isOnline ? '🟢' : '🔴'} ${vName}
@@ -682,6 +685,8 @@
                 const btnVid = document.getElementById('btn-toggle-video');
                 const camPlaceholder = document.getElementById('camera-placeholder-center');
                 if (data.video_subscribed) {
+                    isVideoSubscribed = true;
+                    startVideoRefreshLoop();
                     if (camImg) camImg.style.display = 'block';
                     if (camPlaceholder) camPlaceholder.style.display = 'none';
                     if (btnVid) {
@@ -691,6 +696,7 @@
                         btnVid.style.background = 'rgba(255, 51, 102, 0.15)';
                     }
                 } else {
+                    isVideoSubscribed = false;
                     if (camImg) camImg.style.display = 'none';
                     if (camPlaceholder) camPlaceholder.style.display = 'flex';
                     if (btnVid) {
@@ -702,11 +708,13 @@
                 }
             } catch (err) {
                 console.error("syncLiveTelemetry error:", err);
+            } finally {
+                isFetchingTelemetry = false;
             }
         }
         initTacticalMap();
         syncLiveTelemetry();
-        setInterval(syncLiveTelemetry, 250);
+        setInterval(syncLiveTelemetry, 150);
 
         function applyManualTargetConnection() {
             const ipInput = document.getElementById('input-manual-target-ip');
@@ -1087,7 +1095,13 @@
         }
 
         // ==================== ARAÇ SEÇİMİ VE VİDEO ABONELİK FONKSİYONLARI ====================
+        let lastSelectedActionTime = 0;
         async function selectVehicle(code) {
+            const nowMs = Date.now();
+            if (window.userSelectedVehicleCode === code && (nowMs - lastSelectedActionTime) < 250) {
+                return;
+            }
+            lastSelectedActionTime = nowMs;
             try {
                 window.userSelectedVehicleCode = code;
                 addLog(`🎯 Araç Seçildi: ${code} (Sağ panel detayları güncellendi)`);
@@ -1105,25 +1119,46 @@
 
         let isVideoSubscribed = false;
         let videoRefreshTimer = null;
+        let isLoadingVideoFrame = false;
+
+        function startVideoRefreshLoop() {
+            if (videoRefreshTimer) return;
+            const camImg = document.getElementById('camera-live-feed');
+            if (camImg) {
+                camImg.onload = () => { isLoadingVideoFrame = false; };
+                camImg.onerror = () => { isLoadingVideoFrame = false; };
+            }
+            videoRefreshTimer = setInterval(() => {
+                const imgEl = document.getElementById('camera-live-feed');
+                if (imgEl && isVideoSubscribed && !isLoadingVideoFrame) {
+                    isLoadingVideoFrame = true;
+                    imgEl.src = `/api/video_frame?t=${Date.now()}`;
+                }
+            }, 75);
+        }
+
+        function stopVideoRefreshLoop() {
+            if (videoRefreshTimer) {
+                clearInterval(videoRefreshTimer);
+                videoRefreshTimer = null;
+            }
+            isLoadingVideoFrame = false;
+            const camImg = document.getElementById('camera-live-feed');
+            if (camImg) camImg.src = '';
+        }
 
         async function toggleVideoSubscription() {
             try {
                 isVideoSubscribed = !isVideoSubscribed;
-                addLog(`📹 Canlı Video: ${isVideoSubscribed ? 'AÇILDI (Port 7401 On-Demand)' : 'KAPATILDI'}`);
-                addPacketLog(`TX → UE5 | SUB_VIDEO: ${isVideoSubscribed ? 'ENABLE' : 'DISABLE'} (Port 7401)`);
-                await fetch(`/api/subscribe_video?subscribe=${isVideoSubscribed}`);
+                const activeCode = window.userSelectedVehicleCode || '';
+                addLog(`📹 Canlı Video [${activeCode || 'AKTİF ARAÇ'}]: ${isVideoSubscribed ? 'AÇILDI (Port 7401 On-Demand)' : 'KAPATILDI'}`);
+                addPacketLog(`TX → UE5 | SUB_VIDEO (${activeCode || 'AUTO'}): ${isVideoSubscribed ? 'ENABLE' : 'DISABLE'} (Port 7401)`);
+                await fetch(`/api/subscribe_video?subscribe=${isVideoSubscribed}&code=${encodeURIComponent(activeCode)}`);
 
-                const camImg = document.getElementById('camera-live-feed');
                 if (isVideoSubscribed) {
-                    if (videoRefreshTimer) clearInterval(videoRefreshTimer);
-                    videoRefreshTimer = setInterval(() => {
-                        if (camImg && isVideoSubscribed) {
-                            camImg.src = `/api/video_frame?t=${Date.now()}`;
-                        }
-                    }, 80);
+                    startVideoRefreshLoop();
                 } else {
-                    if (videoRefreshTimer) clearInterval(videoRefreshTimer);
-                    if (camImg) camImg.src = '';
+                    stopVideoRefreshLoop();
                 }
                 syncLiveTelemetry();
             } catch (err) {

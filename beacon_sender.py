@@ -32,21 +32,19 @@ DASHBOARD_PORT = 8080
 
 import subprocess
 
-def get_all_local_ips() -> list:
-    """Tüm aktif yerel ağ IPv4 adreslerini tespit eder (Hiçbir dış Google/WAN sunucusuna bağlanmaz)."""
+_cached_local_ips = []
+_last_ip_check_time = 0.0
+
+def get_all_local_ips(force_refresh: bool = False) -> list:
+    """Tüm aktif yerel ağ IPv4 adreslerini tespit eder (Bellekte önbelleklenir, subprocess/DNS gecikmesi yaratmaz)."""
+    global _cached_local_ips, _last_ip_check_time
+    now = time.time()
+    if not force_refresh and _cached_local_ips and (now - _last_ip_check_time < 30.0):
+        return _cached_local_ips
+
     found_ips = []
 
-    # 1. Linux / Raspberry Pi: hostname -I komutu (Donanımsal eth/wlan adresleri, %100 yerel)
-    if sys.platform.startswith("linux"):
-        try:
-            out = subprocess.check_output(["hostname", "-I"], timeout=1).decode('utf-8', errors='ignore').strip()
-            for ip in out.split():
-                if not ip.startswith("127.") and ":" not in ip:
-                    found_ips.append(ip)
-        except Exception:
-            pass
-
-    # 2. Yerel alt ağ arayüz yoklaması (Sadece yerel modem/router IP'lerine bağlanır, internet gerekmez)
+    # 1. Yerel alt ağ arayüz yoklaması (En hızlı yöntem: < 0.2ms, subprocess veya DNS gerektirmez)
     local_probes = [('192.168.1.1', 80), ('192.168.0.1', 80), ('10.0.0.1', 80), ('172.16.0.1', 80)]
     for target in local_probes:
         try:
@@ -60,20 +58,33 @@ def get_all_local_ips() -> list:
         except Exception:
             pass
 
-    # 3. gethostbyname_ex fallback
-    try:
-        host = socket.gethostname()
-        for ip in socket.gethostbyname_ex(host)[2]:
-            if not ip.startswith("127."):
-                found_ips.append(ip)
-    except Exception:
-        pass
+    # 2. Linux / Raspberry Pi: hostname -I komutu (Sadece 30 saniyede bir çalışır)
+    if sys.platform.startswith("linux"):
+        try:
+            out = subprocess.check_output(["hostname", "-I"], timeout=0.4).decode('utf-8', errors='ignore').strip()
+            for ip in out.split():
+                if not ip.startswith("127.") and ":" not in ip:
+                    found_ips.append(ip)
+        except Exception:
+            pass
+
+    # 3. gethostbyname_ex fallback (Yalnızca yukarıdakiler bulamadıysa)
+    if not found_ips:
+        try:
+            host = socket.gethostname()
+            for ip in socket.gethostbyname_ex(host)[2]:
+                if not ip.startswith("127."):
+                    found_ips.append(ip)
+        except Exception:
+            pass
 
     clean_ips = list(dict.fromkeys(found_ips))
-    return clean_ips if clean_ips else ["127.0.0.1"]
+    _cached_local_ips = clean_ips if clean_ips else ["127.0.0.1"]
+    _last_ip_check_time = now
+    return _cached_local_ips
 
 def get_local_ip() -> str:
-    """Yerel ağdaki gerçek IP adresini tespit eder."""
+    """Yerel ağdaki gerçek IP adresini tespit eder (Önbellekten anında döner)."""
     ips = get_all_local_ips()
     return ips[0]
 
