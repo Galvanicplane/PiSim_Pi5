@@ -588,6 +588,73 @@ class PiSimRequestHandler(http.server.SimpleHTTPRequestHandler):
             }).encode('utf-8'))
             return
 
+        # 5c. Haritadan Tıklanan Koordinata Otonom Sürüş Başlatma API (/api/goto_gps)
+        if clean_path == '/api/goto_gps':
+            global active_motion_controller
+            qs = parse_qs(parsed_url.query)
+            target_lat = float(qs.get('lat', [39.9334])[0])
+            target_lon = float(qs.get('lon', [32.8597])[0])
+            speed_mps = float(qs.get('speed', [1.8])[0])
+            mode = qs.get('mode', ['curve'])[0].strip()
+            target_code = qs.get('target', [selected_vehicle_code or 'selected'])[0].strip()
+
+            if active_motion_controller is not None:
+                try:
+                    active_motion_controller.request_abort()
+                except Exception:
+                    pass
+
+            if PiSimMotionController is not None:
+                ctrl = PiSimMotionController(
+                    target_vehicle=target_code,
+                    ue5_ip=discovered_ue5_ip
+                )
+                active_motion_controller = ctrl
+
+                def _run_nav():
+                    add_system_log(f"🛰️ [OTONOM SÜRÜŞ BAŞLADI] Hedef: ({target_lat:.6f}°, {target_lon:.6f}°) | Mod: {mode.upper()}")
+                    ctrl.navigate_to_gps(
+                        target_lat=target_lat,
+                        target_lon=target_lon,
+                        cruise_speed=speed_mps,
+                        mode=mode,
+                        status_callback=add_system_log
+                    )
+
+                threading.Thread(target=_run_nav, daemon=True).start()
+                status_str = "STARTED"
+            else:
+                status_str = "ERROR_NO_MOTION_LIB"
+
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.end_headers()
+            self.wfile.write(json.dumps({
+                "status": status_str,
+                "target": target_code,
+                "lat": target_lat,
+                "lon": target_lon,
+                "mode": mode
+            }).encode('utf-8'))
+            return
+
+        # 5d. Aktif Otonom Sürüşü Durdurma API (/api/stop_goto)
+        if clean_path == '/api/stop_goto':
+            if active_motion_controller is not None:
+                try:
+                    active_motion_controller.request_abort()
+                except Exception:
+                    pass
+                active_motion_controller = None
+            add_system_log("🛑 [OTONOM SÜRÜŞ İPTAL EDİLDİ] Araç durduruldu.")
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.end_headers()
+            self.wfile.write(json.dumps({"status": "STOPPED"}).encode('utf-8'))
+            return
+
         return super().do_GET()
 
     def log_message(self, format, *args):
