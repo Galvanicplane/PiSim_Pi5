@@ -268,12 +268,31 @@ class PiSimMotionController:
         }
         self._send_payload(payload, repeat=3)
 
-    def send_motor_test(self, bone_name: str, val: float, timeout_sec: float = 2.0):
-        """Tek bir kemik/motor için test değeri (-1.0 .. +1.0) gönderir."""
+    def send_motor_test(self, target_identifier, val: float, timeout_sec: float = 2.0):
+        """
+        Tek bir motor/parça için test değeri (-1.0 .. +1.0) gönderir.
+        target_identifier: Section Index (int örn: 1, 2...), parça adı (str) veya tekerlek indeksi.
+        Tamamen genel/generic mimaridir; araca özel hardcode bağımlılık içermez.
+        """
         payload = {
             "cmd": "motor",
             "target": self.target_vehicle if self.target_vehicle not in ("selected", "active", "") else "all",
-            "bone": str(bone_name),
+            "val": max(-1.0, min(1.0, float(val))),
+            "timeout_sec": float(timeout_sec),
+            "ts": time.time(),
+        }
+        if isinstance(target_identifier, int) or (isinstance(target_identifier, str) and target_identifier.isdigit()):
+            payload["index"] = int(target_identifier)
+        else:
+            payload["bone"] = str(target_identifier)
+        self._send_payload(payload)
+
+    def send_wheel_index_test(self, wheel_index: int, val: float, timeout_sec: float = 2.0):
+        """Aracın tekerlek sırasına göre (0, 1, 2, 3...) tekerlek sürer."""
+        payload = {
+            "cmd": "motor",
+            "target": self.target_vehicle if self.target_vehicle not in ("selected", "active", "") else "all",
+            "wheel_index": int(wheel_index),
             "val": max(-1.0, min(1.0, float(val))),
             "timeout_sec": float(timeout_sec),
             "ts": time.time(),

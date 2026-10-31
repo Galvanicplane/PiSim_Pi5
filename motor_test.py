@@ -6,31 +6,37 @@ PiSim - Raspberry Pi 5 Motor & Servo Bağımsız Test Aracı (motor_test.py)
 Bu araç, Unreal Engine simülasyonundaki aracın her bir motorunu, tekerleğini
 ve direksiyon servosunu bağımsız olarak Pi 5 üzerinden UDP ile test etmenizi sağlar.
 
+Generic & İndeks Tabanlı Mimari:
+  - Kesinlikle belirli bir araca veya sabit isimlendirmeye bağımlı DEĞİLDİR!
+  - 3D FBX modelinin parçalarını doğrudan Bölüm İndeksiyle (Section Index: 1, 2, 3...)
+    veya Tekerlek Sırasıyla (Wheel Index: 0, 1, 2, 3...) bağımsız olarak sürebilirsiniz.
+  - Direksiyon ve diferansiyel sürüş komutları tüm araç tipleriyle uyumludur.
+
 Özellikler:
-  1. Direksiyon Testi : Ön servo açısını derece cinsinden (-35° .. +35°) hassas kontrol
-  2. Tekil Tekerlek    : FL, FR, RL, RR tekerleklerini veya herhangi bir kemik motorunu tek tek döndürme
-  3. Diferansiyel Hız : Sol ve sağ tekerleklere farklı hızlar vererek dönüş kabiliyetini sınama
-  4. Rampa & Süpürme  : Direksiyon açı taraması (Sweep) ve tekerlek hız rampa (Ramp) testleri
-  5. Çift Modlu       : Hem argümanlarla tek satırda hem de interaktif REPL konsolunda çalışabilir
+  1. İndeks Tabanlı Test : Parça indeksini vererek (örn: 'index 1 0.5' veya doğrudan '1 0.5') test etme
+  2. Tekerlek Sırası     : 'wheel 0 0.5', 'wheel 1 0.5' ile tekerlekleri sırayla döndürme
+  3. Direksiyon Testi    : Ön servo açısını derece cinsinden (-35° .. +35°) hassas kontrol
+  4. Diferansiyel Hız    : Sol ve sağ tekerleklere farklı hızlar vererek dönüş kabiliyetini sınama
+  5. Rampa & Süpürme     : Direksiyon açı taraması (Sweep) ve tekerlek hız rampa (Ramp) testleri
 
 Kullanım Örnekleri:
   1. İnteraktif Konsol Modu:
      python3 motor_test.py
 
-  2. Direksiyonu +25 dereceye çevirme (2 saniye):
+  2. 1. Bölümdeki (Section 1) motoru %50 güçle döndürme:
+     python3 motor_test.py --index 1 --val 0.5 --time 2.0
+
+  3. İlk tekerleği (Wheel Index 0) döndürme:
+     python3 motor_test.py --wheel-index 0 --val 0.5 --time 2.0
+
+  4. Direksiyonu +25 dereceye çevirme (2 saniye):
      python3 motor_test.py --steer 25 --time 2.0
 
-  3. Tüm tekerlekleri ileri %40 güçle döndürme:
+  5. Tüm tekerlekleri ileri %40 güçle döndürme:
      python3 motor_test.py --drive 0.4 --time 3.0
 
-  4. Sadece Sol Ön Tekerleği (FL) döndürme:
-     python3 motor_test.py --wheel fl --val 0.5 --time 2.0
-
-  5. Diferansiyel Hız Testi (Sol: %30, Sağ: %70):
+  6. Diferansiyel Hız Testi (Sol: %30, Sağ: %70):
      python3 motor_test.py --diff 0.3 0.7 --time 3.0
-
-  6. Direksiyon Açı Tarama Testi (-35° -> +35° -> 0°):
-     python3 motor_test.py --sweep-steer
 
   7. Acil Durdurma ve Motorları Sıfırlama:
      python3 motor_test.py --stop
@@ -56,16 +62,17 @@ def print_banner(motion: PiSimMotionController):
     print(f" 🌐 UE5 IP     : {motion.ue5_ip or 'Otomatik Keşif (Broadcast)'}")
     print(f" 📡 Komut Port : {motion.command_port} (Özel Port: {motion.dedicated_port or 'Bekleniyor'})")
     print("-" * 78)
-    print(" Komutlar:")
+    print(" İndeks ve Motor Komutları:")
+    print("   <index> <hız>        : Bölüm indeksiyle hızlı test (örn: '1 0.5', '2 -0.4', '3 0.6')")
+    print("   motor <index> <hız>  : Model parça indeksini sür (örn: 'motor 1 0.5', 'motor 2 -0.3')")
+    print("   wheel <sıra> <hız>   : Tekerlek sırasına göre sür (örn: 'wheel 0 0.5', 'wheel 1 0.5')")
     print("   steer <açı>          : Direksiyonu çevir (örn: 'steer 25' veya 'steer -20') [-35°..+35°]")
     print("   drive <hız>          : Tüm tekerlekleri sür (örn: 'drive 0.4' veya 'drive -0.3') [-1..+1]")
     print("   diff <sol> <sağ>     : Diferansiyel hız testi (örn: 'diff 0.3 0.8')")
-    print("   fl / fr / rl / rr <hız>: Tekil tekerlek testi (örn: 'fl 0.5', 'rr -0.4')")
-    print("   bone <kemik> <değer> : İsimle kemik testi (örn: 'bone Wheel_FL 0.6')")
     print("   sweep                : Direksiyon sağ-sol tarama testi (-35° .. +35°)")
-    print("   ramp                 : Tekerlek hız rampa testi (%0 -> %80 -> %0)")
+    print("   ramp                 : Tekerlek hız rampa testi (%0 -> %60 -> %0)")
     print("   status / durum       : Canlı telemetri ve GPS/Pusula verisini göster")
-    print("   stop                 : Acil durdurma ve motorları sıfırlama")
+    print("   stop / dur           : Acil durdurma ve motorları sıfırlama")
     print("   reset                : Motor test değerlerini temizle")
     print("   help / ?             : Bu yardım menüsünü yazdır")
     print("   quit / exit / q      : Çıkış")
@@ -121,30 +128,10 @@ def run_ramp_drive(motion: PiSimMotionController):
         print("\n🛑 Rampa testi kullanıcı tarafından durduruldu.")
 
 
-def resolve_wheel_alias(alias: str) -> str:
-    alias_lower = alias.lower().strip()
-    mapping = {
-        "fl": "Wheel_FL",
-        "front_left": "Wheel_FL",
-        "sol_on": "Wheel_FL",
-        "fr": "Wheel_FR",
-        "front_right": "Wheel_FR",
-        "sag_on": "Wheel_FR",
-        "rl": "Wheel_RL",
-        "rear_left": "Wheel_RL",
-        "sol_arka": "Wheel_RL",
-        "rr": "Wheel_RR",
-        "rear_right": "Wheel_RR",
-        "sag_arka": "Wheel_RR",
-    }
-    return mapping.get(alias_lower, alias)
-
-
 def interactive_repl(motion: PiSimMotionController):
     print_banner(motion)
 
     # İlk bağlantı kontrolü
-    t0 = time.time()
     telem = motion.get_sensor_telemetry()
     if telem:
         print(f"🟢 [BAĞLANTI BAŞARILI] Araç: {telem['name']} [{telem['code']}] | Hız: {telem['speed_kmh']:.1f} km/h | Yaw: {telem['yaw']:.1f}°\n")
@@ -228,39 +215,55 @@ def interactive_repl(motion: PiSimMotionController):
                 except ValueError:
                     print("❌ Hata: Geçerli sayılar giriniz.")
 
+            elif cmd in ("index", "idx", "motor", "bone", "m"):
+                if len(parts) < 3:
+                    print("⚠️ Kullanım: motor <index_veya_isim> <hız> (örn: motor 1 0.5, motor 2 -0.4)")
+                    continue
+                try:
+                    target_id = parts[1]
+                    val = max(-1.0, min(1.0, float(parts[2])))
+                    motion.send_motor_test(target_id, val, timeout_sec=4.0)
+                    print(f"⚡ Bölüm/Motor '{target_id}': {val:+.2f} değeri uygulandı (4s watchdog).")
+                except ValueError:
+                    print("❌ Hata: Geçerli bir sayı giriniz.")
+
+            elif cmd in ("wheel", "teker", "w"):
+                if len(parts) < 3:
+                    print("⚠️ Kullanım: wheel <sıra_indeksi_0_1_2...> <hız> (örn: wheel 0 0.5, wheel 1 0.5)")
+                    continue
+                try:
+                    wheel_arg = parts[1]
+                    val = max(-1.0, min(1.0, float(parts[2])))
+                    if wheel_arg.isdigit():
+                        motion.send_wheel_index_test(int(wheel_arg), val, timeout_sec=4.0)
+                        print(f"⚙️ Tekerlek #{wheel_arg} (Sıra İndeksi): {val:+.2f} hız uygulandı.")
+                    else:
+                        motion.send_motor_test(wheel_arg, val, timeout_sec=4.0)
+                        print(f"⚙️ Tekerlek '{wheel_arg}': {val:+.2f} hız uygulandı.")
+                except ValueError:
+                    print("❌ Hata: Geçerli bir sayı giriniz.")
+
+            # Hızlı İndeks Kısayolu: Kullanıcı doğrudan '1 0.5' veya '2 -0.4' yazabilir
+            elif cmd.isdigit() and len(parts) >= 2:
+                try:
+                    sec_idx = int(cmd)
+                    val = max(-1.0, min(1.0, float(parts[1])))
+                    motion.send_motor_test(sec_idx, val, timeout_sec=4.0)
+                    print(f"⚡ Bölüm İndeksi #{sec_idx}: {val:+.2f} değeri uygulandı (4s watchdog).")
+                except ValueError:
+                    print("❌ Hata: Geçerli bir sayı giriniz.")
+
+            # Bilinen kısaltmalar (fl, fr, rl, rr)
             elif cmd in ("fl", "fr", "rl", "rr"):
+                alias_map = {"fl": 0, "fr": 1, "rl": 2, "rr": 3}
                 if len(parts) < 2:
                     print(f"⚠️ Kullanım: {cmd} <değer> (örn: {cmd} 0.5)")
                     continue
                 try:
                     val = max(-1.0, min(1.0, float(parts[1])))
-                    bone = resolve_wheel_alias(cmd)
-                    motion.send_motor_test(bone, val, timeout_sec=4.0)
-                    print(f"⚙️ Tekerlek '{bone}' [{cmd.upper()}]: {val:+.2f} hızla sürülüyor.")
-                except ValueError:
-                    print("❌ Hata: Geçerli bir sayı giriniz.")
-
-            elif cmd in ("wheel", "teker"):
-                if len(parts) < 3:
-                    print("⚠️ Kullanım: wheel <fl/fr/rl/rr/kemik_adı> <değer> (örn: wheel fl 0.5)")
-                    continue
-                try:
-                    bone = resolve_wheel_alias(parts[1])
-                    val = max(-1.0, min(1.0, float(parts[2])))
-                    motion.send_motor_test(bone, val, timeout_sec=4.0)
-                    print(f"⚙️ Tekerlek '{bone}': {val:+.2f} hızla sürülüyor.")
-                except ValueError:
-                    print("❌ Hata: Geçerli bir sayı giriniz.")
-
-            elif cmd in ("bone", "kemik", "motor"):
-                if len(parts) < 3:
-                    print("⚠️ Kullanım: bone <kemik_adı> <değer> (örn: bone Wheel_FL 0.5)")
-                    continue
-                try:
-                    bone = parts[1]
-                    val = max(-1.0, min(1.0, float(parts[2])))
-                    motion.send_motor_test(bone, val, timeout_sec=4.0)
-                    print(f"⚡ Kemik/Motor '{bone}': {val:+.2f} değeri uygulandı.")
+                    w_idx = alias_map[cmd]
+                    motion.send_wheel_index_test(w_idx, val, timeout_sec=4.0)
+                    print(f"⚙️ Tekerlek #{w_idx} [{cmd.upper()}]: {val:+.2f} hız uygulandı.")
                 except ValueError:
                     print("❌ Hata: Geçerli bir sayı giriniz.")
 
@@ -281,15 +284,16 @@ def interactive_repl(motion: PiSimMotionController):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="PiSim Raspberry Pi 5 Motor & Servo Bağımsız Test Aracı")
+    parser = argparse.ArgumentParser(description="PiSim Raspberry Pi 5 Motor & Servo Generic Test Aracı")
     parser.add_argument("--target", "-t", type=str, default="selected", help="Hedef araç (örn: '1', 'RV01', 'selected')")
     parser.add_argument("--ip", type=str, default=None, help="Unreal Engine IP adresi (boşsa broadcast/otomatik)")
+    parser.add_argument("--index", type=int, default=None, help="Model Bölüm İndeksi (Section Index: 1, 2, 3...)")
+    parser.add_argument("--wheel-index", type=int, default=None, help="Tekerlek Sıra İndeksi (0, 1, 2, 3...)")
+    parser.add_argument("--bone", type=str, default=None, help="Kemik/parça adı")
     parser.add_argument("--steer", "-s", type=float, default=None, help="Direksiyon açısı (-35 .. +35 derece)")
     parser.add_argument("--drive", "-d", type=float, default=None, help="Tüm tekerlekler için sürüş gücü (-1.0 .. +1.0)")
     parser.add_argument("--diff", nargs=2, type=float, default=None, metavar=("SOL", "SAG"), help="Diferansiyel tekerlek testi")
-    parser.add_argument("--bone", type=str, default=None, help="Doğrudan test edilecek kemik adı")
-    parser.add_argument("--wheel", type=str, default=None, help="Test edilecek tekerlek (fl, fr, rl, rr veya kemik adı)")
-    parser.add_argument("--val", "-v", type=float, default=0.5, help="Kemik/tekerlek için test değeri (-1.0 .. +1.0)")
+    parser.add_argument("--val", "-v", type=float, default=0.5, help="Test değeri (-1.0 .. +1.0)")
     parser.add_argument("--time", type=float, default=2.0, help="Test süresi (saniye, varsayılan: 2.0s)")
     parser.add_argument("--sweep-steer", action="store_true", help="Direksiyon tarama testi (-35° -> +35°)")
     parser.add_argument("--ramp-drive", action="store_true", help="Tekerlek hız rampa testi")
@@ -309,13 +313,13 @@ def main():
 
     signal.signal(signal.SIGINT, handle_sigint)
 
-    # Argüman kontrolü: Eğer hiçbir test parametresi verilmediyse veya -i seçildiyse interaktif moda geç
     has_action = any([
+        args.index is not None,
+        args.wheel_index is not None,
+        args.bone is not None,
         args.steer is not None,
         args.drive is not None,
         args.diff is not None,
-        args.bone is not None,
-        args.wheel is not None,
         args.sweep_steer,
         args.ramp_drive,
         args.stop,
@@ -351,6 +355,36 @@ def main():
     elif args.ramp_drive:
         run_ramp_drive(motion)
 
+    elif args.index is not None:
+        val = max(-1.0, min(1.0, args.val))
+        print(f"⚡ Bölüm İndeksi #{args.index}: {val:+.2f} uygulanıyor (Süre: {args.time}s)...")
+        t_end = time.time() + args.time
+        while time.time() < t_end:
+            motion.send_motor_test(args.index, val, timeout_sec=1.5)
+            time.sleep(0.1)
+        motion.send_motor_test(args.index, 0.0)
+        print("✅ Tamamlandı.")
+
+    elif args.wheel_index is not None:
+        val = max(-1.0, min(1.0, args.val))
+        print(f"⚙️ Tekerlek Sıra İndeksi #{args.wheel_index}: {val:+.2f} uygulanıyor (Süre: {args.time}s)...")
+        t_end = time.time() + args.time
+        while time.time() < t_end:
+            motion.send_wheel_index_test(args.wheel_index, val, timeout_sec=1.5)
+            time.sleep(0.1)
+        motion.send_wheel_index_test(args.wheel_index, 0.0)
+        print("✅ Tamamlandı.")
+
+    elif args.bone is not None:
+        val = max(-1.0, min(1.0, args.val))
+        print(f"⚡ Parça '{args.bone}': {val:+.2f} uygulanıyor (Süre: {args.time}s)...")
+        t_end = time.time() + args.time
+        while time.time() < t_end:
+            motion.send_motor_test(args.bone, val, timeout_sec=1.5)
+            time.sleep(0.1)
+        motion.send_motor_test(args.bone, 0.0)
+        print("✅ Tamamlandı.")
+
     elif args.steer is not None:
         angle = max(-35.0, min(35.0, args.steer))
         print(f"🎯 Direksiyon {angle:+.1f}° açısına ayarlanıyor (Süre: {args.time}s)...")
@@ -381,27 +415,6 @@ def main():
             time.sleep(0.1)
         motion.send_drive_wheels_test(0.0, 0.0)
         motion.stop()
-        print("✅ Tamamlandı.")
-
-    elif args.wheel is not None:
-        bone = resolve_wheel_alias(args.wheel)
-        val = max(-1.0, min(1.0, args.val))
-        print(f"⚙️ Tekerlek '{bone}': {val:+.2f} değeri uygulanıyor (Süre: {args.time}s)...")
-        t_end = time.time() + args.time
-        while time.time() < t_end:
-            motion.send_motor_test(bone, val, timeout_sec=1.5)
-            time.sleep(0.1)
-        motion.send_motor_test(bone, 0.0)
-        print("✅ Tamamlandı.")
-
-    elif args.bone is not None:
-        val = max(-1.0, min(1.0, args.val))
-        print(f"⚡ Kemik '{args.bone}': {val:+.2f} değeri uygulanıyor (Süre: {args.time}s)...")
-        t_end = time.time() + args.time
-        while time.time() < t_end:
-            motion.send_motor_test(args.bone, val, timeout_sec=1.5)
-            time.sleep(0.1)
-        motion.send_motor_test(args.bone, 0.0)
         print("✅ Tamamlandı.")
 
 
