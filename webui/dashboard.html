@@ -170,34 +170,6 @@
                     </div>
                 </div>
 
-                <!-- HARİTADA TIKLANAN KOORDİNAT & OTONOM SÜRÜŞ KARTI (Z-INDEX 25) -->
-                <div id="clicked-coord-panel" style="display: none; position: absolute; bottom: 44px; left: 10px; z-index: 25; background: rgba(6, 9, 12, 0.92); border: 1px solid #00dfb6; border-left: 4px solid #00dfb6; border-radius: 4px; padding: 8px 12px; font-family: var(--font-mono); font-size: 10px; color: #e6edf3; box-shadow: 0 0 18px rgba(0, 223, 182, 0.3); pointer-events: auto; backdrop-filter: blur(6px); min-width: 310px;">
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
-                        <span style="color: #00dfb6; font-weight: 900; font-size: 10.5px;">🎯 SEÇİLEN HEDEF KOORDİNAT (WAYPOINT)</span>
-                        <span style="cursor: pointer; color: var(--text-muted); font-weight: 800; padding: 0 4px;" onclick="clearClickedWaypoint()">✕</span>
-                    </div>
-                    <div id="clicked-coord-latlon" style="color: #ffffff; font-weight: 800; font-size: 11px; margin-bottom: 2px;">
-                        ENLEM: --° N | BOYLAM: --° E
-                    </div>
-                    <div id="clicked-coord-delta" style="color: #00e5ff; font-size: 9.5px; margin-bottom: 6px;">
-                        Mesafe: -- m | Açı: --° (ΔX: --m, ΔY: --m)
-                    </div>
-                    <div style="display: flex; gap: 5px; flex-wrap: wrap;">
-                        <button class="cod-btn" style="padding: 4px 8px; font-size: 9.5px; font-weight: 800; border-color: #00dfb6; color: #00dfb6; background: rgba(0, 223, 182, 0.18);" onclick="driveToClickedCoordinate('curve')">
-                            🚀 OTONOM SÜR (CURVE / DOUBLE-CHECK)
-                        </button>
-                        <button class="cod-btn" style="padding: 4px 8px; font-size: 9.5px; font-weight: 800; border-color: #00e5ff; color: #00e5ff;" onclick="driveToClickedCoordinate('point-turn')">
-                            🧭 NOKTASAL SÜR
-                        </button>
-                        <button class="cod-btn" style="padding: 4px 8px; font-size: 9.5px; font-weight: 800; border-color: #ff4444; color: #ff5555;" onclick="stopAutonomousGoto()">
-                            🛑 DURDUR
-                        </button>
-                    </div>
-                    <div id="clicked-coord-cli" style="margin-top: 5px; padding-top: 4px; border-top: 1px dashed rgba(255,255,255,0.12); font-size: 8.5px; color: #ffaa00; user-select: all;">
-                        python3 goto_coordinate.py --lat -- --lon --
-                    </div>
-                </div>
-
                 <!-- HARİTA KONTROL VE TAKİP TUŞLARI (Z-INDEX 20) -->
                 <div style="margin-top: auto; display: flex; justify-content: space-between; align-items: flex-end; z-index: 20; position: relative; pointer-events: none;">
                     <div style="font-size: 10px; color: var(--text-muted); background: rgba(6, 9, 12, 0.85); padding: 4px 10px; border-radius: 4px; border: 1px solid var(--mono-border); pointer-events: auto; backdrop-filter: blur(4px);">
@@ -560,9 +532,19 @@
                     }
                 });
 
-                // Haritada boş bir noktaya tıklandığında koordinatları göster ve hedef pin bırak
+                // Haritada boş bir yere tıklandığında sadece GPS koordinatlarını göster (Kontrol/Çizim yapmaz)
                 tacticalMap.on('click', (e) => {
-                    onMapCoordinateClicked(e.latlng.lat, e.latlng.lng);
+                    const latStr = e.latlng.lat.toFixed(6);
+                    const lonStr = e.latlng.lng.toFixed(6);
+                    const lbl = document.getElementById('map-target-label');
+                    if (lbl) {
+                        lbl.innerText = `TIKLANAN GPS: ${latStr}° N, ${lonStr}° E`;
+                    }
+                    L.popup()
+                        .setLatLng(e.latlng)
+                        .setContent(`<div style="font-family:monospace; font-size:10.5px;"><b style="color:#00dfb6;">📍 KOORDİNAT</b><br>Lat: <b>${latStr}</b><br>Lon: <b>${lonStr}</b></div>`)
+                        .openOn(tacticalMap);
+                    addLog(`📍 Harita Koordinatı: --lat ${latStr} --lon ${lonStr}`);
                 });
 
                 // Sayfa ilk yüklendiğinde ve pencere değiştiğinde Leaflet boyutunu düzelt
@@ -615,103 +597,6 @@
                 updateFollowButton();
                 addLog("Harita: Seçili araca odaklandı.");
             }
-        }
-
-        let clickedWaypointLat = null;
-        let clickedWaypointLon = null;
-        let clickedWaypointMarker = null;
-        let clickedWaypointLine = null;
-
-        function onMapCoordinateClicked(lat, lon) {
-            clickedWaypointLat = Number(lat);
-            clickedWaypointLon = Number(lon);
-
-            // Seçili araca göre yerel metre farkı ve baş açısı hesabı
-            const dxNorth = (clickedWaypointLat - lastSelectedLat) * 111320.0;
-            const dyEast = (clickedWaypointLon - lastSelectedLon) * (111320.0 * Math.cos(lastSelectedLat * Math.PI / 180.0));
-            const distM = Math.hypot(dxNorth, dyEast);
-            const bearingDeg = (Math.atan2(dyEast, dxNorth) * 180.0 / Math.PI);
-
-            const panel = document.getElementById('clicked-coord-panel');
-            const latlonEl = document.getElementById('clicked-coord-latlon');
-            const deltaEl = document.getElementById('clicked-coord-delta');
-            const cliEl = document.getElementById('clicked-coord-cli');
-            const targetLabel = document.getElementById('map-target-label');
-
-            if (panel) panel.style.display = 'block';
-            if (latlonEl) latlonEl.innerText = `ENLEM: ${clickedWaypointLat.toFixed(6)}° N | BOYLAM: ${clickedWaypointLon.toFixed(6)}° E`;
-            if (deltaEl) deltaEl.innerText = `Mesafe: ${distM.toFixed(1)}m | Açı: ${bearingDeg.toFixed(1)}° (ΔKuzey: ${dxNorth >= 0 ? '+' : ''}${dxNorth.toFixed(1)}m, ΔDoğu: ${dyEast >= 0 ? '+' : ''}${dyEast.toFixed(1)}m)`;
-            if (cliEl) cliEl.innerText = `python3 goto_coordinate.py --lat ${clickedWaypointLat.toFixed(6)} --lon ${clickedWaypointLon.toFixed(6)}`;
-            if (targetLabel) targetLabel.innerText = `${clickedWaypointLat.toFixed(5)}°N, ${clickedWaypointLon.toFixed(5)}°E (${distM.toFixed(1)}m)`;
-
-            if (tacticalMap && typeof L !== 'undefined') {
-                const pinHtml = `
-                    <div style="display:flex; flex-direction:column; align-items:center; transform:translate(-50%, -50%);">
-                        <div style="width:22px; height:22px; border:2px solid #ffaa00; border-radius:50%; background:rgba(255,170,0,0.25); box-shadow:0 0 12px #ffaa00; display:flex; align-items:center; justify-content:center;">
-                            <div style="width:6px; height:6px; background:#ffaa00; border-radius:50%;"></div>
-                        </div>
-                        <div style="margin-top:2px; background:#06090c; border:1px solid #ffaa00; color:#ffaa00; font-size:9px; font-weight:800; padding:1px 4px; border-radius:2px; white-space:nowrap;">
-                            HEDEF (${distM.toFixed(1)}m)
-                        </div>
-                    </div>
-                `;
-                const pinIcon = L.divIcon({
-                    html: pinHtml,
-                    className: 'custom-waypoint-pin',
-                    iconSize: [30, 36],
-                    iconAnchor: [15, 18]
-                });
-
-                if (clickedWaypointMarker) {
-                    clickedWaypointMarker.setLatLng([clickedWaypointLat, clickedWaypointLon]);
-                    clickedWaypointMarker.setIcon(pinIcon);
-                } else {
-                    clickedWaypointMarker = L.marker([clickedWaypointLat, clickedWaypointLon], { icon: pinIcon }).addTo(tacticalMap);
-                }
-
-                if (clickedWaypointLine) {
-                    clickedWaypointLine.setLatLngs([[lastSelectedLat, lastSelectedLon], [clickedWaypointLat, clickedWaypointLon]]);
-                } else {
-                    clickedWaypointLine = L.polyline([[lastSelectedLat, lastSelectedLon], [clickedWaypointLat, clickedWaypointLon]], {
-                        color: '#ffaa00',
-                        weight: 2,
-                        dashArray: '6, 6',
-                        opacity: 0.85
-                    }).addTo(tacticalMap);
-                }
-            }
-
-            addLog(`🎯 Harita Hedefi Seçildi: ${clickedWaypointLat.toFixed(6)}° N, ${clickedWaypointLon.toFixed(6)}° E (Mesafe: ${distM.toFixed(1)}m)`);
-        }
-
-        function clearClickedWaypoint() {
-            const panel = document.getElementById('clicked-coord-panel');
-            if (panel) panel.style.display = 'none';
-            if (tacticalMap) {
-                if (clickedWaypointMarker) { tacticalMap.removeLayer(clickedWaypointMarker); clickedWaypointMarker = null; }
-                if (clickedWaypointLine) { tacticalMap.removeLayer(clickedWaypointLine); clickedWaypointLine = null; }
-            }
-            clickedWaypointLat = null;
-            clickedWaypointLon = null;
-        }
-
-        function driveToClickedCoordinate(mode = 'curve') {
-            if (clickedWaypointLat === null || clickedWaypointLon === null) return;
-            const targetCode = window.userSelectedVehicleCode || 'selected';
-            addLog(`🚀 Otonom Sürüş Başlatılıyor -> (${clickedWaypointLat.toFixed(6)}°, ${clickedWaypointLon.toFixed(6)}°) [Mod: ${mode.toUpperCase()}]`);
-            fetch(`/api/goto_gps?lat=${clickedWaypointLat}&lon=${clickedWaypointLon}&mode=${encodeURIComponent(mode)}&target=${encodeURIComponent(targetCode)}`)
-                .then(r => r.json())
-                .then(res => {
-                    addLog(`✅ Otonom Görev İletildi: ${res.status} (${res.lat.toFixed(5)}°N, ${res.lon.toFixed(5)}°E)`);
-                })
-                .catch(err => addLog(`❌ Otonom görev hatası: ${err}`));
-        }
-
-        function stopAutonomousGoto() {
-            fetch('/api/stop_goto')
-                .then(r => r.json())
-                .then(() => addLog('🛑 Otonom sürüş durduruldu.'))
-                .catch(err => addLog(`❌ Durdurma hatası: ${err}`));
         }
 
 // ==================== CANLI VE GERÇEK TELEMETRİ KÖPRÜSÜ ====================

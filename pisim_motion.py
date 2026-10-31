@@ -1,26 +1,25 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-PiSim - Otonom Hareket ve Çift Doğrulamalı (Double-Check) Navigasyon Kütüphanesi (pisim_motion.py)
-==================================================================================================
-Bu modül, PiSim projesi kapsamı tamamlandıktan sonra otonom sürüş algoritmalarını test etmek için
-geliştirilmiş bağımsız hareket kütüphanesidir.
+PiSim - Gerçekçi Otonom Hareket ve ArduPilot L1 Navigasyon Kütüphanesi (pisim_motion.py)
+========================================================================================
+Bu modül, HİÇBİR simülasyon hilesi (Unreal pos_x, pos_y ground-truth) KULLANMADAN,
+yalnızca gerçek bir otonom aracın (ArduPilot Rover / İKA) sahip olduğu fiziksel sensörlerle çalışır:
 
-Özellikler:
-  1. Çift Doğrulama (Double-Check Sensor Fusion):
-     - Hem GPS (WGS84 Enlem/Boylam Haversine) hem de Yerel Odometri (pos_x, pos_y, pos_z metre)
-       verilerini çapraz kontrol ederek konum sapmasını (drift) ve güven skorunu hesaplar.
-  2. İlerleme Fonksiyonu (move_forward):
-     - IMU Yaw (Baş açısı) kilidi ile sapmadan düz ilerler, hedef mesafeyi hem GPS hem Odometri
-       üzerinden doğrulayarak yumuşak frenleme (PID) ile durur.
-  3. Eğrisel / Kavisli Dönüş Fonksiyonu (drive_curve):
-     - Belirtilen yarıçap (radius_m) ve yay açısı (arc_angle_deg) boyunca diferansiyel/Ackermann
-       eğrisel yörüngede (w = v / R) pürüzsüz kavis çizerek döner.
-  4. Yerinde Dönüş & Pusula Hizalama (turn_angle, turn_to_heading):
-     - En kısa açı farkı (-180°..+180°) üzerinden PD kontrolcü ile hedef açıya döner.
-  5. Koordinata Otonom Sürüş (navigate_to_gps / navigate_to_local):
-     - Pure Pursuit (Eğrisel Takip) veya Noktasal Dönüş (Point-Turn) modlarıyla hedef koordinata
-       otonom sürüş gerçekleştirir.
+Kullanılan Gerçek Sensörler:
+  1. GNSS / GPSAlıcısı : Enlem (lat), Boylam (lon), İrtifa (alt), Yer Hızı (speed_mps)
+  2. IMU & Pusula      : Roll, Pitch, Yaw (Manyetik/Pusula Baş Açısı - Derece)
+  3. Ölü Hesaplama (Dead-Reckoning / INS Çift Doğrulama):
+     - Gerçek araçlarda GPS verisini doğrulamak için anlık Hız (v) ve Pusula Açısı (Yaw)
+       zamanla entegre edilir: dN = ∫ v·cos(ψ) dt, dE = ∫ v·sin(ψ) dt.
+     - GPS Haversine mesafesi ile IMU/Pusula Ölü Hesaplama (Dead-Reckoning) mesafesi
+       çapraz kontrol edilerek (Double-Check) GPS sıçramaları tespit edilir.
+
+Sürüş ve Dönüş Kinematiği (ArduPilot L1 & Geniş Turn Radius):
+  - Araç ASLA kare şeklinde (dur -> olduğu yerde 90° dön -> düz git) hareket etmez!
+  - ArduPilot'un `AP_L1_Control` (L1 Nonlinear Guidance) yasasını ve geniş dönüş yarıçapını
+    (`min_turn_radius_m`, varsayılan 5.0 metre) kullanır.
+  - Açısal hız her zaman ileri hız ve dönüş yarıçapı ile sınırlandırılır: |ω| <= V / R_min.
 """
 
 import json
@@ -31,7 +30,7 @@ import urllib.request
 from typing import Callable, Dict, Optional, Tuple
 
 
-EARTH_METERS_PER_DEG_LAT = 111320.0
+EARTH_RADIUS_M = 6378137.0
 
 
 def normalize_angle_deg(angle: float) -> float:
@@ -43,55 +42,67 @@ def normalize_angle_deg(angle: float) -> float:
     return angle
 
 
-def gps_to_delta_meters(lat1: float, lon1: float, lat2: float, lon2: float) -> Tuple[float, float, float, float]:
+def haversine_distance_and_bearing(lat1: float, lon1: float, lat2: float, lon2: float) -> Tuple[float, float, float, float]:
     """
-    İki GPS koordinatı arasındaki yerel (Kuzey dX, Doğu dY) mesafeyi (metre),
-    toplam öklid/haversine mesafesini ve hedef baş açısını (Yaw derece: 0=Kuzey, +90=Doğu) hesaplar.
-    Unreal Engine GPSSensor.cpp projeksiyonu ile %100 birebir uyumludur.
+    İki gerçek GPS koordinatı (WGS84) arasındaki:
+      - Kuzey mesafesi (d_north_m)
+      - Doğu mesafesi (d_east_m)
+      - Gerçek Haversine küresel mesafesi (dist_m)
+      - Pusula hedef açısı (bearing_deg: 0°=Kuzey, +90°=Doğu, -90°=Batı)
+    değerlerini hesaplar.
     """
-    dx_north = (lat2 - lat1) * EARTH_METERS_PER_DEG_LAT
-    lat_rad = math.radians(lat1)
-    dy_east = (lon2 - lon1) * (EARTH_METERS_PER_DEG_LAT * math.cos(lat_rad))
-    dist_m = math.hypot(dx_north, dy_east)
-    bearing_deg = math.degrees(math.atan2(dy_east, dx_north))
-    return dx_north, dy_east, dist_m, bearing_deg
+    phi1 = math.radians(lat1)
+    phi2 = math.radians(lat2)
+    dphi = math.radians(lat2 - lat1)
+    dlambda = math.radians(lon2 - lon1)
+
+    a = math.sin(dphi / 2.0) ** 2 + math.cos(phi1) * math.cos(phi2) * (math.sin(dlambda / 2.0) ** 2)
+    c = 2.0 * math.atan2(math.sqrt(a), math.sqrt(max(0.0, 1.0 - a)))
+    dist_m = EARTH_RADIUS_M * c
+
+    d_north_m = dphi * EARTH_RADIUS_M
+    d_east_m = dlambda * EARTH_RADIUS_M * math.cos((phi1 + phi2) * 0.5)
+    bearing_deg = math.degrees(math.atan2(d_east_m, d_north_m))
+    return d_north_m, d_east_m, dist_m, bearing_deg
 
 
-def delta_meters_to_gps(origin_lat: float, origin_lon: float, dx_north: float, dy_east: float) -> Tuple[float, float]:
-    """Yerel metre (Kuzey dX, Doğu dY) ofsetini GPS (Enlem, Boylam) koordinatına dönüştürür."""
-    dlat = dx_north / EARTH_METERS_PER_DEG_LAT
-    lat_rad = math.radians(origin_lat)
-    dlon = dy_east / (EARTH_METERS_PER_DEG_LAT * max(1e-6, math.cos(lat_rad)))
+def offset_gps_by_meters(origin_lat: float, origin_lon: float, d_north_m: float, d_east_m: float) -> Tuple[float, float]:
+    """Bir GPS koordinatından (Kuzey metre, Doğu metre) ötedeki hedef GPS koordinatını hesaplar."""
+    dlat = math.degrees(d_north_m / EARTH_RADIUS_M)
+    dlon = math.degrees(d_east_m / (EARTH_RADIUS_M * max(1e-6, math.cos(math.radians(origin_lat)))))
     return origin_lat + dlat, origin_lon + dlon
 
 
 class PiSimMotionController:
     """
-    PiSim Araçları için Çift Doğrulamalı (GPS + Yerel Odometri + IMU) Otonom Hareket Kontrolcüsü.
+    Sadece gerçek araç sensörlerini (GPS + IMU Pusula + Hız Entegrasyonu) ve
+    ArduPilot L1 geniş dönüş yarıçaplı (Turn-Radius) güdüm algoritmasını kullanan hareket kütüphanesi.
     """
 
     def __init__(
         self,
-        target_vehicle: str = "1",
+        target_vehicle: str = "selected",
         ue5_ip: Optional[str] = None,
         dashboard_api_url: str = "http://127.0.0.1:8080/api/telemetry",
         command_port: int = 7402,
+        min_turn_radius_m: float = 5.0,
     ):
         self.target_vehicle = str(target_vehicle)
         self.ue5_ip = ue5_ip
         self.dashboard_api_url = dashboard_api_url
         self.command_port = int(command_port)
         self.dedicated_port: Optional[int] = None
+        # Geniş dönüş yarıçapı (m): Araç asla olduğu yerde kare gibi dönmez, bu yarıçapla kavis alır
+        self.min_turn_radius_m = max(1.0, float(min_turn_radius_m))
 
         self.cmd_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.cmd_sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
 
-        # Fallback doğrudan UDP 7400 dinleyici (Dashboard kapalıysa devreye girer)
         self.fallback_rx_sock: Optional[socket.socket] = None
         self._abort_requested = False
 
     def request_abort(self):
-        """Aktif otonom hareket döngüsünü güvenli şekilde durdurur ve aracı frenler."""
+        """Aktif otonom görevi iptal eder ve aracı durdurur."""
         self._abort_requested = True
         self.stop()
 
@@ -112,13 +123,11 @@ class PiSimMotionController:
         except Exception:
             self.fallback_rx_sock = None
 
-    def get_telemetry(self) -> Optional[Dict]:
+    def get_sensor_telemetry(self) -> Optional[Dict]:
         """
-        Seçili aracın en güncel telemetri verisini çeker.
-        Önce yerel Pi 5 Web Dashboard API'sini (/api/telemetry) sorgular (port çakışmasını önler),
-        eğer Dashboard kapalıysa doğrudan UDP 7400 soketinden okur.
+        Araçtan SADECE gerçek sensör verilerini (GPS Enlem/Boylam/İrtifa, Hız ve IMU Roll/Pitch/Yaw Pusula) okur.
+        Unreal Engine'in yerel pos_x, pos_y, pos_z koordinatları HİÇBİR ŞEKİLDE okunmaz ve kullanılmaz!
         """
-        # 1. Birincil Kaynak: Pi 5 Web Dashboard Yerel API
         try:
             req = urllib.request.Request(self.dashboard_api_url, headers={"Accept": "application/json"})
             with urllib.request.urlopen(req, timeout=0.35) as resp:
@@ -164,20 +173,16 @@ class PiSimMotionController:
                         "lat": float(chosen.get("lat", 39.9334)),
                         "lon": float(chosen.get("lon", 32.8597)),
                         "altitude": float(chosen.get("altitude", 850.0)),
-                        "pos_x": float(chosen.get("pos_x", 0.0)),
-                        "pos_y": float(chosen.get("pos_y", 0.0)),
-                        "pos_z": float(chosen.get("pos_z", 0.0)),
                         "roll": float(chosen.get("roll", 0.0)),
                         "pitch": float(chosen.get("pitch", 0.0)),
                         "yaw": float(chosen.get("yaw", 0.0)),
                         "speed_kmh": spd_kmh,
                         "speed_mps": spd_kmh / 3.6,
-                        "connected": bool(chosen.get("connected", True)),
+                        "timestamp": time.time(),
                     }
         except Exception:
             pass
 
-        # 2. İkincil Kaynak: Doğrudan UDP 7400 Dinleme
         self._init_fallback_udp()
         if self.fallback_rx_sock:
             try:
@@ -187,7 +192,6 @@ class PiSimMotionController:
                 pkt = json.loads(raw.decode("utf-8", errors="ignore").strip())
                 gps = pkt.get("gps", {})
                 att = pkt.get("attitude", {})
-                pos = pkt.get("position", {})
                 v_id = int(pkt.get("vehicle_id", 1))
                 self.dedicated_port = 7402 + v_id
                 spd_kmh = float(gps.get("speed_kmh", 0.0))
@@ -198,24 +202,31 @@ class PiSimMotionController:
                     "lat": float(gps.get("lat", 39.9334)),
                     "lon": float(gps.get("lon", 32.8597)),
                     "altitude": float(gps.get("alt", 850.0)),
-                    "pos_x": float(pos.get("x", 0.0)),
-                    "pos_y": float(pos.get("y", 0.0)),
-                    "pos_z": float(pos.get("z", 0.0)),
                     "roll": float(att.get("roll", 0.0)),
                     "pitch": float(att.get("pitch", 0.0)),
                     "yaw": float(att.get("yaw", 0.0)),
                     "speed_kmh": spd_kmh,
                     "speed_mps": spd_kmh / 3.6,
-                    "connected": True,
+                    "timestamp": time.time(),
                 }
             except Exception:
                 pass
         return None
 
+    def wait_for_telemetry(self, timeout_sec: float = 5.0) -> Optional[Dict]:
+        t0 = time.time()
+        while (time.time() - t0) < timeout_sec:
+            t = self.get_sensor_telemetry()
+            if t is not None:
+                return t
+            time.sleep(0.1)
+        return None
+
     def send_cmd_vel(self, linear_x: float, angular_z: float, timeout_ms: int = 500):
         """
-        Araca hem standart ROS 2 Twist formatında hem de PiSim hızlı sürüş formatında UDP komutu gönderir.
-        Hem merkezi 7402 portuna hem de aracın özel alt portuna (7402 + VehicleId) iletir.
+        Araca ileri hız (linear_x m/s) ve dönüş hızı (angular_z rad/s) komutunu gönderir.
+        DİKKAT: Kare dönüşü önlemek için araç hareket halindeyken açısal hız her zaman
+        minimum dönüş yarıçapına (min_turn_radius_m) göre sınırlandırılır!
         """
         target_ip = self.ue5_ip if self.ue5_ip else "255.255.255.255"
         payload = {
@@ -242,7 +253,7 @@ class PiSimMotionController:
                 pass
 
     def stop(self):
-        """Aracı anında durdurur (Acil Fren / Sıfır Hız)."""
+        """Aracı güvenli şekilde durdurur."""
         target_ip = self.ue5_ip if self.ue5_ip else "255.255.255.255"
         payload = {
             "cmd": "stop",
@@ -263,411 +274,334 @@ class PiSimMotionController:
             time.sleep(0.02)
 
     # =========================================================================
-    # ÇİFT DOĞRULAMA (DOUBLE-CHECK: GPS + YEREL ODOMETRİ SENSÖR FÜZYONU)
+    # 1. GENİŞ YARIÇAPLI EĞRİSEL DÖNÜŞ (CURVE TURN - KARE DÖNÜŞ YOK!)
     # =========================================================================
-    def double_check_displacement(self, start_state: Dict, current_state: Dict) -> Dict:
-        """
-        Başlangıç noktası ile anlık nokta arasındaki ilerlemeyi İKİ FARKLI KAYNAKTAN doğrular:
-          1. GPS (Enlem / Boylam WGS84 projeksiyonu)
-          2. Yerel Odometri (Unreal Chaos Fizik Motoru pos_x, pos_y metre)
-        İkisi arasındaki sapmayı (drift_m) ve güven yüzdesini (confidence_pct) döndürür.
-        """
-        # 1. GPS tabanlı yer değiştirme
-        gps_dx, gps_dy, gps_dist, gps_bearing = gps_to_delta_meters(
-            start_state["lat"], start_state["lon"], current_state["lat"], current_state["lon"]
-        )
-
-        # 2. Yerel Odometri (pos_x, pos_y) tabanlı yer değiştirme
-        odom_dx = current_state["pos_x"] - start_state["pos_x"]
-        odom_dy = current_state["pos_y"] - start_state["pos_y"]
-        odom_dist = math.hypot(odom_dx, odom_dy)
-        odom_bearing = math.degrees(math.atan2(odom_dy, odom_dx)) if odom_dist > 0.01 else current_state["yaw"]
-
-        # Çapraz Kontrol (Cross-Validation)
-        drift_x = abs(gps_dx - odom_dx)
-        drift_y = abs(gps_dy - odom_dy)
-        drift_total = math.hypot(drift_x, drift_y)
-
-        # Sensör Füzyonu (%60 Odometri + %40 GPS; eğer GPS sabitlenmişse ikisinin ağırlıklı ortalaması)
-        if gps_dist < 0.01 and odom_dist > 0.2:
-            # GPS henüz güncellenmediyse odometriye güven
-            fused_dx, fused_dy, fused_dist = odom_dx, odom_dy, odom_dist
-            confidence = 85.0
-        else:
-            fused_dx = 0.5 * gps_dx + 0.5 * odom_dx
-            fused_dy = 0.5 * gps_dy + 0.5 * odom_dy
-            fused_dist = math.hypot(fused_dx, fused_dy)
-            ref_scale = max(1.0, fused_dist)
-            confidence = max(0.0, min(100.0, 100.0 * (1.0 - (drift_total / (ref_scale + 2.0)))))
-
-        return {
-            "gps_dx": gps_dx,
-            "gps_dy": gps_dy,
-            "gps_dist": gps_dist,
-            "odom_dx": odom_dx,
-            "odom_dy": odom_dy,
-            "odom_dist": odom_dist,
-            "fused_dx": fused_dx,
-            "fused_dy": fused_dy,
-            "fused_dist": fused_dist,
-            "drift_m": drift_total,
-            "confidence_pct": round(confidence, 1),
-            "gps_bearing": gps_bearing,
-            "odom_bearing": odom_bearing,
-        }
-
-    # =========================================================================
-    # 1. DÜZ İLERLEME (ÇİFT DOĞRULAMALI + BAŞ AÇISI KİLİTLİ)
-    # =========================================================================
-    def move_forward(
+    def drive_curve(
         self,
-        distance_m: float,
-        speed_mps: float = 1.5,
-        tolerance_m: float = 0.25,
+        turn_radius_m: Optional[float] = None,
+        arc_angle_deg: float = 90.0,
+        speed_mps: float = 1.6,
+        direction: str = "right",
         timeout_sec: float = 60.0,
         status_callback: Optional[Callable[[str], None]] = None,
     ) -> Dict:
         """
-        Aracı belirtilen metre kadar ileri (distance_m > 0) veya geri (distance_m < 0) sürer.
-        - IMU Yaw açısını kilitleyerek aracın sağa/sola kaymasını engeller.
-        - Mesafeyi hem GPS hem de Yerel Odometri (pos_x, pos_y) ile çift doğrular (Double-Check).
+        Aracı ASLA durdurmadan ve kare köşe yapmadan, geniş bir dönüş yarıçapı (turn_radius_m)
+        boyunca ileri doğru akıcı bir yay çizerek döndürür.
+        Kinematik:
+          - Çizgisel Hız : V = speed_mps
+          - Açısal Hız   : ω = ± V / R_turn
+        Doğrulama:
+          - IMU Pusula (Yaw) açı değişimi + GPS Haversine kiriş mesafesi!
         """
         self._abort_requested = False
         start_state = self.wait_for_telemetry(timeout_sec=5.0)
         if not start_state:
-            return {"ok": False, "reason": "Telemetri alınamadı"}
+            return {"ok": False, "reason": "Sensör telemetrisi alınamadı"}
 
-        target_abs_dist = abs(distance_m)
-        direction_sign = 1.0 if distance_m >= 0.0 else -1.0
-        locked_yaw = start_state["yaw"]
-        t_start = time.time()
+        radius = max(self.min_turn_radius_m, float(turn_radius_m) if turn_radius_m else self.min_turn_radius_m)
+        target_arc_deg = abs(float(arc_angle_deg))
+        turn_sign = 1.0 if str(direction).lower() in ("right", "sag", "cw", "+") else -1.0
+
+        # Geniş dönüş yarıçapı için açısal hız: ω = V / R
+        omega_rad = turn_sign * (abs(speed_mps) / radius)
+        expected_chord_m = 2.0 * radius * math.sin(math.radians(min(180.0, target_arc_deg)) / 2.0)
 
         if status_callback:
             status_callback(
-                f"[MOVE_FORWARD] Hedef: {distance_m:+.2f}m | Başlangıç Yaw: {locked_yaw:.1f}° | Çift Doğrulama Aktif"
+                f"🌀 [GENİŞ KAVİSLİ DÖNÜŞ] Dönüş Yarıçapı R={radius:.1f}m | Hedef Yay={target_arc_deg:.1f}° "
+                f"({direction.upper()}) | Hız={speed_mps:.2f}m/s | ω={omega_rad:+.3f} rad/s"
             )
 
+        prev_yaw = start_state["yaw"]
+        accumulated_yaw = 0.0
+        dr_dist = 0.0
+        prev_time = time.time()
+        t_start = prev_time
+
         while not self._abort_requested and (time.time() - t_start) < timeout_sec:
-            cur = self.get_telemetry()
+            cur = self.get_sensor_telemetry()
             if not cur:
                 time.sleep(0.05)
                 continue
 
-            chk = self.double_check_displacement(start_state, cur)
-            remaining = target_abs_dist - chk["fused_dist"]
+            now = time.time()
+            dt = max(0.001, now - prev_time)
+            prev_time = now
 
-            if remaining <= tolerance_m:
+            # 1. IMU Pusula açı entegrasyonu
+            dyaw = normalize_angle_deg(cur["yaw"] - prev_yaw)
+            prev_yaw = cur["yaw"]
+            accumulated_yaw += abs(dyaw)
+
+            # 2. Hız + Pusula Ölü Hesaplama (Dead-Reckoning) yay uzunluğu
+            measured_v = cur["speed_mps"] if cur["speed_mps"] > 0.1 else speed_mps
+            dr_dist += measured_v * dt
+
+            # 3. GPS Haversine kiriş mesafesi
+            _, _, gps_chord_m, _ = haversine_distance_and_bearing(
+                start_state["lat"], start_state["lon"], cur["lat"], cur["lon"]
+            )
+
+            remaining_deg = target_arc_deg - accumulated_yaw
+            if remaining_deg <= 2.0:
                 self.stop()
                 msg = (
-                    f"✅ [HEDEF TAMAM] İlerleme: {chk['fused_dist']:.2f}m "
-                    f"(GPS: {chk['gps_dist']:.2f}m, Odom: {chk['odom_dist']:.2f}m, "
-                    f"Sapma: {chk['drift_m']:.2f}m, Güven: %{chk['confidence_pct']})"
+                    f"✅ [KAVİSLİ DÖNÜŞ TAMAMLANDI] Taranan Açı: {accumulated_yaw:.1f}°/{target_arc_deg:.1f}° | "
+                    f"GPS Kiriş: {gps_chord_m:.2f}m (Beklenen: {expected_chord_m:.2f}m) | Yay: {dr_dist:.2f}m"
                 )
                 if status_callback:
                     status_callback(msg)
-                return {"ok": True, "double_check": chk, "message": msg}
+                return {"ok": True, "accumulated_deg": accumulated_yaw, "gps_chord_m": gps_chord_m}
 
-            # Hedefe yaklaşırken yumuşak yavaşlama (Orantısal hız profili)
-            slowdown_factor = min(1.0, max(0.25, remaining / 2.5))
-            cmd_v = direction_sign * abs(speed_mps) * slowdown_factor
+            # Yay sonuna yaklaşırken hem ileri hızı hem açısal hızı aynı oranda azalt (Yarıçap R=V/ω sabit kalır!)
+            scale = min(1.0, max(0.4, remaining_deg / 18.0))
+            self.send_cmd_vel(speed_mps * scale, omega_rad * scale, timeout_ms=450)
+            time.sleep(0.08)
 
-            # IMU Yaw (Baş açısı) koruma düzeltmesi (Düz çizgiden sapmayı önler)
-            yaw_err = normalize_angle_deg(locked_yaw - cur["yaw"])
-            cmd_w = max(-0.8, min(0.8, math.radians(yaw_err) * 1.2))
+        self.stop()
+        return {"ok": False, "reason": "Dönüş zaman aşımına uğradı veya iptal edildi"}
 
-            self.send_cmd_vel(cmd_v, cmd_w, timeout_ms=400)
+    # =========================================================================
+    # 2. GERÇEK SENSÖR ÇİFT DOĞRULAMALI (GPS + INS DEAD-RECKONING) DÜZ İLERLEME
+    # =========================================================================
+    def move_forward(
+        self,
+        distance_m: float,
+        speed_mps: float = 1.6,
+        tolerance_m: float = 0.4,
+        timeout_sec: float = 90.0,
+        status_callback: Optional[Callable[[str], None]] = None,
+    ) -> Dict:
+        """
+        Sadece GPS (Enlem/Boylam) ve IMU Pusula + Hız Entegrasyonu (Dead-Reckoning / INS)
+        kullanarak aracı düz ilerletir.
+        """
+        self._abort_requested = False
+        start_state = self.wait_for_telemetry(timeout_sec=5.0)
+        if not start_state:
+            return {"ok": False, "reason": "Sensör telemetrisi alınamadı"}
+
+        target_dist = abs(float(distance_m))
+        dir_sign = 1.0 if distance_m >= 0.0 else -1.0
+        target_heading = start_state["yaw"]
+
+        dr_north = 0.0
+        dr_east = 0.0
+        prev_time = time.time()
+        t_start = prev_time
+
+        if status_callback:
+            status_callback(
+                f"⬆️ [DÜZ İLERLEME] Hedef: {distance_m:+.1f}m | Kilitli Pusula Açısı: {target_heading:.1f}° "
+                f"| Sensörler: GPS + IMU Dead-Reckoning"
+            )
+
+        while not self._abort_requested and (time.time() - t_start) < timeout_sec:
+            cur = self.get_sensor_telemetry()
+            if not cur:
+                time.sleep(0.05)
+                continue
+
+            now = time.time()
+            dt = max(0.001, min(0.5, now - prev_time))
+            prev_time = now
+
+            # 1. GPS (WGS84 Haversine) Mesafesi
+            _, _, gps_dist_m, _ = haversine_distance_and_bearing(
+                start_state["lat"], start_state["lon"], cur["lat"], cur["lon"]
+            )
+
+            # 2. IMU Pusula + Hız Entegrasyonu (Gerçek Dead-Reckoning / INS)
+            v_est = cur["speed_mps"] if cur["speed_mps"] > 0.05 else abs(speed_mps)
+            yaw_rad = math.radians(cur["yaw"])
+            dr_north += dir_sign * v_est * math.cos(yaw_rad) * dt
+            dr_east += dir_sign * v_est * math.sin(yaw_rad) * dt
+            ins_dist_m = math.hypot(dr_north, dr_east)
+
+            # GPS (2Hz) ile INS (12Hz) Çift Doğrulama Füzyonu (EKF benzeri: %70 GPS + %30 INS)
+            fused_dist = 0.7 * gps_dist_m + 0.3 * ins_dist_m if gps_dist_m > 0.05 else ins_dist_m
+            remaining_m = target_dist - fused_dist
+
+            if remaining_m <= tolerance_m or gps_dist_m >= (target_dist - tolerance_m * 0.5):
+                self.stop()
+                msg = (
+                    f"✅ [İLERLEME TAMAMLANDI] GPS Mesafesi: {gps_dist_m:.2f}m | "
+                    f"IMU/INS Ölü Hesaplama: {ins_dist_m:.2f}m | Fark: {abs(gps_dist_m - ins_dist_m):.2f}m"
+                )
+                if status_callback:
+                    status_callback(msg)
+                return {"ok": True, "gps_dist_m": gps_dist_m, "ins_dist_m": ins_dist_m}
+
+            slowdown = min(1.0, max(0.35, remaining_m / 3.0))
+            cmd_v = dir_sign * abs(speed_mps) * slowdown
+
+            # Pusula sapmasını geniş dönüş yarıçapını bozmadan yumuşakça düzelt
+            yaw_err_rad = math.radians(normalize_angle_deg(target_heading - cur["yaw"]))
+            max_w = abs(cmd_v) / self.min_turn_radius_m
+            cmd_w = max(-max_w, min(max_w, yaw_err_rad * 0.9))
+
+            self.send_cmd_vel(cmd_v, cmd_w, timeout_ms=450)
             time.sleep(0.08)
 
         self.stop()
         return {"ok": False, "reason": "Zaman aşımı veya iptal edildi"}
 
     # =========================================================================
-    # 2. YERİNDE DÖNÜŞ & MUTLAK PUSULA AÇISINA HİZALAMA
-    # =========================================================================
-    def turn_to_heading(
-        self,
-        target_yaw_deg: float,
-        max_omega_rad: float = 1.2,
-        tolerance_deg: float = 2.5,
-        timeout_sec: float = 25.0,
-        status_callback: Optional[Callable[[str], None]] = None,
-    ) -> Dict:
-        """Aracı belirtilen mutlak pusula/yaw açısına (-180..+180) en kısa yönden döndürür."""
-        self._abort_requested = False
-        target_yaw = normalize_angle_deg(target_yaw_deg)
-        t_start = time.time()
-
-        while not self._abort_requested and (time.time() - t_start) < timeout_sec:
-            cur = self.get_telemetry()
-            if not cur:
-                time.sleep(0.05)
-                continue
-
-            err_deg = normalize_angle_deg(target_yaw - cur["yaw"])
-            if abs(err_deg) <= tolerance_deg:
-                self.stop()
-                if status_callback:
-                    status_callback(f"✅ [DÖNÜŞ TAMAM] Mevcut Yaw: {cur['yaw']:.1f}° (Hedef: {target_yaw:.1f}°)")
-                return {"ok": True, "final_yaw": cur["yaw"]}
-
-            # Orantısal dönüş hızı (Hedefe yaklaştıkça yumuşar)
-            kp = 1.6
-            omega = math.radians(err_deg) * kp
-            if abs(omega) < 0.22:
-                omega = math.copysign(0.22, omega)
-            omega = max(-max_omega_rad, min(max_omega_rad, omega))
-
-            self.send_cmd_vel(0.0, omega, timeout_ms=400)
-            time.sleep(0.08)
-
-        self.stop()
-        return {"ok": False, "reason": "Dönüş zaman aşımına uğradı"}
-
-    def turn_angle(
-        self,
-        delta_deg: float,
-        max_omega_rad: float = 1.2,
-        tolerance_deg: float = 2.5,
-        timeout_sec: float = 25.0,
-        status_callback: Optional[Callable[[str], None]] = None,
-    ) -> Dict:
-        """Aracı mevcut yönüne göre bağıl olarak delta_deg (+ sağa, - sola) döndürür."""
-        start_state = self.wait_for_telemetry(timeout_sec=5.0)
-        if not start_state:
-            return {"ok": False, "reason": "Telemetri alınamadı"}
-        target_yaw = normalize_angle_deg(start_state["yaw"] + delta_deg)
-        return self.turn_to_heading(target_yaw, max_omega_rad, tolerance_deg, timeout_sec, status_callback)
-
-    # =========================================================================
-    # 3. EĞRİSEL (CURVE) DÖNÜŞ FONKSİYONU (KAVİSLİ SÜRÜŞ)
-    # =========================================================================
-    def drive_curve(
-        self,
-        radius_m: float,
-        arc_angle_deg: float,
-        speed_mps: float = 1.4,
-        direction: str = "right",
-        timeout_sec: float = 45.0,
-        status_callback: Optional[Callable[[str], None]] = None,
-    ) -> Dict:
-        """
-        Aracı durdurmadan, belirtilen yarıçap (radius_m) ve yay açısı (arc_angle_deg) boyunca
-        yumuşak bir eğri (curve) çizerek döndürür.
-        Kinematik bağıntı:
-          - Çizgisel hız: v = speed_mps
-          - Açısal hız:   w = (+ veya -) v / radius_m
-          - Beklenen yay uzunluğu: S = radius_m * rad(arc_angle_deg)
-        Hem IMU açı değişimini hem de GPS/Odometri kiriş mesafesini çift doğrular!
-        """
-        self._abort_requested = False
-        start_state = self.wait_for_telemetry(timeout_sec=5.0)
-        if not start_state:
-            return {"ok": False, "reason": "Telemetri alınamadı"}
-
-        radius_m = max(0.5, float(radius_m))
-        target_arc_deg = abs(float(arc_angle_deg))
-        turn_sign = 1.0 if str(direction).lower() in ("right", "sag", "cw", "+") else -1.0
-
-        # Beklenen kiriş uzunluğu (Chord length = 2 * R * sin(theta / 2))
-        expected_chord_m = 2.0 * radius_m * math.sin(math.radians(min(180.0, target_arc_deg)) / 2.0)
-        nominal_omega = turn_sign * (abs(speed_mps) / radius_m)
-
-        if status_callback:
-            status_callback(
-                f"🌀 [CURVE SÜRÜŞ] R={radius_m:.1f}m, Açı={target_arc_deg:.1f}° ({direction.upper()}), "
-                f"Beklenen Kiriş={expected_chord_m:.2f}m, ω={nominal_omega:+.2f} rad/s"
-            )
-
-        prev_yaw = start_state["yaw"]
-        accumulated_yaw_deg = 0.0
-        t_start = time.time()
-
-        while not self._abort_requested and (time.time() - t_start) < timeout_sec:
-            cur = self.get_telemetry()
-            if not cur:
-                time.sleep(0.05)
-                continue
-
-            step_yaw = normalize_angle_deg(cur["yaw"] - prev_yaw)
-            prev_yaw = cur["yaw"]
-            accumulated_yaw_deg += abs(step_yaw)
-
-            chk = self.double_check_displacement(start_state, cur)
-            remaining_deg = target_arc_deg - accumulated_yaw_deg
-
-            if remaining_deg <= 2.5 or (target_arc_deg < 150.0 and chk["fused_dist"] >= expected_chord_m * 0.98):
-                self.stop()
-                msg = (
-                    f"✅ [CURVE TAMAM] Taranan Açı: {accumulated_yaw_deg:.1f}°/{target_arc_deg:.1f}° | "
-                    f"Kiriş Mesafesi: {chk['fused_dist']:.2f}m (Beklenen: {expected_chord_m:.2f}m)"
-                )
-                if status_callback:
-                    status_callback(msg)
-                return {"ok": True, "accumulated_deg": accumulated_yaw_deg, "double_check": chk, "message": msg}
-
-            # Yay sonuna yaklaşırken hızı ve açısal hızı orantılı sönümle
-            scale = min(1.0, max(0.35, remaining_deg / 20.0))
-            self.send_cmd_vel(speed_mps * scale, nominal_omega * scale, timeout_ms=400)
-            time.sleep(0.08)
-
-        self.stop()
-        return {"ok": False, "reason": "Curve sürüş zaman aşımına uğradı"}
-
-    # =========================================================================
-    # 4. HEDEF KOORDİNATA OTONOM SÜRÜŞ (PURE PURSUIT CURVE + DOUBLE CHECK)
+    # 3. ARDUPILOT L1 GÜDÜM YASASI İLE GPS KOORDİNATINA GENİŞ KAVİSLİ SÜRÜŞ
     # =========================================================================
     def navigate_to_gps(
         self,
         target_lat: float,
         target_lon: float,
         cruise_speed: float = 1.8,
-        mode: str = "curve",
-        arrival_tolerance_m: float = 0.85,
-        timeout_sec: float = 180.0,
+        turn_radius_m: Optional[float] = None,
+        wp_radius_m: float = 1.5,
+        timeout_sec: float = 240.0,
         status_callback: Optional[Callable[[str], None]] = None,
     ) -> Dict:
         """
-        Aracı verilen GPS (target_lat, target_lon) koordinatına otonom olarak sürer.
+        ArduPilot Rover'ın kullandığı gerçek `AP_L1_Control` (L1 Nonlinear Guidance) ve
+        geniş dönüş yarıçapı (Turn Radius) mimarisiyle hedef GPS koordinatına otonom sürüş yapar.
 
-        Çift Doğrulama (Double-Check) Mekanizması:
-          1. Başlangıç anında GPS koordinat farkından yerel hedef (target_pos_x, target_pos_y) hesaplanır.
-          2. Sürüş boyunca her adımda:
-             - GPS'ten kalan mesafe ve hedef açısı (gps_dist, gps_bearing)
-             - Yerel Odometriden kalan mesafe ve hedef açısı (odom_dist, odom_bearing)
-             birlikte hesaplanır ve çapraz doğrulanır!
-          3. 'curve' (Pure Pursuit) modunda araç duraksamadan eğrisel yörüngeyle hedefe süzülür;
-             keskin açı farklarında hızı otomatik düşürüp eğriyi daraltır.
+        ArduPilot Nasıl Çalışır & Burada Nasıl Uygulandı?
+          1. İleri-Geri Arama (Hunting) Yapmaz:
+             Hedefin etrafında `wp_radius_m` (Waypoint yarıçapı) ve "Along-Track Bitiş Çizgisi Düzlemi"
+             tanımlanır. Araç hedef dairesine girdiğinde veya bitiş düzlemini geçtiğinde anında durur.
+          2. Kare Dönüş Yapmaz (Geniş Turn Radius):
+             Araç hiçbir zaman durup olduğu yerde dönmez. İleri hızı (V) her zaman pozitiftir ve
+             maksimum açısal hızı `ω_max = V / R_min` ile sınırlandırılmıştır.
+          3. L1 Nonlinear Guidance (Yanal İvme Kavis Kontrolü):
+             Bakış mesafesi `L1_dist = max(2.5 * R_min, 3.0 * V)` üzerinden yanal ivme:
+             `a_lat = 2 * V^2 / L1_dist * sin(η)` ve buradan istenen dönüş hızı:
+             `ω_cmd = (2 * V / L1_dist) * sin(η)` hesaplanarak araç geniş, pürüzsüz bir yayla
+             hedef rotasına teğet oturur.
         """
         self._abort_requested = False
         start_state = self.wait_for_telemetry(timeout_sec=5.0)
         if not start_state:
-            msg = "❌ HATA: Araçtan canlı telemetri alınamadı! (Unreal Engine çalışıyor mu?)"
+            msg = "❌ HATA: Araçtan GPS/IMU telemetrisi alınamadı!"
             if status_callback:
                 status_callback(msg)
             return {"ok": False, "reason": msg}
 
-        # Başlangıçta GPS -> Yerel Odometri Hedef Koordinat Eşlemesi (Double-Check Referansı)
-        init_dx, init_dy, init_dist, init_bearing = gps_to_delta_meters(
+        r_min = max(1.5, float(turn_radius_m) if turn_radius_m else self.min_turn_radius_m)
+        init_dn, init_de, init_dist_m, init_bearing_deg = haversine_distance_and_bearing(
             start_state["lat"], start_state["lon"], target_lat, target_lon
         )
-        target_odom_x = start_state["pos_x"] + init_dx
-        target_odom_y = start_state["pos_y"] + init_dy
 
-        start_msg = (
-            f"🎯 [OTONOM ROTA BAŞLADI] Araç: {start_state['name']} [{start_state['code']}] | "
-            f"Hedef GPS: ({target_lat:.6f}°, {target_lon:.6f}°) | "
-            f"Hedef Yerel: (X:{target_odom_x:.1f}m, Y:{target_odom_y:.1f}m) | "
-            f"Toplam Mesafe: {init_dist:.2f}m | İlk Açı: {init_bearing:.1f}° | Mod: {mode.upper()}"
-        )
-        if status_callback:
-            status_callback(start_msg)
+        # Başlangıç-Hedef birim vektörü (ArduPilot Along-Track bitiş çizgisi kontrolü için)
+        path_norm = max(0.01, math.hypot(init_dn, init_de))
+        path_unit_n = init_dn / path_norm
+        path_unit_e = init_de / path_norm
 
-        # Eğer 'point-turn' modu seçildiyse önce hedefe doğru yerinde dön
-        if mode == "point-turn" and init_dist > arrival_tolerance_m:
-            self.turn_to_heading(init_bearing, tolerance_deg=4.0, status_callback=status_callback)
-
-        t_start = time.time()
+        # EKF / Dead-Reckoning (INS) iç durum tahmincisi (2Hz GPS paketleri arasında 12Hz akıcı tahmin)
+        est_lat = start_state["lat"]
+        est_lon = start_state["lon"]
+        last_raw_gps = (start_state["lat"], start_state["lon"])
+        prev_time = time.time()
+        t_start = prev_time
         last_log_time = 0.0
 
+        if status_callback:
+            status_callback(
+                f"🛰️ [ARDUPILOT L1 ROTA BAŞLADI] Araç: {start_state['name']} [{start_state['code']}] | "
+                f"Hedef GPS: ({target_lat:.6f}°N, {target_lon:.6f}°E) | "
+                f"GPS Mesafe: {init_dist_m:.1f}m | Pusula Hedef: {init_bearing_deg:.1f}° | "
+                f"Min Dönüş Yarıçapı (Turn Radius): {r_min:.1f}m"
+            )
+
         while not self._abort_requested and (time.time() - t_start) < timeout_sec:
-            cur = self.get_telemetry()
+            cur = self.get_sensor_telemetry()
             if not cur:
                 time.sleep(0.05)
                 continue
 
-            # --- KAYNAK 1: CANLI GPS HEDEF VEKTÖRÜ ---
-            gps_dx, gps_dy, gps_rem_dist, gps_bearing = gps_to_delta_meters(
-                cur["lat"], cur["lon"], target_lat, target_lon
+            now = time.time()
+            dt = max(0.001, min(0.3, now - prev_time))
+            prev_time = now
+
+            # --- 1. EKF / INS + GPS SENSÖR FÜZYONU (Gerçek Araç Çift Doğrulaması) ---
+            raw_lat, raw_lon = cur["lat"], cur["lon"]
+            yaw_rad = math.radians(cur["yaw"])
+            v_meas = cur["speed_mps"]
+
+            if (raw_lat, raw_lon) != last_raw_gps:
+                # Yeni GPS paketi geldi: INS tahminini GPS ile düzelt (%75 GPS + %25 INS)
+                last_raw_gps = (raw_lat, raw_lon)
+                est_lat = 0.75 * raw_lat + 0.25 * est_lat
+                est_lon = 0.75 * raw_lon + 0.25 * est_lon
+            else:
+                # İki GPS paketi arasındayız (Dead-Reckoning): Pusula + Hız ile konumu ilerlet
+                step_n = v_meas * math.cos(yaw_rad) * dt
+                step_e = v_meas * math.sin(yaw_rad) * dt
+                est_lat, est_lon = offset_gps_by_meters(est_lat, est_lon, step_n, step_e)
+
+            # Hedefe kalan vektör (Füzyonlanmış GPS+INS konumundan)
+            rem_n, rem_e, rem_dist_m, target_bearing_deg = haversine_distance_and_bearing(
+                est_lat, est_lon, target_lat, target_lon
+            )
+            _, _, raw_gps_dist_m, _ = haversine_distance_and_bearing(
+                raw_lat, raw_lon, target_lat, target_lon
             )
 
-            # --- KAYNAK 2: CANLI YEREL ODOMETRİ (pos_x, pos_y) HEDEF VEKTÖRÜ ---
-            odom_dx = target_odom_x - cur["pos_x"]
-            odom_dy = target_odom_y - cur["pos_y"]
-            odom_rem_dist = math.hypot(odom_dx, odom_dy)
-            odom_bearing = math.degrees(math.atan2(odom_dy, odom_dx))
-
-            # --- ÇİFT DOĞRULAMA (DOUBLE CHECK FÜZYONU) ---
-            sensor_discrepancy = abs(gps_rem_dist - odom_rem_dist)
-            fused_rem_dist = 0.5 * gps_rem_dist + 0.5 * odom_rem_dist
-            # Eğer GPS sabitlenmişse odometriyi, ikisi de aktifse ağırlıklı ortalamayı kullan
-            if gps_rem_dist < 0.01 and odom_rem_dist > 0.5:
-                fused_rem_dist = odom_rem_dist
-                fused_bearing = odom_bearing
-            else:
-                # Vektörel ortalama ile hedef açısı
-                fused_vx = 0.5 * gps_dx + 0.5 * odom_dx
-                fused_vy = 0.5 * gps_dy + 0.5 * odom_dy
-                fused_bearing = math.degrees(math.atan2(fused_vy, fused_vx))
-
-            confidence_pct = max(0.0, min(100.0, 100.0 * (1.0 - sensor_discrepancy / max(2.0, init_dist))))
-
-            # HEDEF VARIŞ KONTROLÜ (Hem Füzyon hem Odometri/GPS teyidi)
-            if fused_rem_dist <= arrival_tolerance_m or min(gps_rem_dist, odom_rem_dist) <= (arrival_tolerance_m * 0.75):
+            # --- 2. ARDUPILOT WP_RADIUS & ALONG-TRACK VARIŞ KONTROLÜ ---
+            # Along-track projeksiyonu: Negatif olması aracın hedef bitiş çizgisini geçtiğini gösterir
+            along_track_rem = rem_n * path_unit_n + rem_e * path_unit_e
+            if rem_dist_m <= wp_radius_m or raw_gps_dist_m <= wp_radius_m or (along_track_rem <= 0.0 and rem_dist_m <= wp_radius_m * 2.2):
                 self.stop()
                 done_msg = (
-                    f"🏁 [HEDEFE ULAŞILDI!] Araç: {cur['code']} | "
-                    f"Kalan GPS: {gps_rem_dist:.2f}m | Kalan Odom: {odom_rem_dist:.2f}m | "
-                    f"Çift Doğrulama Güven: %{confidence_pct:.1f}"
+                    f"🏁 [WAYPOINT ULAŞILDI!] Araç: {cur['code']} | "
+                    f"Mevcut GPS: ({raw_lat:.6f}°N, {raw_lon:.6f}°E) | "
+                    f"Hedefe Kalan GPS: {raw_gps_dist_m:.2f}m (WP_RADIUS: {wp_radius_m:.1f}m)"
                 )
                 if status_callback:
                     status_callback(done_msg)
                 return {
                     "ok": True,
-                    "final_lat": cur["lat"],
-                    "final_lon": cur["lon"],
-                    "final_x": cur["pos_x"],
-                    "final_y": cur["pos_y"],
-                    "gps_rem_m": round(gps_rem_dist, 3),
-                    "odom_rem_m": round(odom_rem_dist, 3),
-                    "confidence_pct": round(confidence_pct, 1),
+                    "final_lat": raw_lat,
+                    "final_lon": raw_lon,
+                    "gps_rem_m": round(raw_gps_dist_m, 2),
                     "message": done_msg,
                 }
 
-            # Baş açısı hatası: Hedef yön - Mevcut IMU Yaw
-            heading_err_deg = normalize_angle_deg(fused_bearing - cur["yaw"])
-            heading_err_rad = math.radians(heading_err_deg)
+            # --- 3. ARDUPILOT L1 NONLINEAR GUIDANCE + GENİŞ TURN RADIUS ---
+            # η (eta): Hedef pusula açısı ile aracın mevcut pusula açısı (Yaw) arasındaki fark
+            eta_deg = normalize_angle_deg(target_bearing_deg - cur["yaw"])
+            eta_rad = math.radians(eta_deg)
 
-            # Pure Pursuit / Eğrisel (Curve) Direksiyon ve Hız Hesabı:
-            # Açı hatası büyükse hızı düşür ve kavisli dön; açı hatası küçükse tam hızla süzül
-            if abs(heading_err_deg) > 65.0:
-                # Çok keskin açı farkı: Dar kavisli dönüş (yavaş ilerleme + güçlü dönüş)
-                linear_v = cruise_speed * 0.25
-                angular_w = max(-1.35, min(1.35, heading_err_rad * 1.4))
+            # Hedefe yaklaşırken yumuşak hız profili (Ama dönüş yaparken ASLA sıfırlanmaz, kavis çizer!)
+            approach_scale = min(1.0, max(0.45, rem_dist_m / (r_min * 1.5)))
+            # Geniş kavis alırken merkezkaç sınırı için hızı hafifçe dengeler
+            turn_speed_scale = 0.70 if abs(eta_deg) > 45.0 else 1.0
+            cmd_v = cruise_speed * approach_scale * turn_speed_scale
+
+            # L1 Lookahead mesafesi: Dönüş yarıçapı ne kadar genişse L1 o kadar ileri bakar (Geniş yay)
+            l1_lookahead_m = max(r_min * 1.8, min(rem_dist_m, r_min * 3.0))
+
+            # Eğer açı farkı > 90° ise (hedef aracın arkasında kaldıysa) geniş bir U-dönüşü yayı çiz
+            if abs(eta_deg) > 85.0:
+                desired_omega = math.copysign(cmd_v / r_min, eta_rad)
             else:
-                # Yumuşak eğrisel (Curve) takip: Pure Pursuit kavis kanunu
-                lookahead_L = max(1.2, min(4.0, fused_rem_dist * 0.6))
-                # Eğrilik (Curvature) kappa = 2 * sin(alpha) / L
-                curvature = (2.0 * math.sin(heading_err_rad)) / lookahead_L
-                dist_slowdown = min(1.0, max(0.30, fused_rem_dist / 3.0))
-                turn_slowdown = max(0.35, math.cos(heading_err_rad))
-                linear_v = cruise_speed * dist_slowdown * turn_slowdown
-                angular_w = max(-1.25, min(1.25, linear_v * curvature + heading_err_rad * 0.85))
+                # Standart ArduPilot L1 kavis denklemi: ω = (2 * V / L1) * sin(η)
+                desired_omega = (2.0 * cmd_v / l1_lookahead_m) * math.sin(eta_rad)
 
-            self.send_cmd_vel(linear_v, angular_w, timeout_ms=450)
+            # Turn-Radius Kısıtı: Açısal hız ASLA (V / R_min) değerini aşamaz! (Keskin/kare dönüş imkansızdır)
+            max_omega_for_radius = cmd_v / r_min
+            cmd_omega = max(-max_omega_for_radius, min(max_omega_for_radius, desired_omega))
 
-            now = time.time()
+            self.send_cmd_vel(cmd_v, cmd_omega, timeout_ms=450)
+
             if status_callback and (now - last_log_time >= 1.0):
                 last_log_time = now
+                eff_radius = (cmd_v / abs(cmd_omega)) if abs(cmd_omega) > 0.02 else 999.0
                 status_callback(
-                    f"🚗 [SÜRÜŞ] Kalan: {fused_rem_dist:.1f}m (GPS:{gps_rem_dist:.1f}m | Odom:{odom_rem_dist:.1f}m | "
-                    f"Güven:%{confidence_pct:.0f}) | Yaw:{cur['yaw']:.0f}°->Hedef:{fused_bearing:.0f}° "
-                    f"(Δ:{heading_err_deg:+.0f}°) | V:{linear_v:.2f}m/s ω:{angular_w:+.2f}rad/s"
+                    f"🚗 [L1 SÜRÜŞ] GPS Mesafe: {raw_gps_dist_m:.1f}m (EKF: {rem_dist_m:.1f}m) | "
+                    f"Pusula: {cur['yaw']:.0f}° -> Hedef: {target_bearing_deg:.0f}° (Δ:{eta_deg:+.0f}°) | "
+                    f"Hız: {cmd_v:.2f}m/s | Kavis Yarıçapı R: {min(99.9, eff_radius):.1f}m"
                 )
 
             time.sleep(0.08)
 
         self.stop()
-        fail_msg = "⚠️ [DURDURULDU] Otonom sürüş kullanıcı tarafından iptal edildi veya süre doldu."
-        if status_callback:
-            status_callback(fail_msg)
-        return {"ok": False, "reason": fail_msg}
-
-    def wait_for_telemetry(self, timeout_sec: float = 5.0) -> Optional[Dict]:
-        """Belirtilen süre içinde ilk geçerli telemetri paketini bekler."""
-        t0 = time.time()
-        while (time.time() - t0) < timeout_sec:
-            t = self.get_telemetry()
-            if t is not None:
-                return t
-            time.sleep(0.1)
-        return None
+        return {"ok": False, "reason": "Süre doldu veya kullanıcı tarafından durduruldu"}
