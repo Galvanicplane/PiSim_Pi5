@@ -41,16 +41,28 @@ class PiSimSwarm:
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
 
-    def send_raw_command(self, payload: dict):
-        """UDP Broadcast üzerinden tüm araçların bağımsız portlarına doğrudan komut fırlatır."""
+    def send_raw_command(self, payload: dict, override_port: int = None):
+        """UDP Broadcast / Unicast üzerinden araçların portlarına doğrudan komut fırlatır."""
+        port = override_port if override_port is not None else self.command_port
         try:
             msg_bytes = json.dumps(payload).encode('utf-8')
-            # 1. Küresel Broadcast (Tüm yerel alt ağdaki araçlar)
-            self.sock.sendto(msg_bytes, (self.target_ip, self.command_port))
-            # 2. Localhost döngü kontrolü (Aynı bilgisayardaysa doğrudan loopback'e de bas)
+            # 1. Hedef IP veya Küresel Broadcast
+            self.sock.sendto(msg_bytes, (self.target_ip, port))
+            # 2. Localhost döngü kontrolü
             if self.target_ip != "127.0.0.1":
                 try:
-                    self.sock.sendto(msg_bytes, ("127.0.0.1", self.command_port))
+                    self.sock.sendto(msg_bytes, ("127.0.0.1", port))
+                except Exception:
+                    pass
+            # 3. Raspberry Pi 5 / Linux Wi-Fi alt ağ broadcast desteği (192.168.x.255)
+            if self.target_ip == "255.255.255.255":
+                try:
+                    from beacon_sender import get_broadcast_targets
+                    for b_ip, b_port in get_broadcast_targets(port):
+                        try:
+                            self.sock.sendto(msg_bytes, (b_ip, b_port))
+                        except Exception:
+                            pass
                 except Exception:
                     pass
         except Exception as e:
@@ -184,10 +196,11 @@ def main():
     parser.add_argument("--stop", action="store_true", help="Hedef aracı veya tüm sürüyü anında durdur")
     parser.add_argument("--interactive", "-i", action="store_true", help="İnteraktif klavye sürüş konsolunu aç")
     parser.add_argument("--demo-circle", action="store_true", help="Daire çizme otonom manevra testi")
-    parser.add_argument("--ip", type=str, default="255.255.255.255", help="Hedef broadcast IP adresi")
+    parser.add_argument("--ip", type=str, default="255.255.255.255", help="Hedef IP veya broadcast adresi")
+    parser.add_argument("--port", type=int, default=COMMAND_PORT, help="Komut portu (7402=Ortak Sürü, 7403=Araç 1, 7404=Araç 2...)")
 
     args = parser.parse_args()
-    swarm = PiSimSwarm(target_ip=args.ip)
+    swarm = PiSimSwarm(target_ip=args.ip, command_port=args.port)
 
     if args.stop:
         print(f"🛑 [E-STOP] '{args.target}' aracı/sürüsü durduruluyor...")
