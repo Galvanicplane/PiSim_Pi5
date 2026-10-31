@@ -222,13 +222,29 @@ class PiSimMotionController:
             time.sleep(0.1)
         return None
 
+    def _send_payload(self, payload: dict, repeat: int = 1):
+        target_ip = self.ue5_ip if self.ue5_ip else "255.255.255.255"
+        raw_bytes = (json.dumps(payload) + "\n").encode("utf-8")
+        destinations = {(target_ip, self.command_port), ("127.0.0.1", self.command_port)}
+        if self.dedicated_port:
+            destinations.add((target_ip, self.dedicated_port))
+            destinations.add(("127.0.0.1", self.dedicated_port))
+
+        for _ in range(repeat):
+            for ip, port in destinations:
+                try:
+                    self.cmd_sock.sendto(raw_bytes, (ip, port))
+                except Exception:
+                    pass
+            if repeat > 1:
+                time.sleep(0.02)
+
     def send_cmd_vel(self, linear_x: float, angular_z: float, timeout_ms: int = 500):
         """
         Araca ileri hız (linear_x m/s) ve dönüş hızı (angular_z rad/s) komutunu gönderir.
         DİKKAT: Kare dönüşü önlemek için araç hareket halindeyken açısal hız her zaman
         minimum dönüş yarıçapına (min_turn_radius_m) göre sınırlandırılır!
         """
-        target_ip = self.ue5_ip if self.ue5_ip else "255.255.255.255"
         payload = {
             "cmd": "cmd_vel",
             "target": self.target_vehicle if self.target_vehicle not in ("selected", "active", "") else "all",
@@ -239,22 +255,10 @@ class PiSimMotionController:
             "timeout_ms": int(timeout_ms),
             "ts": time.time(),
         }
-        raw_bytes = (json.dumps(payload) + "\n").encode("utf-8")
-
-        destinations = {(target_ip, self.command_port), ("127.0.0.1", self.command_port)}
-        if self.dedicated_port:
-            destinations.add((target_ip, self.dedicated_port))
-            destinations.add(("127.0.0.1", self.dedicated_port))
-
-        for ip, port in destinations:
-            try:
-                self.cmd_sock.sendto(raw_bytes, (ip, port))
-            except Exception:
-                pass
+        self._send_payload(payload)
 
     def stop(self):
         """Aracı güvenli şekilde durdurur."""
-        target_ip = self.ue5_ip if self.ue5_ip else "255.255.255.255"
         payload = {
             "cmd": "stop",
             "target": self.target_vehicle if self.target_vehicle not in ("selected", "active", "") else "all",
@@ -262,16 +266,53 @@ class PiSimMotionController:
             "angular_z": 0.0,
             "ts": time.time(),
         }
-        raw_bytes = (json.dumps(payload) + "\n").encode("utf-8")
-        for _ in range(3):
-            for ip in {target_ip, "127.0.0.1"}:
-                try:
-                    self.cmd_sock.sendto(raw_bytes, (ip, self.command_port))
-                    if self.dedicated_port:
-                        self.cmd_sock.sendto(raw_bytes, (ip, self.dedicated_port))
-                except Exception:
-                    pass
-            time.sleep(0.02)
+        self._send_payload(payload, repeat=3)
+
+    def send_motor_test(self, bone_name: str, val: float, timeout_sec: float = 2.0):
+        """Tek bir kemik/motor için test değeri (-1.0 .. +1.0) gönderir."""
+        payload = {
+            "cmd": "motor",
+            "target": self.target_vehicle if self.target_vehicle not in ("selected", "active", "") else "all",
+            "bone": str(bone_name),
+            "val": max(-1.0, min(1.0, float(val))),
+            "timeout_sec": float(timeout_sec),
+            "ts": time.time(),
+        }
+        self._send_payload(payload)
+
+    def send_steer_test(self, angle_deg: float, timeout_sec: float = 2.0):
+        """Direksiyon açısı (-35° .. +35°) test komutu gönderir."""
+        payload = {
+            "cmd": "steer",
+            "target": self.target_vehicle if self.target_vehicle not in ("selected", "active", "") else "all",
+            "angle": max(-35.0, min(35.0, float(angle_deg))),
+            "timeout_sec": float(timeout_sec),
+            "ts": time.time(),
+        }
+        self._send_payload(payload)
+
+    def send_drive_wheels_test(self, left: float, right: Optional[float] = None, timeout_sec: float = 2.0):
+        """Tüm tekerlekleri doğrudan döndürme test komutu gönderir (Sol ve Sağ ayrımı destekler)."""
+        if right is None:
+            right = left
+        payload = {
+            "cmd": "drive_wheels",
+            "target": self.target_vehicle if self.target_vehicle not in ("selected", "active", "") else "all",
+            "left": max(-1.0, min(1.0, float(left))),
+            "right": max(-1.0, min(1.0, float(right))),
+            "timeout_sec": float(timeout_sec),
+            "ts": time.time(),
+        }
+        self._send_payload(payload)
+
+    def send_reset_motors(self):
+        """Tüm motor test değerlerini sıfırlar."""
+        payload = {
+            "cmd": "reset_motors",
+            "target": self.target_vehicle if self.target_vehicle not in ("selected", "active", "") else "all",
+            "ts": time.time(),
+        }
+        self._send_payload(payload)
 
     # =========================================================================
     # 1. GENİŞ YARIÇAPLI EĞRİSEL DÖNÜŞ (CURVE TURN - KARE DÖNÜŞ YOK!)
@@ -502,6 +543,7 @@ class PiSimMotionController:
         prev_time = time.time()
         t_start = prev_time
         last_log_time = 0.0
+        prev_cmd_omega = 0.0
 
         if status_callback:
             status_callback(
@@ -588,7 +630,12 @@ class PiSimMotionController:
 
             # Turn-Radius Kısıtı: Açısal hız ASLA (V / R_min) değerini aşamaz! (Keskin/kare dönüş imkansızdır)
             max_omega_for_radius = cmd_v / r_min
-            cmd_omega = max(-max_omega_for_radius, min(max_omega_for_radius, desired_omega))
+            raw_omega = max(-max_omega_for_radius, min(max_omega_for_radius, desired_omega))
+
+            # Direksiyon & Açısal İvme Sınırı (Slew Rate Limiter): Ani yön değişimlerini yumuşatır (1.2 rad/s²)
+            max_domega = 1.2 * dt
+            cmd_omega = prev_cmd_omega + max(-max_domega, min(max_domega, raw_omega - prev_cmd_omega))
+            prev_cmd_omega = cmd_omega
 
             self.send_cmd_vel(cmd_v, cmd_omega, timeout_ms=450)
 
