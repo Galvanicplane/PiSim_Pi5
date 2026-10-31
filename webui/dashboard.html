@@ -170,7 +170,7 @@
                         HEDEF: <b id="map-target-label" style="color: var(--accent-color);">Simülasyon Bekleniyor</b>
                     </div>
                     <div style="display: flex; gap: 5px; pointer-events: auto;">
-                        <button id="btn-map-layer" class="cod-btn" style="padding: 4px 10px; font-size: 10px; font-weight: 800; border-color: #00e5ff; color: #00e5ff; background: rgba(0, 229, 255, 0.12);" onclick="cycleMapLayer()">🗺️ UYDU: GOOGLE</button>
+                        <button id="btn-map-layer" class="cod-btn" style="padding: 4px 10px; font-size: 10px; font-weight: 800; border-color: #00dfb6; color: #00dfb6; background: rgba(0, 223, 182, 0.18);" onclick="cycleMapLayer()">🛰️ UYDU: GOOGLE (CANLI)</button>
                         <button id="btn-toggle-follow" class="cod-btn" style="padding: 4px 10px; font-size: 10px; font-weight: 800; border-color: var(--accent-color); color: var(--accent-color); background: rgba(0, 223, 182, 0.18);" onclick="toggleFollowVehicle()">🎯 TAKİP: AÇIK</button>
                         <button class="cod-btn" style="padding: 4px 10px; font-size: 10px;" onclick="zoomMapIn()">[+]</button>
                         <button class="cod-btn" style="padding: 4px 10px; font-size: 10px;" onclick="zoomMapOut()">[-]</button>
@@ -845,7 +845,7 @@
         let lastSelectedLon = 32.8597;
 
         let lastInitialCenterDone = false;
-        let currentTileKey = 'google_streets';
+        let currentTileKey = 'google_hybrid';
         let currentTileLayer = null;
 
         function getTileLayer(key) {
@@ -887,15 +887,32 @@
 
             const btn = document.getElementById('btn-map-layer');
             if (btn) {
-                if (key === 'google_streets') btn.innerText = "🗺️ MOD: GOOGLE SOKAK";
-                else if (key === 'google_hybrid') btn.innerText = "🛰️ UYDU: GOOGLE";
-                else if (key === 'dark_matter') btn.innerText = "🌑 MOD: KARANLIK";
-                else btn.innerText = "🌍 MOD: OSM";
+                if (key === 'google_hybrid') {
+                    btn.innerText = "🛰️ UYDU: GOOGLE (CANLI)";
+                    btn.style.color = "#00dfb6";
+                    btn.style.borderColor = "#00dfb6";
+                } else if (key === 'esri_satellite') {
+                    btn.innerText = "🛰️ UYDU: ESRI ARCGIS";
+                    btn.style.color = "#00e5ff";
+                    btn.style.borderColor = "#00e5ff";
+                } else if (key === 'google_streets') {
+                    btn.innerText = "🗺️ MOD: GOOGLE SOKAK";
+                    btn.style.color = "#ffaa00";
+                    btn.style.borderColor = "#ffaa00";
+                } else if (key === 'dark_matter') {
+                    btn.innerText = "🌑 MOD: KARANLIK";
+                    btn.style.color = "#8b949e";
+                    btn.style.borderColor = "#8b949e";
+                } else {
+                    btn.innerText = "🌍 MOD: OSM";
+                    btn.style.color = "#ffffff";
+                    btn.style.borderColor = "#ffffff";
+                }
             }
         }
 
         function cycleMapLayer() {
-            const keys = ['google_streets', 'google_hybrid', 'dark_matter', 'osm'];
+            const keys = ['google_hybrid', 'esri_satellite', 'google_streets', 'dark_matter', 'osm'];
             const nextIdx = (keys.indexOf(currentTileKey) + 1) % keys.length;
             setTileLayer(keys[nextIdx]);
             addLog(`Harita Katmanı Değiştirildi: ${keys[nextIdx].toUpperCase()}`);
@@ -919,7 +936,7 @@
                 });
 
                 // Varsayılan olarak Google Uydu (Hybrid) katmanını yükle
-                setTileLayer('google_streets');
+                setTileLayer('google_hybrid');
 
                 // İnternet olmasa bile haritanın hareket ettiğini ve koordinatları gösteren Taktik Canvas Izgara Katmanı
                 const TacticalGridLayer = L.GridLayer.extend({
