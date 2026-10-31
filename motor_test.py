@@ -69,6 +69,7 @@ def print_banner(motion: PiSimMotionController):
     print("   steer <açı>          : Direksiyonu çevir (örn: 'steer 25' veya 'steer -20') [-35°..+35°]")
     print("   drive <hız>          : Tüm tekerlekleri sür (örn: 'drive 0.4' veya 'drive -0.3') [-1..+1]")
     print("   diff <sol> <sağ>     : Diferansiyel hız testi (örn: 'diff 0.3 0.8')")
+    print("   y / axis [x/y/z]     : Tekerlek eksenini değiştir (0=X [Twist], 1=Y [Swing2], 2=Z [Swing1])")
     print("   sweep                : Direksiyon sağ-sol tarama testi (-35° .. +35°)")
     print("   ramp                 : Tekerlek hız rampa testi (%0 -> %60 -> %0)")
     print("   status / durum       : Canlı telemetri ve GPS/Pusula verisini göster")
@@ -270,6 +271,11 @@ def interactive_repl(motion: PiSimMotionController):
             elif cmd == "sweep":
                 run_sweep_steer(motion)
 
+            elif cmd in ("y", "axis", "eksen"):
+                ax_arg = parts[1].lower() if len(parts) > 1 else None
+                motion.cycle_wheel_axis(axis=ax_arg)
+                print(f"🔄 [EKSEN DEĞİŞTİRİLDİ (Y)]: Eksen modu ve ACM serbestliği güncellendi -> {ax_arg or 'Döngüsel (Sonraki Mod)'}")
+
             elif cmd == "ramp":
                 run_ramp_drive(motion)
 
@@ -290,6 +296,8 @@ def main():
     parser.add_argument("--index", type=int, default=None, help="Model Bölüm İndeksi (Section Index: 1, 2, 3...)")
     parser.add_argument("--wheel-index", type=int, default=None, help="Tekerlek Sıra İndeksi (0, 1, 2, 3...)")
     parser.add_argument("--bone", type=str, default=None, help="Kemik/parça adı")
+    parser.add_argument("--axis", type=str, default=None, help="Tekerlek dönme ekseni (x, y, z)")
+    parser.add_argument("--cycle-axis", action="store_true", help="Tekerlek dönme eksenini ve ACM mafsalını döngüsel değiştir")
     parser.add_argument("--steer", "-s", type=float, default=None, help="Direksiyon açısı (-35 .. +35 derece)")
     parser.add_argument("--drive", "-d", type=float, default=None, help="Tüm tekerlekler için sürüş gücü (-1.0 .. +1.0)")
     parser.add_argument("--diff", nargs=2, type=float, default=None, metavar=("SOL", "SAG"), help="Diferansiyel tekerlek testi")
@@ -317,6 +325,8 @@ def main():
         args.index is not None,
         args.wheel_index is not None,
         args.bone is not None,
+        args.axis is not None,
+        args.cycle_axis,
         args.steer is not None,
         args.drive is not None,
         args.diff is not None,
@@ -354,6 +364,10 @@ def main():
 
     elif args.ramp_drive:
         run_ramp_drive(motion)
+
+    elif args.cycle_axis or args.axis is not None:
+        motion.cycle_wheel_axis(axis=args.axis)
+        print(f"🔄 Tekerlek dönme ekseni ve ACM mafsal serbestisi güncellendi: {args.axis or 'Döngüsel (Sonraki)'}")
 
     elif args.index is not None:
         val = max(-1.0, min(1.0, args.val))

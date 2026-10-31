@@ -333,6 +333,19 @@ class PiSimMotionController:
         }
         self._send_payload(payload)
 
+    def cycle_wheel_axis(self, mode: Optional[int] = None, axis: Optional[str] = None):
+        """Tekerlek dönme eksenini ve ACM mafsal kısıtlamasını döngüsel değiştirir (0=X [Twist], 1=Y [Swing2], 2=Z [Swing1])."""
+        payload = {
+            "cmd": "cycle_wheel_axis",
+            "target": self.target_vehicle if self.target_vehicle not in ("selected", "active", "") else "all",
+            "ts": time.time(),
+        }
+        if mode is not None:
+            payload["mode"] = int(mode)
+        if axis is not None:
+            payload["axis"] = str(axis)
+        self._send_payload(payload)
+
     # =========================================================================
     # 1. GENİŞ YARIÇAPLI EĞRİSEL DÖNÜŞ (CURVE TURN - KARE DÖNÜŞ YOK!)
     # =========================================================================
