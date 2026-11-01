@@ -32,12 +32,59 @@ Kullanım Örnekleri:
 import argparse
 import signal
 import sys
+import time
 from pisim_motion import (
     PiSimMotionController,
     haversine_distance_and_bearing,
     offset_gps_by_meters,
 )
 
+
+
+def make_live_hud():
+    """
+    Terminalde selale gibi akmak yerine, tek bir sabit satirda kendini guncelleyen
+    canli telemetri HUD'i olusturur.
+    """
+    last_print_time = [0.0]
+
+    def hud(data):
+        now = time.time()
+        if isinstance(data, dict) and data.get("type") == "progress":
+            if (now - last_print_time[0]) < 0.08:
+                return
+            last_print_time[0] = now
+
+            c_lat = data["cur_lat"]
+            c_lon = data["cur_lon"]
+            t_lat = data["target_lat"]
+            t_lon = data["target_lon"]
+            rem_m = data["rem_m"]
+            spd = data["speed_mps"]
+            yaw = data["yaw"]
+            brg = data["target_bearing"]
+            eta = data["eta_deg"]
+            steer = data["steer_ratio"]
+            pct = data["progress_pct"]
+            code = data.get("code", "RV01")
+
+            steer_icon = "◄◄" if steer < -0.3 else ("◄" if steer < -0.08 else ("►►" if steer > 0.3 else ("►" if steer > 0.08 else "▲▲")))
+            line = (
+                f"\r\033[K[{code}] 📍({c_lat:.5f},{c_lon:.5f}) ➔ 🎯({t_lat:.5f},{t_lon:.5f}) | "
+                f"📏 {rem_m:5.1f}m (%{pct:3.0f}) | ⚡ {spd:3.1f}m/s | "
+                f"🧭 {yaw:3.0f}°➔{brg:3.0f}° (Δ{eta:+3.0f}°) | 🛞 {steer_icon} {steer:+.2f}"
+            )
+            sys.stdout.write(line)
+            sys.stdout.flush()
+        elif isinstance(data, str):
+            if data.startswith("\r"):
+                sys.stdout.write(f"\r\033[K{data.lstrip(chr(13))}")
+                sys.stdout.flush()
+            else:
+                sys.stdout.write(f"\n{data}\n")
+                sys.stdout.flush()
+
+    return hud
 
 def main():
     parser = argparse.ArgumentParser(
@@ -76,6 +123,7 @@ def main():
         ue5_ip=args.ip,
         min_turn_radius_m=args.turn_radius,
     )
+    live_hud = make_live_hud()
 
     def handle_sigint(sig, frame):
         print("\n🛑 [ACİL DURDURMA] Ctrl+C algılandı! Araç durduruluyor...")
@@ -109,7 +157,7 @@ def main():
             cruise_speed=args.speed,
             turn_radius_m=args.turn_radius,
             wp_radius_m=args.wp_radius,
-            status_callback=print,
+            status_callback=live_hud,
         )
         sys.exit(0 if res.get("ok") else 1)
 
@@ -127,7 +175,7 @@ def main():
             cruise_speed=args.speed,
             turn_radius_m=args.turn_radius,
             wp_radius_m=args.wp_radius,
-            status_callback=print,
+            status_callback=live_hud,
         )
         sys.exit(0 if res.get("ok") else 1)
 
@@ -138,7 +186,7 @@ def main():
             arc_angle_deg=args.curve_angle,
             speed_mps=args.speed,
             direction=args.curve_dir,
-            status_callback=print,
+            status_callback=live_hud,
         )
         sys.exit(0 if res.get("ok") else 1)
 
@@ -147,7 +195,7 @@ def main():
         res = motion.move_forward(
             distance_m=args.forward,
             speed_mps=args.speed,
-            status_callback=print,
+            status_callback=live_hud,
         )
         sys.exit(0 if res.get("ok") else 1)
 
@@ -201,7 +249,7 @@ def main():
                 cruise_speed=args.speed,
                 turn_radius_m=r_custom,
                 wp_radius_m=args.wp_radius,
-                status_callback=print,
+                status_callback=live_hud,
             )
         elif cmd == "git" and len(parts) >= 3:
             dn = float(parts[1])
@@ -216,13 +264,13 @@ def main():
                     cruise_speed=args.speed,
                     turn_radius_m=motion.min_turn_radius_m,
                     wp_radius_m=args.wp_radius,
-                    status_callback=print,
+                    status_callback=live_hud,
                 )
             else:
                 print("⚠️ Başlangıç GPS verisi alınamadı!")
         elif cmd == "ileri" and len(parts) >= 2:
             dist = float(parts[1])
-            motion.move_forward(dist, speed_mps=args.speed, status_callback=print)
+            motion.move_forward(dist, speed_mps=args.speed, status_callback=live_hud)
         elif cmd == "curve" and len(parts) >= 3:
             r = float(parts[1])
             ang = float(parts[2])
@@ -232,7 +280,7 @@ def main():
                 arc_angle_deg=ang,
                 speed_mps=args.speed,
                 direction=d,
-                status_callback=print,
+                status_callback=live_hud,
             )
         else:
             print("❓ Bilinmeyen komut. Örnek: 'gps 39.93385 32.86042 6.0', 'git 20 10', 'ileri 15', 'curve 6 90 right'")

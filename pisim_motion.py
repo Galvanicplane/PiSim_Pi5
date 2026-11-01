@@ -576,6 +576,7 @@ class PiSimMotionController:
         t_start = prev_time
         last_log_time = 0.0
         prev_cmd_omega = 0.0
+        prev_yaw = float(start_state["yaw"])
 
         if status_callback:
             status_callback(
@@ -639,46 +640,87 @@ class PiSimMotionController:
                     "message": done_msg,
                 }
 
-            # --- 3. ARDUPILOT L1 NONLINEAR GUIDANCE + GENİŞ TURN RADIUS ---
-            # η (eta): Hedef pusula açısı ile aracın mevcut pusula açısı (Yaw) arasındaki fark
+            # --- 3. ARDUPILOT L1 NONLINEAR GUIDANCE + SAĞ-SOL YALPALAMAYI ÖNLEYEN YUMUŞATMA VE SÖNÜMLEME ---
+            # η (eta): Hedef pusula açısı ile aracın mevcut pusula açısı (Yaw) arasındaki kerteriz farkı
             eta_deg = normalize_angle_deg(target_bearing_deg - cur["yaw"])
             eta_rad = math.radians(eta_deg)
 
-            # Hedefe yaklaşırken yumuşak hız profili (Ama dönüş yaparken ASLA sıfırlanmaz, kavis çizer!)
-            approach_scale = min(1.0, max(0.45, rem_dist_m / (r_min * 1.5)))
-            # Geniş kavis alırken merkezkaç sınırı için hızı hafifçe dengeler
+            # Pusula açısal hız türevi (Yaw rate rad/s) - Sönümleme (Derivative Damping) için
+            yaw_rate_rad_s = math.radians(normalize_angle_deg(cur["yaw"] - prev_yaw)) / max(0.001, dt)
+            prev_yaw = cur["yaw"]
+
+            # [YUMUŞATMA 1: HEADING DEADBAND - ÖLÜ BÖLGE]
+            # Araç hedefe ±2.0° açıyla zaten bakıyorsa sensör gürültüsünden kaynaklı mikro sağ-sol titremelerini sıfırla!
+            HEADING_DEADBAND_DEG = 2.0
+            if abs(eta_deg) < HEADING_DEADBAND_DEG:
+                effective_eta_rad = 0.0
+            else:
+                sign = 1.0 if eta_deg > 0 else -1.0
+                effective_eta_rad = math.radians(eta_deg - sign * HEADING_DEADBAND_DEG)
+
+            # Hedefe yaklaşırken yumuşak hız profili
+            approach_scale = min(1.0, max(0.40, rem_dist_m / max(0.1, r_min * 1.5)))
             turn_speed_scale = 0.70 if abs(eta_deg) > 45.0 else 1.0
             cmd_v = cruise_speed * approach_scale * turn_speed_scale
 
-            # L1 Lookahead mesafesi: Dönüş yarıçapı ne kadar genişse L1 o kadar ileri bakar (Geniş yay)
+            # L1 Lookahead mesafesi (Geniş kavis yarıçapı)
             l1_lookahead_m = max(r_min * 1.8, min(rem_dist_m, r_min * 3.0))
 
-            # Eğer açı farkı > 90° ise (hedef aracın arkasında kaldıysa) geniş bir U-dönüşü yayı çiz
             if abs(eta_deg) > 85.0:
                 desired_omega = math.copysign(cmd_v / r_min, eta_rad)
             else:
-                # Standart ArduPilot L1 kavis denklemi: ω = (2 * V / L1) * sin(η)
-                desired_omega = (2.0 * cmd_v / l1_lookahead_m) * math.sin(eta_rad)
+                # ArduPilot L1 formülü: ω = (2 * V / L1) * sin(η)
+                desired_omega = (2.0 * cmd_v / l1_lookahead_m) * math.sin(effective_eta_rad)
 
-            # Turn-Radius Kısıtı: Açısal hız ASLA (V / R_min) değerini aşamaz! (Keskin/kare dönüş imkansızdır)
-            max_omega_for_radius = cmd_v / r_min
-            raw_omega = max(-max_omega_for_radius, min(max_omega_for_radius, desired_omega))
+            # [YUMUŞATMA 2: DERIVATIVE DAMPING - TÜREV SÖNÜMLEMESİ]
+            # Araç hedefin doğrultusuna zaten dönüyorsa, hedefin ötesine savrulup ters yöne yalpalamasını (overshoot/weaving) önle
+            kd_damping = 0.22
+            damped_omega = desired_omega - (kd_damping * yaw_rate_rad_s)
 
-            # Direksiyon & Açısal İvme Sınırı (Slew Rate Limiter): Ani yön değişimlerini yumuşatır (1.2 rad/s²)
-            max_domega = 1.2 * dt
-            cmd_omega = prev_cmd_omega + max(-max_domega, min(max_domega, raw_omega - prev_cmd_omega))
+            # [YUMUŞATMA 3: NEAR-WAYPOINT DAMPING - HEDEF NOKTASI TEKİLLİK SÖNÜMÜ]
+            # Hedefe çok yakınken kerteriz açısı aşırı hassaslaşır; direksiyon katsayısını yumuşat
+            if rem_dist_m < (r_min * 1.2):
+                near_scale = max(0.30, rem_dist_m / (r_min * 1.2))
+                damped_omega *= near_scale
+
+            # Turn-Radius Kısıtı: Açısal hız ASLA (V / R_min) değerini aşamaz!
+            max_omega_for_radius = max(0.01, cmd_v / r_min)
+            raw_omega = max(-max_omega_for_radius, min(max_omega_for_radius, damped_omega))
+
+            # [YUMUŞATMA 4: EMA ALÇAK GEÇİREN FİLTRE & SLEW RATE LIMITER]
+            # Ani direksiyon kırılmalarını ve titremeleri engelleyen üstel hareketli ortalama filtresi
+            alpha_filter = 0.35
+            filtered_omega = alpha_filter * raw_omega + (1.0 - alpha_filter) * prev_cmd_omega
+            max_domega = 1.0 * dt
+            cmd_omega = prev_cmd_omega + max(-max_domega, min(max_domega, filtered_omega - prev_cmd_omega))
             prev_cmd_omega = cmd_omega
 
             self.send_cmd_vel(cmd_v, cmd_omega, timeout_ms=450)
 
-            if status_callback and (now - last_log_time >= 1.0):
-                last_log_time = now
-                eff_radius = (cmd_v / abs(cmd_omega)) if abs(cmd_omega) > 0.02 else 999.0
-                status_callback(
-                    f"🚗 [L1 SÜRÜŞ] GPS Mesafe: {raw_gps_dist_m:.1f}m (EKF: {rem_dist_m:.1f}m) | "
-                    f"Pusula: {cur['yaw']:.0f}° -> Hedef: {target_bearing_deg:.0f}° (Δ:{eta_deg:+.0f}°) | "
-                    f"Hız: {cmd_v:.2f}m/s | Kavis Yarıçapı R: {min(99.9, eff_radius):.1f}m"
-                )
+            # Canlı İlerleme Bildirimi (Her tick'te kendini yenileyen HUD formatında)
+            if status_callback:
+                progress_pct = max(0.0, min(100.0, (1.0 - raw_gps_dist_m / max(0.1, init_dist_m)) * 100.0))
+                steer_ratio = (cmd_omega / max_omega_for_radius) if max_omega_for_radius > 1e-4 else 0.0
+                status_payload = {
+                    "type": "progress",
+                    "code": cur.get("code", f"RV0{cur.get('id', 1)}"),
+                    "cur_lat": raw_lat,
+                    "cur_lon": raw_lon,
+                    "target_lat": target_lat,
+                    "target_lon": target_lon,
+                    "rem_m": raw_gps_dist_m,
+                    "rem_ekf_m": rem_dist_m,
+                    "speed_mps": cur.get("speed_mps", 0.0),
+                    "speed_kmh": cur.get("speed_kmh", 0.0),
+                    "cmd_v": cmd_v,
+                    "yaw": cur["yaw"],
+                    "target_bearing": target_bearing_deg,
+                    "eta_deg": eta_deg,
+                    "cmd_omega": cmd_omega,
+                    "steer_ratio": steer_ratio,
+                    "progress_pct": progress_pct,
+                }
+                status_callback(status_payload)
 
             time.sleep(0.08)
 
