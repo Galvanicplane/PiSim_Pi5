@@ -147,15 +147,11 @@ def main():
             now = time.time()
             if now - last_tx_time >= 0.065:
                 last_tx_time = now
-                # Ackermann açısını açısal hıza çevir: ω = V * tan(steer) / L
-                wheelbase_m = 0.34
-                steer_rad = math.radians(cur_steer_deg)
-                if abs(cur_v) > 0.05:
-                    omega_cmd = (cur_v / wheelbase_m) * math.tan(steer_rad)
-                else:
-                    omega_cmd = math.radians(cur_steer_deg) * 1.5
-
-                motion.send_cmd_vel(cur_v, omega_cmd, timeout_ms=300)
+                # Doğrudan Gazebo / Aktüatör sürüşü (Ön tekerlek servoları + tahrik)
+                throttle_norm = cur_v / max_v if max_v > 0 else 0.0
+                steer_norm = cur_steer_deg / max_steer if max_steer > 0 else 0.0
+                motion.drive(throttle=throttle_norm, steering=steer_norm, timeout_ms=300)
+                omega_cmd = (cur_v / 0.34) * math.tan(math.radians(cur_steer_deg)) if abs(cur_v) > 0.05 else 0.0
 
                 # Canlı HUD
                 steer_icon = "◄◄" if cur_steer_deg < -15 else ("◄" if cur_steer_deg < -3 else ("►►" if cur_steer_deg > 15 else ("►" if cur_steer_deg > 3 else "▲▲")))

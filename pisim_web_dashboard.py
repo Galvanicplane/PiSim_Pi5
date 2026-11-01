@@ -578,29 +578,43 @@ class PiSimRequestHandler(http.server.SimpleHTTPRequestHandler):
             self.wfile.write(json.dumps({"status": "OK", "command": cmd, "target": target_code}).encode('utf-8'))
             return
 
-        # 5b. Doğrudan Sürü / Araç Hız Sürüş REST API (cmd_vel: linear_x, angular_z)
+        # 5b. Doğrudan Sürü / Araç Hız Sürüş REST API (Gazebo Aktüatör & cmd_vel)
         if clean_path == '/api/drive':
             qs = parse_qs(parsed_url.query)
             linear_x = float(qs.get('linear_x', [0.0])[0])
             angular_z = float(qs.get('angular_z', [0.0])[0])
+            throttle = float(qs.get('throttle', [linear_x / 2.5])[0]) if 'throttle' in qs else float(linear_x / 2.5)
+            steering = float(qs.get('steering', [angular_z * 0.45])[0]) if 'steering' in qs else float(angular_z * 0.45)
             target_code = qs.get('target', [selected_vehicle_code or 'all'])[0].strip()
             target_host = discovered_ue5_ip or "127.0.0.1"
 
             sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
             try:
-                drive_payload = json.dumps({
-                    "cmd": "cmd_vel",
+                try:
+                    from vehicle_hardware import VehicleHardware
+                    hw = VehicleHardware(vehicle_code=target_code)
+                    motors = hw.compute_actuators(throttle, steering)
+                except Exception:
+                    motors = {}
+
+                payload_data = {
+                    "cmd": "actuators" if motors else "cmd_vel",
                     "target": target_code,
                     "linear_x": linear_x,
                     "angular_z": angular_z,
+                    "throttle": throttle,
+                    "steering": steering,
+                    "motors": motors,
                     "timeout_ms": 600,
                     "timestamp": time.time()
-                }).encode('utf-8')
+                }
+                drive_payload = (json.dumps(payload_data) + "\n").encode('utf-8')
                 sock.sendto(drive_payload, ("255.255.255.255", SWARM_COMMAND_PORT))
                 sock.sendto(drive_payload, (target_host, SWARM_COMMAND_PORT))
+                sock.sendto(drive_payload, ("127.0.0.1", SWARM_COMMAND_PORT))
             except Exception as e:
-                print(f"⚠️ [DRIVE TX Hatası]: {e}")
+                print(f"[DRIVE TX Hatasi]: {e}")
             finally:
                 sock.close()
 

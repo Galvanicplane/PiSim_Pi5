@@ -29,6 +29,11 @@ import time
 import urllib.request
 from typing import Callable, Dict, Optional, Tuple
 
+try:
+    from vehicle_hardware import VehicleHardware
+except ImportError:
+    from PiSim_Pi5.vehicle_hardware import VehicleHardware
+
 
 EARTH_RADIUS_M = 6378137.0
 
@@ -100,6 +105,21 @@ class PiSimMotionController:
 
         self.fallback_rx_sock: Optional[socket.socket] = None
         self._abort_requested = False
+
+        # Donanım ve İskelet Soyutlama Katmanı (HAL)
+        try:
+            self.hardware = VehicleHardware(
+                vehicle_code=self.target_vehicle,
+                drive_mode="ACKERMANN",
+                wheelbase_m=0.34,
+                track_width_m=0.32,
+                wheel_radius_m=0.18,
+                max_steer_deg=35.0,
+            )
+        except Exception:
+            self.hardware = None
+        self.wheelbase_m = 0.34
+        self.max_speed_mps = 3.0
 
     def request_abort(self):
         """Aktif otonom görevi iptal eder ve aracı durdurur."""
@@ -239,11 +259,62 @@ class PiSimMotionController:
             if repeat > 1:
                 time.sleep(0.02)
 
+    def drive(
+        self,
+        throttle: float,
+        steering: float,
+        turn_radius_m: Optional[float] = None,
+        timeout_ms: int = 500,
+    ):
+        """
+        Üst seviye aktüatör sürüş komutu (Gazebo Modu):
+        - throttle: İleri/Geri sürüş gücü [-1.0 .. +1.0]
+        - steering: Direksiyon açısı [-1.0 .. +1.0] (-1.0: Tam Sol, +1.0: Tam Sağ)
+        - Ön tekerlekleri tutan servoları (M_Steer_FL, M_Steer_FR) fiziksel olarak açılı çevirir.
+        - Tekerleklere ileri devir verir, asla diferansiyel zıt dönüş yapmaz.
+        """
+        payload = {
+            "cmd": "drive",
+            "target": self.target_vehicle if self.target_vehicle not in ("selected", "active", "") else "all",
+            "throttle": round(float(throttle), 4),
+            "steering": round(float(steering), 4),
+            "timeout_ms": int(timeout_ms),
+            "ts": time.time(),
+        }
+
+        if self.hardware:
+            motors = self.hardware.compute_actuators(throttle, steering, turn_radius_m=turn_radius_m)
+            payload["cmd"] = "actuators"
+            payload["motors"] = motors
+
+        self._send_payload(payload)
+
+    def turn_radius(
+        self,
+        speed: float,
+        radius_m: float,
+        direction: str = "right",
+        timeout_ms: int = 500,
+    ):
+        """Belirtilen yarıçapta pürüzsüz Ackermann viraj dönüşü uygular."""
+        if self.hardware:
+            motors = self.hardware.turn_with_radius(speed, radius_m, direction)
+            payload = {
+                "cmd": "actuators",
+                "target": self.target_vehicle if self.target_vehicle not in ("selected", "active", "") else "all",
+                "motors": motors,
+                "timeout_ms": int(timeout_ms),
+                "ts": time.time(),
+            }
+            self._send_payload(payload)
+        else:
+            steer = 1.0 if direction in ("right", "sag") else -1.0
+            self.drive(throttle=speed, steering=steer, turn_radius_m=radius_m, timeout_ms=timeout_ms)
+
     def send_cmd_vel(self, linear_x: float, angular_z: float, timeout_ms: int = 500):
         """
         Araca ileri hız (linear_x m/s) ve dönüş hızı (angular_z rad/s) komutunu gönderir.
-        DİKKAT: Kare dönüşü önlemek için araç hareket halindeyken açısal hız her zaman
-        minimum dönüş yarıçapına (min_turn_radius_m) göre sınırlandırılır!
+        ROS 2 standart Twist formatına ek olarak doğrudan aktüatör (Gazebo) haritasını da üretir!
         """
         payload = {
             "cmd": "cmd_vel",
@@ -255,6 +326,23 @@ class PiSimMotionController:
             "timeout_ms": int(timeout_ms),
             "ts": time.time(),
         }
+
+        # Donanım katmanı ile direksiyon servosu açısını ve tekerlek devirlerini hesapla
+        if self.hardware:
+            throttle = max(-1.0, min(1.0, linear_x / self.max_speed_mps)) if self.max_speed_mps > 0 else 0.0
+            if abs(linear_x) > 0.05:
+                steer_rad = math.atan(self.wheelbase_m * angular_z / abs(linear_x))
+                steer_deg = math.degrees(steer_rad)
+                steering = max(-1.0, min(1.0, steer_deg / self.hardware.max_steer_deg))
+            else:
+                steering = max(-1.0, min(1.0, angular_z * 0.45))
+
+            motors = self.hardware.compute_actuators(throttle, steering)
+            payload["cmd"] = "actuators"
+            payload["motors"] = motors
+            payload["throttle"] = round(throttle, 4)
+            payload["steering"] = round(steering, 4)
+
         self._send_payload(payload)
 
     def stop(self):
@@ -266,6 +354,9 @@ class PiSimMotionController:
             "angular_z": 0.0,
             "ts": time.time(),
         }
+        if self.hardware:
+            motors = self.hardware.compute_actuators(0.0, 0.0)
+            payload["motors"] = motors
         self._send_payload(payload, repeat=3)
 
     def send_motor_test(self, target_identifier, val: float, timeout_sec: float = 2.0):
