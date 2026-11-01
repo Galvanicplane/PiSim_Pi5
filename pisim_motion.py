@@ -757,6 +757,9 @@ class PiSimMotionController:
             # L1 Lookahead mesafesi (Geniş kavis yarıçapı)
             l1_lookahead_m = max(r_min * 1.8, min(rem_dist_m, r_min * 3.0))
 
+            # Dönüş yarıçapına bağlı maksimum açısal hız limiti (Her iki dalda da tanımlı)
+            max_omega_for_radius = max(0.01, cmd_v / max(0.5, r_min))
+
             # [U-DÖNÜŞÜ (U-TURN) VE GENİŞ KAVİS YÖNETİMİ]
             is_uturn = abs(eta_deg) > 50.0
             if is_uturn:
@@ -764,6 +767,7 @@ class PiSimMotionController:
                 u_turn_radius = max(1.2, min(2.5, r_min * 0.5))
                 turn_sign = 1.0 if eta_deg > 0 else -1.0
                 cmd_v = min(1.5, max(0.9, cruise_speed * 0.65))
+                max_omega_for_radius = max(0.01, cmd_v / u_turn_radius)
                 desired_omega = turn_sign * (cmd_v / u_turn_radius)
                 cmd_omega = desired_omega
                 prev_cmd_omega = cmd_omega
