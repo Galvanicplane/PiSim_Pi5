@@ -666,34 +666,36 @@ class PiSimMotionController:
             # L1 Lookahead mesafesi (Geniş kavis yarıçapı)
             l1_lookahead_m = max(r_min * 1.8, min(rem_dist_m, r_min * 3.0))
 
-            if abs(eta_deg) > 85.0:
-                desired_omega = math.copysign(cmd_v / r_min, eta_rad)
+            # [U-DÖNÜŞÜ (U-TURN) VE GENİŞ KAVİS YÖNETİMİ]
+            is_uturn = abs(eta_deg) > 50.0
+            if is_uturn:
+                # Hedef arkada veya keskin yanda: Araç tam kilit açı ile seri ve pürüzsüz U dönüşü yapar
+                u_turn_radius = max(1.2, min(2.5, r_min * 0.5))
+                turn_sign = 1.0 if eta_deg > 0 else -1.0
+                cmd_v = min(1.5, max(0.9, cruise_speed * 0.65))
+                desired_omega = turn_sign * (cmd_v / u_turn_radius)
+                cmd_omega = desired_omega
+                prev_cmd_omega = cmd_omega
             else:
-                # ArduPilot L1 formülü: ω = (2 * V / L1) * sin(η)
+                # Standart ArduPilot L1 formülü: ω = (2 * V / L1) * sin(η)
                 desired_omega = (2.0 * cmd_v / l1_lookahead_m) * math.sin(effective_eta_rad)
 
-            # [YUMUŞATMA 2: DERIVATIVE DAMPING - TÜREV SÖNÜMLEMESİ]
-            # Araç hedefin doğrultusuna zaten dönüyorsa, hedefin ötesine savrulup ters yöne yalpalamasını (overshoot/weaving) önle
-            kd_damping = 0.22
-            damped_omega = desired_omega - (kd_damping * yaw_rate_rad_s)
+                # [YUMUŞATMA 2: DERIVATIVE DAMPING - TÜREV SÖNÜMLEMESİ]
+                kd_damping = 0.22
+                damped_omega = desired_omega - (kd_damping * yaw_rate_rad_s)
 
-            # [YUMUŞATMA 3: NEAR-WAYPOINT DAMPING - HEDEF NOKTASI TEKİLLİK SÖNÜMÜ]
-            # Hedefe çok yakınken kerteriz açısı aşırı hassaslaşır; direksiyon katsayısını yumuşat
-            if rem_dist_m < (r_min * 1.2):
-                near_scale = max(0.30, rem_dist_m / (r_min * 1.2))
-                damped_omega *= near_scale
+                if rem_dist_m < (r_min * 1.2):
+                    near_scale = max(0.30, rem_dist_m / (r_min * 1.2))
+                    damped_omega *= near_scale
 
-            # Turn-Radius Kısıtı: Açısal hız ASLA (V / R_min) değerini aşamaz!
-            max_omega_for_radius = max(0.01, cmd_v / r_min)
-            raw_omega = max(-max_omega_for_radius, min(max_omega_for_radius, damped_omega))
+                max_omega_for_radius = max(0.01, cmd_v / r_min)
+                raw_omega = max(-max_omega_for_radius, min(max_omega_for_radius, damped_omega))
 
-            # [YUMUŞATMA 4: EMA ALÇAK GEÇİREN FİLTRE & SLEW RATE LIMITER]
-            # Ani direksiyon kırılmalarını ve titremeleri engelleyen üstel hareketli ortalama filtresi
-            alpha_filter = 0.35
-            filtered_omega = alpha_filter * raw_omega + (1.0 - alpha_filter) * prev_cmd_omega
-            max_domega = 1.0 * dt
-            cmd_omega = prev_cmd_omega + max(-max_domega, min(max_domega, filtered_omega - prev_cmd_omega))
-            prev_cmd_omega = cmd_omega
+                alpha_filter = 0.35
+                filtered_omega = alpha_filter * raw_omega + (1.0 - alpha_filter) * prev_cmd_omega
+                max_domega = 1.8 * dt
+                cmd_omega = prev_cmd_omega + max(-max_domega, min(max_domega, filtered_omega - prev_cmd_omega))
+                prev_cmd_omega = cmd_omega
 
             self.send_cmd_vel(cmd_v, cmd_omega, timeout_ms=450)
 
@@ -718,6 +720,7 @@ class PiSimMotionController:
                     "eta_deg": eta_deg,
                     "cmd_omega": cmd_omega,
                     "steer_ratio": steer_ratio,
+                    "is_uturn": is_uturn,
                     "progress_pct": progress_pct,
                 }
                 status_callback(status_payload)

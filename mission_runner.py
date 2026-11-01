@@ -72,8 +72,9 @@ def make_live_hud():
 
 def create_sample_mission(start_lat: float = 39.9334, start_lon: float = 32.8597, vehicle_code: str = "RV01") -> dict:
     """Örnek 4 adımlı sürü görev planı üretir (Mevcut konumdan bağıl)."""
-    wp1_lat, wp1_lon = offset_gps_by_meters(start_lat, start_lon, 20.0, 10.0)
-    wp2_lat, wp2_lon = offset_gps_by_meters(start_lat, start_lon, 40.0, 25.0)
+    # Uzak mesafeli taktik hedefler (U-dönüşü ve uzun seyir imkanı)
+    wp1_lat, wp1_lon = offset_gps_by_meters(start_lat, start_lon, 75.0, 45.0)
+    wp2_lat, wp2_lon = offset_gps_by_meters(start_lat, start_lon, 140.0, -30.0)
 
     return {
         "mission_id": f"SURU_PLAN_{int(time.time()) % 10000}",

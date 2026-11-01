@@ -110,6 +110,7 @@
                 // PISIM STUDIO (GCS)
             </span>
             <span class="vscode-menu-item" onclick="triggerProbeFromDashboard()">[📡 CİHAZ KEŞFİ YAP]</span>
+            <span class="vscode-menu-item" style="color: #ffaa00; font-weight: 800;" onclick="toggleTeleopModal()">[🎮 MANUEL SÜRÜŞ (WASD)]</span>
             <span class="vscode-menu-item" style="color: #00dfb6; font-weight: 800;" onclick="openSqlModal()">[🛢️ SQL TABLOSU]</span>
             <a href="/sql.html" target="_blank" class="vscode-menu-item" style="color: #00e5ff; font-weight: 800; text-decoration: none;">[🛢️ CANLI SQL SAYFASI ↗]</a>
             <span class="vscode-menu-item" onclick="openModal('ayarlar')">Ayarlar</span>
@@ -194,6 +195,7 @@
                     </div>
                     <div style="display: flex; gap: 5px; pointer-events: auto;">
                         <button id="btn-map-layer" class="cod-btn" style="padding: 4px 10px; font-size: 10px; font-weight: 800; border-color: #00dfb6; color: #00dfb6; background: rgba(0, 223, 182, 0.18);" onclick="cycleMapLayer()">🛰️ UYDU: GOOGLE (CANLI)</button>
+                        <button id="btn-toggle-teleop" class="cod-btn" style="padding: 4px 10px; font-size: 10px; font-weight: 800; border-color: #ffaa00; color: #ffaa00; background: rgba(255, 170, 0, 0.15);" onclick="toggleTeleopModal()">🎮 MANUEL (WASD)</button>
                         <button id="btn-toggle-follow" class="cod-btn" style="padding: 4px 10px; font-size: 10px; font-weight: 800; border-color: var(--accent-color); color: var(--accent-color); background: rgba(0, 223, 182, 0.18);" onclick="toggleFollowVehicle()">🎯 TAKİP: AÇIK</button>
                         <button class="cod-btn" style="padding: 4px 10px; font-size: 10px;" onclick="zoomMapIn()">[+]</button>
                         <button class="cod-btn" style="padding: 4px 10px; font-size: 10px;" onclick="zoomMapOut()">[-]</button>
@@ -1596,5 +1598,165 @@
             </div>
         </div>
     </div>
+
+    <!-- ==================== MANUEL SÜRÜŞ (WASD TELEOP) MODALI ==================== -->
+    <div id="modal-teleop" style="display:none; position:fixed; top:0; left:0; width:100vw; height:100vh; background:rgba(0,0,0,0.80); backdrop-filter:blur(5px); z-index:9999; justify-content:center; align-items:center;" onclick="if(event.target===this) toggleTeleopModal();">
+        <div style="background:#0a0e14; border:1px solid #ffaa00; box-shadow:0 0 35px rgba(255,170,0,0.30); width:420px; max-width:92vw; padding:18px; border-radius:6px; font-family:var(--font-mono); color:#ffffff; clip-path:polygon(0 0, calc(100% - 10px) 0, 100% 10px, 100% 100%, 10px 100%, 0 calc(100% - 10px));">
+            <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid rgba(255,170,0,0.3); padding-bottom:10px; margin-bottom:14px;">
+                <div style="font-weight:900; font-size:13px; color:#ffaa00; letter-spacing:1px; display:flex; align-items:center; gap:8px;">
+                    🎮 PI 5 MANUEL SÜRÜŞ (WASD)
+                </div>
+                <button class="cod-btn" onclick="toggleTeleopModal()" style="padding:2px 8px; font-size:10px; border-color:#ffaa00; color:#ffaa00;">✕ KAPAT</button>
+            </div>
+
+            <div style="display:flex; justify-content:space-between; align-items:center; background:rgba(255,170,0,0.08); padding:8px 12px; border:1px solid rgba(255,170,0,0.2); border-radius:4px; margin-bottom:14px; font-size:11px;">
+                <div>HEDEF: <b id="teleop-target-label" style="color:#00dfb6;">RV01</b></div>
+                <div id="teleop-status-badge" style="color:#00e5ff; font-weight:800;">HAZIR</div>
+            </div>
+
+            <!-- Canlı Göstergeler -->
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:16px;">
+                <div style="background:#06080b; border:1px solid var(--mono-border); padding:8px; border-radius:4px; text-align:center;">
+                    <div style="font-size:9.5px; color:var(--text-muted);">İLERİ HIZ</div>
+                    <div id="teleop-v-val" style="font-size:18px; font-weight:900; color:#00dfb6;">+0.0 m/s</div>
+                </div>
+                <div style="background:#06080b; border:1px solid var(--mono-border); padding:8px; border-radius:4px; text-align:center;">
+                    <div style="font-size:9.5px; color:var(--text-muted);">DİREKSİYON</div>
+                    <div id="teleop-w-val" style="font-size:18px; font-weight:900; color:#00e5ff;">0.0°</div>
+                </div>
+            </div>
+
+            <!-- Dokunmatik & Tıklanabilir D-PAD -->
+            <div style="display:flex; flex-direction:column; align-items:center; gap:6px; margin-bottom:16px;">
+                <button id="tbtn-w" class="cod-btn" style="width:110px; height:42px; font-size:12px; font-weight:900; border-color:#00dfb6; color:#00dfb6;" onmousedown="teleopSendKey('w')" onmouseup="teleopReleaseKey('w')">▲ İLERİ (W)</button>
+                <div style="display:flex; gap:8px;">
+                    <button id="tbtn-a" class="cod-btn" style="width:95px; height:42px; font-size:12px; font-weight:900; border-color:#00e5ff; color:#00e5ff;" onmousedown="teleopSendKey('a')" onmouseup="teleopReleaseKey('a')">◄ SOL (A)</button>
+                    <button id="tbtn-space" class="cod-btn" style="width:95px; height:42px; font-size:11px; font-weight:900; border-color:#ff4444; color:#ff4444;" onclick="teleopStop()">■ FREN</button>
+                    <button id="tbtn-d" class="cod-btn" style="width:95px; height:42px; font-size:12px; font-weight:900; border-color:#00e5ff; color:#00e5ff;" onmousedown="teleopSendKey('d')" onmouseup="teleopReleaseKey('d')">► SAĞ (D)</button>
+                </div>
+                <button id="tbtn-s" class="cod-btn" style="width:110px; height:42px; font-size:12px; font-weight:900; border-color:#00dfb6; color:#00dfb6;" onmousedown="teleopSendKey('s')" onmouseup="teleopReleaseKey('s')">▼ GERİ (S)</button>
+            </div>
+
+            <!-- Bilgilendirme -->
+            <div style="font-size:9px; color:var(--text-muted); text-align:center; border-top:1px solid var(--mono-border); padding-top:8px;">
+                💡 Klavye ile sürmek için pencere açıkken doğrudan <b>W / A / S / D</b> tuşlarına basın. Durmak için <b>SPACE</b>.
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let isTeleopOpen = false;
+        let teleopLinear = 0.0;
+        let teleopAngular = 0.0;
+        let teleopTxInterval = null;
+        const activeTeleopKeys = {};
+
+        function toggleTeleopModal() {
+            const m = document.getElementById('modal-teleop');
+            if (!m) return;
+            isTeleopOpen = (m.style.display !== 'flex');
+            m.style.display = isTeleopOpen ? 'flex' : 'none';
+
+            const tgtEl = document.getElementById('teleop-target-label');
+            if (tgtEl) tgtEl.innerText = window.userSelectedVehicleCode || (window.latestTelemetryData && window.latestTelemetryData.vehicle_code) || 'RV01';
+
+            if (isTeleopOpen) {
+                if (!teleopTxInterval) {
+                    teleopTxInterval = setInterval(teleopSendPeriodic, 80);
+                }
+            } else {
+                teleopStop();
+                if (teleopTxInterval) {
+                    clearInterval(teleopTxInterval);
+                    teleopTxInterval = null;
+                }
+            }
+        }
+
+        function teleopSendKey(k) {
+            activeTeleopKeys[k] = true;
+            updateTeleopControls();
+        }
+
+        function teleopReleaseKey(k) {
+            activeTeleopKeys[k] = false;
+            updateTeleopControls();
+        }
+
+        function teleopStop() {
+            teleopLinear = 0.0;
+            teleopAngular = 0.0;
+            for (let k in activeTeleopKeys) activeTeleopKeys[k] = false;
+            updateTeleopDisplay();
+            teleopSendToBackend(0.0, 0.0);
+        }
+
+        function updateTeleopControls() {
+            let v = 0.0;
+            let w = 0.0;
+            if (activeTeleopKeys['w']) v += 2.0;
+            if (activeTeleopKeys['s']) v -= 1.4;
+            if (activeTeleopKeys['a']) w -= 1.2;
+            if (activeTeleopKeys['d']) w += 1.2;
+
+            teleopLinear = v;
+            teleopAngular = w;
+            updateTeleopDisplay();
+        }
+
+        function updateTeleopDisplay() {
+            const vEl = document.getElementById('teleop-v-val');
+            const wEl = document.getElementById('teleop-w-val');
+            if (vEl) vEl.innerText = (teleopLinear >= 0 ? '+' : '') + teleopLinear.toFixed(1) + ' m/s';
+            if (wEl) {
+                const deg = teleopAngular * 28.0;
+                wEl.innerText = (deg >= 0 ? '+' : '') + deg.toFixed(0) + '° (' + (teleopAngular >= 0 ? '+' : '') + teleopAngular.toFixed(2) + ')';
+            }
+        }
+
+        function teleopSendPeriodic() {
+            if (!isTeleopOpen) return;
+            if (Math.abs(teleopLinear) > 0.01 || Math.abs(teleopAngular) > 0.01) {
+                teleopSendToBackend(teleopLinear, teleopAngular);
+            }
+        }
+
+        function teleopSendToBackend(v, w) {
+            const tgt = window.userSelectedVehicleCode || (window.latestTelemetryData && window.latestTelemetryData.vehicle_code) || 'RV01';
+            fetch(`/api/drive?linear_x=${v}&angular_z=${w}&target=${tgt}`).catch(() => {});
+        }
+
+        // Global klavye yakalama (Modal açıkken)
+        window.addEventListener('keydown', (e) => {
+            if (!isTeleopOpen) return;
+            const k = e.key.toLowerCase();
+            if (['w', 'a', 's', 'd', ' '].includes(k)) {
+                e.preventDefault();
+                if (k === ' ') {
+                    teleopStop();
+                } else {
+                    activeTeleopKeys[k] = true;
+                    updateTeleopControls();
+                    const btn = document.getElementById('tbtn-' + k);
+                    if (btn) btn.style.background = 'rgba(255,170,0,0.3)';
+                }
+            } else if (e.key === 'Escape') {
+                toggleTeleopModal();
+            }
+        });
+
+        window.addEventListener('keyup', (e) => {
+            if (!isTeleopOpen) return;
+            const k = e.key.toLowerCase();
+            if (['w', 'a', 's', 'd'].includes(k)) {
+                e.preventDefault();
+                activeTeleopKeys[k] = false;
+                updateTeleopControls();
+                const btn = document.getElementById('tbtn-' + k);
+                if (btn) btn.style.background = '';
+            }
+        });
+    </script>
+
 </body>
 </html>
