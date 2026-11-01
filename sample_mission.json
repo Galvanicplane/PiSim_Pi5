@@ -1,0 +1,38 @@
+{
+  "mission_id": "SURU_INTIKAL_01",
+  "vehicle_code": "RV01",
+  "title": "Sürü Devriye & Buluşma Metro Hattı",
+  "steps": [
+    {
+      "action": "goto",
+      "title": "Durak 1: Kavşak Alpha İntikali",
+      "lat": 39.93385,
+      "lon": 32.86042,
+      "speed": 1.8,
+      "turn_radius": 5.0,
+      "wp_radius": 1.5
+    },
+    {
+      "action": "wait_vehicle",
+      "title": "Durak 2: RV02 Buluşma & Onay Noktası",
+      "target_vehicle": "RV02",
+      "condition": "at_step",
+      "step": 1,
+      "timeout_sec": 45.0
+    },
+    {
+      "action": "wait_time",
+      "title": "Durak 3: 5 Saniye Alan Güvenlik Taraması",
+      "duration_sec": 5.0
+    },
+    {
+      "action": "goto",
+      "title": "Durak 4: Tepe Noktası Bravo",
+      "lat": 39.93450,
+      "lon": 32.86120,
+      "speed": 2.0,
+      "turn_radius": 6.0,
+      "wp_radius": 1.5
+    }
+  ]
+}

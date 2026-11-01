@@ -158,6 +158,52 @@ def init_db(clean_start: bool = True):
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_telemetry_time ON vehicle_telemetry(timestamp_sec)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_telemetry_code ON vehicle_telemetry(vehicle_code)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_telemetry_vehicle ON vehicle_telemetry(vehicle_id)")
+
+    # ==================== SÜRÜ VE GÖREV YÖNETİMİ TABLOLARI (EVENT-DRIVEN) ====================
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS missions (
+            mission_id TEXT PRIMARY KEY,
+            vehicle_code TEXT NOT NULL,
+            title TEXT,
+            status TEXT DEFAULT 'PENDING',
+            total_steps INTEGER DEFAULT 0,
+            active_step INTEGER DEFAULT 0,
+            created_at TEXT DEFAULT (datetime('now', 'localtime')),
+            updated_at TEXT DEFAULT (datetime('now', 'localtime'))
+        )
+    """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS mission_steps (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            mission_id TEXT NOT NULL,
+            step_index INTEGER NOT NULL,
+            action_type TEXT NOT NULL,
+            title TEXT,
+            target_lat REAL,
+            target_lon REAL,
+            speed_mps REAL,
+            turn_radius_m REAL,
+            wait_target TEXT,
+            wait_condition TEXT,
+            state TEXT DEFAULT 'UPCOMING',
+            executed_at TEXT,
+            FOREIGN KEY(mission_id) REFERENCES missions(mission_id)
+        )
+    """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS swarm_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp_sec REAL NOT NULL,
+            vehicle_code TEXT NOT NULL,
+            event_type TEXT NOT NULL,
+            details TEXT,
+            created_at TEXT DEFAULT (datetime('now', 'localtime'))
+        )
+    """)
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_mission_veh ON missions(vehicle_code)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_steps_m_idx ON mission_steps(mission_id, step_index)")
     conn.commit()
     conn.close()
 
@@ -436,3 +482,166 @@ def add_network_rows(rows: list) -> int:
 
 # Modül yüklendiğinde veritabanını temiz başlat
 init_db(clean_start=True)
+
+
+# =========================================================================
+# SÜRÜ GÖREV VE METRO HATTI VERİTABANI YÖNETİMİ (EVENT-DRIVEN)
+# =========================================================================
+
+def save_mission_plan(mission_data: dict) -> bool:
+    """
+    Yeni bir görev planını atomik olarak missions ve mission_steps tablolarına kaydeder.
+    Sadece görev tanımlandığında veya güncellendiğinde çağrılır (Ağ/disk dostu).
+    """
+    if not isinstance(mission_data, dict):
+        return False
+    m_id = str(mission_data.get("mission_id", f"MIS_{int(time.time())}"))
+    v_code = str(mission_data.get("vehicle_code", "RV01"))
+    title = str(mission_data.get("title", mission_data.get("name", m_id)))
+    steps = mission_data.get("steps", [])
+
+    try:
+        conn = sqlite3.connect(str(DB_FILE), timeout=5.0)
+        cursor = conn.cursor()
+
+        # Eski varsa güncelle veya yeni aç
+        cursor.execute("""
+            INSERT OR REPLACE INTO missions (mission_id, vehicle_code, title, status, total_steps, active_step, updated_at)
+            VALUES (?, ?, ?, 'RUNNING', ?, 0, datetime('now', 'localtime'))
+        """, (m_id, v_code, title, len(steps)))
+
+        # Bu görevin eski duraklarını temizle ve yenilerini ekle
+        cursor.execute("DELETE FROM mission_steps WHERE mission_id = ?", (m_id,))
+        for idx, st in enumerate(steps):
+            act = str(st.get("action", st.get("action_type", "goto"))).upper()
+            st_title = str(st.get("title", f"Durak {idx+1}: {act}"))
+            lat = float(st["lat"]) if "lat" in st else None
+            lon = float(st["lon"]) if "lon" in st else None
+            spd = float(st["speed"]) if "speed" in st else None
+            tr = float(st["turn_radius"]) if "turn_radius" in st else None
+            wt = str(st["target_vehicle"]) if "target_vehicle" in st else None
+            wc = str(st["condition"]) if "condition" in st else None
+
+            cursor.execute("""
+                INSERT INTO mission_steps 
+                (mission_id, step_index, action_type, title, target_lat, target_lon, speed_mps, turn_radius_m, wait_target, wait_condition, state)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (m_id, idx, act, st_title, lat, lon, spd, tr, wt, wc, 'ACTIVE' if idx == 0 else 'UPCOMING'))
+
+        conn.commit()
+        conn.close()
+        print(f"📋 [telemetry_db] Yeni Görev Planı Veritabanına Kaydedildi: {m_id} ({len(steps)} durak)")
+        return True
+    except Exception as e:
+        print(f"⚠️ [telemetry_db] save_mission_plan hatası: {e}")
+        return False
+
+
+def update_mission_step_state(mission_id: str, step_index: int, state: str, vehicle_code: str = None) -> bool:
+    """Bir görevin belirli bir adımının durumunu günceller ('PASSED', 'ACTIVE', 'UPCOMING', 'FAILED')."""
+    try:
+        conn = sqlite3.connect(str(DB_FILE), timeout=5.0)
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            UPDATE mission_steps 
+            SET state = ?, executed_at = datetime('now', 'localtime')
+            WHERE mission_id = ? AND step_index = ?
+        """, (state, mission_id, step_index))
+
+        if state == "ACTIVE":
+            cursor.execute("""
+                UPDATE missions 
+                SET active_step = ?, status = 'RUNNING', updated_at = datetime('now', 'localtime')
+                WHERE mission_id = ?
+            """, (step_index, mission_id))
+        elif state == "COMPLETED" or state == "ABORTED":
+            cursor.execute("""
+                UPDATE missions 
+                SET status = ?, updated_at = datetime('now', 'localtime')
+                WHERE mission_id = ?
+            """, (state, mission_id))
+
+        conn.commit()
+        conn.close()
+        return True
+    except Exception as e:
+        print(f"⚠️ [telemetry_db] update_mission_step_state hatası: {e}")
+        return False
+
+
+def get_active_mission(vehicle_code: str = None) -> dict:
+    """Aktif veya en son görevi ve tüm durak listesini döner (Metro durağı bileşeni için)."""
+    try:
+        conn = sqlite3.connect(str(DB_FILE), timeout=3.0)
+        cursor = conn.cursor()
+
+        if vehicle_code:
+            cursor.execute("""
+                SELECT mission_id, vehicle_code, title, status, total_steps, active_step, created_at, updated_at
+                FROM missions WHERE vehicle_code = ? ORDER BY updated_at DESC LIMIT 1
+            """, (vehicle_code,))
+        else:
+            cursor.execute("""
+                SELECT mission_id, vehicle_code, title, status, total_steps, active_step, created_at, updated_at
+                FROM missions ORDER BY updated_at DESC LIMIT 1
+            """)
+
+        row = cursor.fetchone()
+        if not row:
+            conn.close()
+            return None
+
+        m_id = row[0]
+        mission = {
+            "mission_id": m_id,
+            "vehicle_code": row[1],
+            "title": row[2],
+            "status": row[3],
+            "total_steps": row[4],
+            "active_step": row[5],
+            "created_at": row[6],
+            "updated_at": row[7],
+            "steps": []
+        }
+
+        cursor.execute("""
+            SELECT step_index, action_type, title, target_lat, target_lon, speed_mps, turn_radius_m, wait_target, wait_condition, state, executed_at
+            FROM mission_steps WHERE mission_id = ? ORDER BY step_index ASC
+        """, (m_id,))
+
+        for r in cursor.fetchall():
+            mission["steps"].append({
+                "step_index": r[0],
+                "action": r[1],
+                "title": r[2],
+                "lat": r[3],
+                "lon": r[4],
+                "speed": r[5],
+                "turn_radius": r[6],
+                "wait_target": r[7],
+                "wait_condition": r[8],
+                "state": r[9],
+                "executed_at": r[10]
+            })
+
+        conn.close()
+        return mission
+    except Exception as e:
+        print(f"⚠️ [telemetry_db] get_active_mission hatası: {e}")
+        return None
+
+
+def record_swarm_event(vehicle_code: str, event_type: str, details: str = ""):
+    """Sürü senkronizasyon olaylarını kaydeder."""
+    try:
+        conn = sqlite3.connect(str(DB_FILE), timeout=3.0)
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO swarm_events (timestamp_sec, vehicle_code, event_type, details)
+            VALUES (?, ?, ?, ?)
+        """, (time.time(), vehicle_code, event_type, details))
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass

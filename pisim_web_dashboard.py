@@ -264,6 +264,19 @@ class PiSimRequestHandler(http.server.SimpleHTTPRequestHandler):
             self.wfile.write(payload)
             return
 
+        # 2c. Görev ve Metro Hattı REST API uç noktası
+        if clean_path == '/api/mission':
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.send_header('Cache-Control', 'no-cache, no-store, must-revalidate')
+            self.end_headers()
+            v_code = selected_vehicle_code if selected_vehicle_code else None
+            m = telemetry_db.get_active_mission(v_code)
+            res = {"status": "OK", "mission": m}
+            self.wfile.write(json.dumps(res).encode('utf-8'))
+            return
+
         # 2b. Canlı SQL Telemetri Tablosu REST API uç noktası
         if clean_path == '/api/sql_table':
             self.send_response(200)
@@ -529,7 +542,20 @@ class PiSimRequestHandler(http.server.SimpleHTTPRequestHandler):
                     }).encode('utf-8')
                     sock.sendto(swarm_payload, ("255.255.255.255", SWARM_COMMAND_PORT))
                     sock.sendto(swarm_payload, (target_host, SWARM_COMMAND_PORT))
-                    add_system_log(f"🛑 [E-STOP TX] Sürü Durdurma: Araç '{target_code}' (Port {SWARM_COMMAND_PORT})")
+                    # Port 7405 Sürü Görev Portuna da acil iptal anonsu fırlat
+                    mission_abort_payload = json.dumps({
+                        "type": "mission_abort",
+                        "vehicle": target_code,
+                        "target_vehicle": target_code,
+                        "reason": "Dashboard E-Stop",
+                        "ts": time.time()
+                    }).encode('utf-8')
+                    try:
+                        sock.sendto(mission_abort_payload, ("255.255.255.255", 7405))
+                        sock.sendto(mission_abort_payload, ("127.0.0.1", 7405))
+                    except Exception:
+                        pass
+                    add_system_log(f"🛑 [E-STOP TX] Sürü & Görev Durdurma: Araç '{target_code}' (Port {SWARM_COMMAND_PORT} & 7405)")
                 else:
                     cmd_payload = json.dumps({
                         "command": cmd,
