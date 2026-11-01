@@ -852,6 +852,45 @@ def launch_in_app_mode(url: str):
         webbrowser.open(cache_bust_url)
 
 
+
+# =========================================================================
+# SÜRÜ GÖREV VE METRO HATTI DİNLEYİCİSİ (UDP Port 7405)
+# =========================================================================
+def swarm_mission_listener():
+    """Port 7405 üzerinden gelen görev planlarını ve adım ping'lerini yakalar ve SQL'e işler."""
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    try:
+        sock.bind(("0.0.0.0", 7405))
+        print(" [+] Sürü Görev RX : UDP Port 7405 (Canlı Görev & Metro Hattı)")
+    except Exception as e:
+        print(f"⚠️ [Dashboard] Port 7405 dinleme uyarısı: {e}")
+        return
+
+    while True:
+        try:
+            data, addr = sock.recvfrom(65535)
+            payload = json.loads(data.decode("utf-8", errors="ignore").strip())
+            pkt_type = payload.get("type", "")
+            if pkt_type == "mission_plan":
+                mission = payload.get("mission", {})
+                telemetry_db.save_mission_plan(mission)
+                add_system_log(f"📋 [GÖREV ALINDI] '{mission.get('title')}' -> Araç: {mission.get('vehicle_code')}")
+            elif pkt_type == "step_ping":
+                telemetry_db.update_mission_step_state(
+                    payload.get("mission_id", ""),
+                    int(payload.get("step", 0)),
+                    payload.get("state", "ACTIVE"),
+                    payload.get("vehicle", "")
+                )
+            elif pkt_type == "mission_abort":
+                m_id = payload.get("mission_id", "")
+                if m_id:
+                    telemetry_db.update_mission_step_state(m_id, 0, "ABORTED", payload.get("vehicle", ""))
+                add_system_log(f"🛑 [GÖREV İPTAL] {payload.get('vehicle', 'Araç')}: {payload.get('reason', '')}")
+        except Exception:
+            time.sleep(0.05)
+
 def main():
     local_ip = get_local_ip()
     print("=================================================================")
@@ -875,6 +914,10 @@ def main():
     add_system_log("🧹 [TEMİZ BAŞLANGIÇ] SQL tablosu sıfırlandı. Canlı UDP 7400 araç telemetrileri bekleniyor...")
 
     global discovery_service_ref
+    # 0b. Sürü Görev Dinleyicisini Başlat (UDP Port 7405)
+    t_swarm = threading.Thread(target=swarm_mission_listener, daemon=True, name="SwarmMissionListener")
+    t_swarm.start()
+
     # 1. Keşif Dinleyici Servisini Başlat (UDP Port 7499)
     discovery = PiSimDiscoveryService(port=DISCOVERY_PORT)
     discovery_service_ref = discovery

@@ -260,3 +260,4 @@ class SwarmContext:
             self.rx_sock.close()
         except Exception:
             pass
+

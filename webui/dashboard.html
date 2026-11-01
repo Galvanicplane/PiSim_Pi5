@@ -953,7 +953,72 @@
             } catch (err) {}
         }
 
+        let missionMapPolyline = null;
+        let missionMapMarkers = [];
+
+        function clearMissionFromMap() {
+            if (tacticalMap && typeof L !== 'undefined') {
+                if (missionMapPolyline) {
+                    try { tacticalMap.removeLayer(missionMapPolyline); } catch (e) {}
+                    missionMapPolyline = null;
+                }
+                missionMapMarkers.forEach(m => {
+                    try { tacticalMap.removeLayer(m); } catch (e) {}
+                });
+                missionMapMarkers = [];
+            }
+        }
+
+        function drawMissionOnMap(steps) {
+            if (!tacticalMap || typeof L === 'undefined') return;
+            clearMissionFromMap();
+            if (!steps || steps.length === 0) return;
+
+            const routePoints = [];
+            let wpIndex = 1;
+
+            steps.forEach((st) => {
+                if (st.lat && st.lon && (Math.abs(st.lat) > 0.001 || Math.abs(st.lon) > 0.001)) {
+                    const latlng = [Number(st.lat), Number(st.lon)];
+                    routePoints.push(latlng);
+
+                    const isPassed = (st.state === "PASSED");
+                    const isActive = (st.state === "ACTIVE");
+                    const color = isPassed ? "#00dfb6" : (isActive ? "#00e5ff" : "#ffaa00");
+                    const bgGlow = isActive ? "0 0 14px #00e5ff" : "0 0 6px rgba(0,0,0,0.85)";
+
+                    const customIcon = L.divIcon({
+                        className: 'tactical-mission-wp',
+                        html: `<div style="background:${color}; color:#000; font-weight:900; font-size:10px; font-family:var(--font-mono); width:24px; height:24px; border-radius:50%; display:flex; align-items:center; justify-content:center; border:2px solid #ffffff; box-shadow:${bgGlow}; transform:translate(-12px, -12px);">${wpIndex}</div>`,
+                        iconSize: [0, 0]
+                    });
+
+                    const marker = L.marker(latlng, { icon: customIcon }).addTo(tacticalMap);
+                    marker.bindPopup(`
+                        <div style="font-family:var(--font-mono); font-size:11px; color:#ffffff; background:#060b0f; padding:6px; border:1px solid ${color}; border-radius:4px;">
+                            <b style="color:${color};">📍 HEDEF ${wpIndex}: ${st.title}</b><br>
+                            <span style="color:#aaa;">Eylem:</span> <b>${st.action}</b><br>
+                            <span style="color:#aaa;">GPS:</span> ${Number(st.lat).toFixed(6)}, ${Number(st.lon).toFixed(6)}<br>
+                            <span style="color:#aaa;">Durum:</span> <b style="color:${color};">${st.state}</b>
+                        </div>
+                    `);
+                    missionMapMarkers.push(marker);
+                    wpIndex++;
+                }
+            });
+
+            if (routePoints.length > 1) {
+                missionMapPolyline = L.polyline(routePoints, {
+                    color: '#00e5ff',
+                    weight: 3,
+                    dashArray: '8, 8',
+                    opacity: 0.85
+                }).addTo(tacticalMap);
+            }
+        }
+
         function renderEmptyMetroLine() {
+            clearMissionFromMap();
             const container = document.getElementById('metro-stops-container');
             const titleEl = document.getElementById('metro-mission-title');
             const statusEl = document.getElementById('metro-mission-status');
@@ -1024,6 +1089,9 @@
             });
 
             container.innerHTML = html;
+
+            // Haritada rotayı ve numaralı hedefleri çiz
+            drawMissionOnMap(steps);
         }
 
         window.addEventListener('DOMContentLoaded', () => {

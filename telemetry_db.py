@@ -481,7 +481,7 @@ def add_network_rows(rows: list) -> int:
 
 
 # Modül yüklendiğinde veritabanını temiz başlat
-init_db(clean_start=True)
+init_db(clean_start=False)
 
 
 # =========================================================================
@@ -576,18 +576,25 @@ def get_active_mission(vehicle_code: str = None) -> dict:
         conn = sqlite3.connect(str(DB_FILE), timeout=3.0)
         cursor = conn.cursor()
 
+        row = None
         if vehicle_code:
+            norm_code = vehicle_code.split('-')[0].strip().upper()
             cursor.execute("""
                 SELECT mission_id, vehicle_code, title, status, total_steps, active_step, created_at, updated_at
-                FROM missions WHERE vehicle_code = ? ORDER BY updated_at DESC LIMIT 1
-            """, (vehicle_code,))
-        else:
+                FROM missions 
+                WHERE vehicle_code = ? OR vehicle_code = ? OR vehicle_code LIKE ? OR ? LIKE (vehicle_code || '%')
+                ORDER BY updated_at DESC LIMIT 1
+            """, (vehicle_code, norm_code, f"%{norm_code}%", vehicle_code))
+            row = cursor.fetchone()
+
+        if not row:
+            # Belirtilen araç bulunamadıysa bile son aktif görevi döner (Boşta kalmayı önler)
             cursor.execute("""
                 SELECT mission_id, vehicle_code, title, status, total_steps, active_step, created_at, updated_at
                 FROM missions ORDER BY updated_at DESC LIMIT 1
             """)
+            row = cursor.fetchone()
 
-        row = cursor.fetchone()
         if not row:
             conn.close()
             return None
