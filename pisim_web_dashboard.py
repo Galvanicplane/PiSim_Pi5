@@ -243,6 +243,8 @@ class PiSimRequestHandler(http.server.SimpleHTTPRequestHandler):
                     latest_telemetry["lon"] = sel_item.get("lon", 32.8597)
                     latest_telemetry["flight_mode"] = sel_item.get("flight_mode", "AKTİF")
                     latest_telemetry["msg"] = sel_item.get("msg", f"HI FROM {sel_item.get('vehicle_name', selected_vehicle_code)}")
+                    latest_telemetry["yaw_rate_rad"] = sel_item.get("yaw_rate_rad", 0.0)
+                    latest_telemetry["speed_mps"] = round(float(latest_telemetry.get("speed", 0.0)) / 3.6, 2)
                     latest_telemetry["offline_sec"] = round(sel_age, 1)
                 else:
                     latest_telemetry["vehicle_code"] = None
@@ -721,6 +723,16 @@ def run_udp_telemetry_listener():
 
                     prev_rx_count = fleet_telemetry.get(v_code, {}).get("rx_count", 0)
 
+                    yaw_rate_rad = 0.0
+                    if "ros2_imu" in msg and isinstance(msg["ros2_imu"], dict):
+                        ang = msg["ros2_imu"].get("angular_velocity", {})
+                        if isinstance(ang, dict):
+                            yaw_rate_rad = float(ang.get("z", 0.0))
+                    elif "imu" in msg and isinstance(msg["imu"], dict):
+                        gyro = msg["imu"].get("gyro", [])
+                        if isinstance(gyro, list) and len(gyro) >= 3:
+                            yaw_rate_rad = float(gyro[2])
+
                     # Gerçek canlı araç kaydı (Hem sol panel hem sağ panel için tam anahtar seti)
                     entry = {
                         "timestamp": now_ts,
@@ -747,7 +759,9 @@ def run_udp_telemetry_listener():
                         "battery": battery,
                         "lat": lat,
                         "lon": lon,
-                        "flight_mode": flight_mode
+                        "flight_mode": flight_mode,
+                        "yaw_rate_rad": round(yaw_rate_rad, 3),
+                        "speed_mps": round(speed / 3.6, 2)
                     }
 
                     fleet_telemetry[v_code] = entry

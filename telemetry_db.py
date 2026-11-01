@@ -570,32 +570,44 @@ def update_mission_step_state(mission_id: str, step_index: int, state: str, vehi
         return False
 
 
-def get_active_mission(vehicle_code: str = None) -> dict:
-    """Aktif veya en son görevi ve tüm durak listesini döner (Metro durağı bileşeni için)."""
+def get_active_mission(vehicle_code: str = None, only_active: bool = True) -> dict:
+    """Aktif görevi ve durak listesini döner (Metro durağı bileşeni için)."""
     try:
         conn = sqlite3.connect(str(DB_FILE), timeout=3.0)
         cursor = conn.cursor()
 
         row = None
+        status_filter = "AND status = 'RUNNING'" if only_active else ""
         if vehicle_code:
             norm_code = vehicle_code.split('-')[0].strip().upper()
-            cursor.execute("""
-                SELECT mission_id, vehicle_code, title, status, total_steps, active_step, created_at, updated_at
+            cursor.execute(f"""
+                SELECT mission_id, vehicle_code, title, status, total_steps, active_step, created_at, updated_at,
+                       (julianday('now', 'localtime') - julianday(updated_at)) * 86400 as age_sec
                 FROM missions 
-                WHERE vehicle_code = ? OR vehicle_code = ? OR vehicle_code LIKE ? OR ? LIKE (vehicle_code || '%')
+                WHERE (vehicle_code = ? OR vehicle_code = ? OR vehicle_code LIKE ? OR ? LIKE (vehicle_code || '%'))
+                {status_filter}
                 ORDER BY updated_at DESC LIMIT 1
             """, (vehicle_code, norm_code, f"%{norm_code}%", vehicle_code))
             row = cursor.fetchone()
 
         if not row:
-            # Belirtilen araç bulunamadıysa bile son aktif görevi döner (Boşta kalmayı önler)
-            cursor.execute("""
-                SELECT mission_id, vehicle_code, title, status, total_steps, active_step, created_at, updated_at
-                FROM missions ORDER BY updated_at DESC LIMIT 1
+            cursor.execute(f"""
+                SELECT mission_id, vehicle_code, title, status, total_steps, active_step, created_at, updated_at,
+                       (julianday('now', 'localtime') - julianday(updated_at)) * 86400 as age_sec
+                FROM missions 
+                WHERE 1=1 {status_filter}
+                ORDER BY updated_at DESC LIMIT 1
             """)
             row = cursor.fetchone()
 
         if not row:
+            conn.close()
+            return None
+
+        age_sec = row[8] if len(row) > 8 and row[8] is not None else 0.0
+        if only_active and age_sec > 20.0:
+            cursor.execute("UPDATE missions SET status = 'ABORTED' WHERE mission_id = ?", (row[0],))
+            conn.commit()
             conn.close()
             return None
 

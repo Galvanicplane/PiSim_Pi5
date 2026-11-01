@@ -72,7 +72,7 @@ def make_live_hud():
             line = (
                 f"\r\033[K[{code}] 📍({c_lat:.5f},{c_lon:.5f}) ➔ 🎯({t_lat:.5f},{t_lon:.5f}) | "
                 f"📏 {rem_m:5.1f}m (%{pct:3.0f}) | ⚡ {spd:3.1f}m/s | "
-                f"🧭 {yaw:3.0f}°➔{brg:3.0f}° (Δ{eta:+3.0f}°) | 🛞 {steer_icon} {steer:+.2f}"
+                f"🧭 {yaw:3.0f}°➔{brg:3.0f}° (Δ{eta:+3.0f}°) | 🛞 {steer_icon} Steer:{(steer*35.0):+4.1f}° (ω:{data.get('cmd_omega', 0.0):+4.2f})"
             )
             sys.stdout.write(line)
             sys.stdout.flush()

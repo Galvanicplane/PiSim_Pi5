@@ -1305,6 +1305,43 @@
                 `);
             });
 
+            // 1b. Seçili aracın Dönme Çemberi (Turn Radius Circle - Canlı Çizim)
+            if (selectedCode && liveData && tacticalMap) {
+                const sLat = Number(liveData.lat || lastSelectedLat);
+                const sLon = Number(liveData.lon || lastSelectedLon);
+                const sYaw = Number(liveData.yaw || 0);
+                const sSpeedMps = Number(liveData.speed_mps || (Number(liveData.speed || 0) / 3.6));
+                const sOmega = Number(liveData.yaw_rate_rad || 0);
+
+                if (Math.abs(sOmega) > 0.035 && sSpeedMps > 0.15) {
+                    const R = Math.max(1.5, Math.min(60.0, sSpeedMps / Math.abs(sOmega)));
+                    const perpAngleDeg = (sOmega > 0) ? (sYaw + 90.0) : (sYaw - 90.0);
+                    const perpRad = perpAngleDeg * Math.PI / 180.0;
+                    const dNorth = R * Math.cos(perpRad);
+                    const dEast = R * Math.sin(perpRad);
+                    const cLat = sLat + (dNorth / 111320.0);
+                    const cLon = sLon + (dEast / (111320.0 * Math.cos(sLat * Math.PI / 180.0)));
+
+                    if (window.turnCircleLayer) {
+                        window.turnCircleLayer.setLatLng([cLat, cLon]);
+                        window.turnCircleLayer.setRadius(R);
+                    } else {
+                        window.turnCircleLayer = L.circle([cLat, cLon], {
+                            radius: R,
+                            color: '#00e5ff',
+                            weight: 2,
+                            dashArray: '6, 6',
+                            fillColor: '#00e5ff',
+                            fillOpacity: 0.08
+                        }).addTo(tacticalMap);
+                        window.turnCircleLayer.bindTooltip(`🔄 Dönme Yarıçapı: R=${R.toFixed(1)}m | ω=${sOmega.toFixed(2)} rad/s`, { permanent: false });
+                    }
+                } else if (window.turnCircleLayer) {
+                    try { tacticalMap.removeLayer(window.turnCircleLayer); } catch(e) {}
+                    window.turnCircleLayer = null;
+                }
+            }
+
             // 2. İlk araç tespit edildiğinde haritayı anında aracın koordinatına merkezle!
             if (!lastInitialCenterDone && fleet.length > 0 && lastSelectedLat && lastSelectedLon) {
                 lastInitialCenterDone = true;
