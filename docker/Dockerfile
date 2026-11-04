@@ -21,3 +21,4 @@ COPY docker/agent_node.py /app/
 ENV PYTHONUNBUFFERED=1
 
 CMD ["python", "agent_node.py"]
+

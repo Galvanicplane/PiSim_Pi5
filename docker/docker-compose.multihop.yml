@@ -1,0 +1,54 @@
+version: '3.8'
+
+# ==============================================================================
+# PiSim Dağınık Çok Atlamalı (Multi-Hop) Zenoh Mesh Test Senaryosu:
+# ------------------------------------------------------------------------------
+# Bu senaryoda 'isolated_rover' konteyneri fiziksel olarak host'a veya Wi-Fi'a
+# ASLA erişemez (internal: true ağı). Yalnızca ara aktarıcı 'gateway_node'
+# konteynerine bağlıdır. Zenoh P2P protokolü sayesinde Unreal Engine ile
+# ara düğüm üzerinden kesintisiz haberleşir!
+# ==============================================================================
+
+networks:
+  backbone_net:
+    driver: bridge
+
+  isolated_mesh_net:
+    driver: bridge
+    internal: true # Dış dünyaya, Wi-Fi'a veya Host IP'sine kesinlikle erişim YOK!
+
+services:
+  # ----------------------------------------------------------------------------
+  # DÜĞÜM 1: Ağ Geçidi (Gateway / Router Düğümü)
+  # Hem host ağına hem de izole ağa bağlıdır (Köprü görevi görür).
+  # ----------------------------------------------------------------------------
+  gateway_node:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: pisim_gateway
+    command: ["python", "zenoh_mesh.py", "--mode", "peer", "--ue5-ip", "host.docker.internal"]
+    networks:
+      - backbone_net
+      - isolated_mesh_net
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+
+  # ----------------------------------------------------------------------------
+  # DÜĞÜM 2: İzole Araç Beyni (Rover 02)
+  # Host'a / Wi-Fi'a doğrudan erişemez. Yalnızca 'gateway_node' üzerinden haberleşir.
+  # ----------------------------------------------------------------------------
+  isolated_rover:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: pisim_isolated_rover
+    environment:
+      - VEHICLE_CODE=rover_02
+      - ZENOH_ROUTER=tcp/gateway_node:7447
+    networks:
+      - isolated_mesh_net # Sadece izole ağ!
+    depends_on:
+      - gateway_node
+    restart: unless-stopped

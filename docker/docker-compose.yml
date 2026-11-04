@@ -42,3 +42,4 @@ services:
       - UE5_HOST=host.docker.internal
     network_mode: "host"
     restart: unless-stopped
+

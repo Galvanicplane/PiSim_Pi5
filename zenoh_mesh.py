@@ -99,7 +99,8 @@ class ZenohMeshBridge:
                 sub_actuators = self.session.declare_subscriber("pisim/*/actuators", self._on_zenoh_actuators)
                 sub_channels = self.session.declare_subscriber("pisim/*/channels", self._on_zenoh_channels)
                 sub_cmdvel = self.session.declare_subscriber("pisim/*/cmd_vel", self._on_zenoh_cmd_vel)
-                self.zenoh_subs.extend([sub_actuators, sub_channels, sub_cmdvel])
+                sub_ping = self.session.declare_subscriber("pisim/*/ping", self._on_zenoh_ping)
+                self.zenoh_subs.extend([sub_actuators, sub_channels, sub_cmdvel, sub_ping])
 
                 # Filo Durumu Paylaşımına Abone Ol
                 sub_fleet = self.session.declare_subscriber("fleet/*/state", self._on_zenoh_fleet_state)
@@ -258,6 +259,18 @@ class ZenohMeshBridge:
             raw = json.dumps(packet).encode("utf-8")
             self.udp_tx_sock.sendto(raw, (self.ue5_ip, target_port))
 
+    def _on_zenoh_ping(self, sample):
+        """Zenoh'tan gelen ping testini Unreal TopicBridge'e iletir."""
+        key = str(sample.key_expr)
+        payload = sample.payload.to_string()
+        parts = key.split("/")
+        if len(parts) >= 2:
+            v_code = parts[1]
+            v_id = self._extract_vehicle_id(v_code)
+            target_port = UNREAL_BASE_TX_PORT + v_id
+            packet = {"topic": f"/{v_code}/ping", "cmd": "ping", "msg": payload}
+            self.udp_tx_sock.sendto(json.dumps(packet).encode("utf-8"), (self.ue5_ip, target_port))
+
     def _on_zenoh_fleet_state(self, sample):
         """Diğer P2P ajanlarından gelen dağıtık bellek durumunu günceller."""
         key = str(sample.key_expr)
@@ -333,3 +346,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
