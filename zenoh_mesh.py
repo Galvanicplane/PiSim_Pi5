@@ -38,6 +38,14 @@ import threading
 import time
 from typing import Callable, Dict, List, Optional, Any
 
+# Windows terminal Türkçe kod sayfası (cp1254/cp437) desteği
+if sys.stdout and hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 logging.basicConfig(level=logging.INFO, format="[%(asctime)s][ZenohMesh] %(message)s")
 logger = logging.getLogger("ZenohMesh")
 
@@ -57,9 +65,10 @@ class ZenohMeshBridge:
     Unreal Engine PiSimTopicBridge ile Zenoh P2P Ağı arasında çift yönlü köprü ve durum yöneticisi.
     """
 
-    def __init__(self, mode: str = "peer", router_endpoint: Optional[str] = None, ue5_ip: str = "127.0.0.1"):
+    def __init__(self, mode: str = "peer", router_endpoint: Optional[str] = None, ue5_ip: str = "127.0.0.1", listen_endpoint: Optional[str] = "tcp/0.0.0.0:7447"):
         self.mode = mode
         self.router_endpoint = router_endpoint
+        self.listen_endpoint = listen_endpoint
         self.ue5_ip = ue5_ip
         self.running = False
         self.session: Optional[Any] = None
@@ -84,6 +93,10 @@ class ZenohMeshBridge:
         if HAS_ZENOH:
             try:
                 conf = zenoh.Config()
+                if self.listen_endpoint:
+                    conf.insert_json5("listen/endpoints", json.dumps([self.listen_endpoint]))
+                    logger.info(f"📡 Zenoh Dinleme Soketi Açıldı: {self.listen_endpoint}")
+
                 if self.mode == "client" and self.router_endpoint:
                     conf.insert_json5("mode", json.dumps("client"))
                     conf.insert_json5("connect/endpoints", json.dumps([self.router_endpoint]))
@@ -318,10 +331,11 @@ def main():
     parser = argparse.ArgumentParser(description="PiSim Zenoh Mesh & ROS 2 Decentralized Bridge")
     parser.add_argument("--mode", choices=["peer", "client"], default="peer", help="Zenoh çalışma modu (peer / client)")
     parser.add_argument("--router", type=str, default=None, help="İstemci modunda Zenoh Router adresi (tcp/IP:7447)")
+    parser.add_argument("--listen", type=str, default="tcp/0.0.0.0:7447", help="Zenoh dinleme soketi (varsayılan: tcp/0.0.0.0:7447)")
     parser.add_argument("--ue5-ip", type=str, default="127.0.0.1", help="Unreal Engine simülasyon IP adresi")
     args = parser.parse_args()
 
-    bridge = ZenohMeshBridge(mode=args.mode, router_endpoint=args.router, ue5_ip=args.ue5_ip)
+    bridge = ZenohMeshBridge(mode=args.mode, router_endpoint=args.router, ue5_ip=args.ue5_ip, listen_endpoint=args.listen)
     bridge.start()
 
     print("\n" + "=" * 70)

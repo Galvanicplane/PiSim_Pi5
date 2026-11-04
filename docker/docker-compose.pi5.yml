@@ -1,0 +1,54 @@
+version: '3.8'
+
+# PiSim Swarm - Raspberry Pi 5 Docker Dağıtık Ajan Yapılandırması
+# Bu dosya Raspberry Pi 5 üzerinde 3 adet otonom rover beyni ayağa kaldırır (Rover 04, 05, 06).
+# Windows PC'deki Zenoh Router'a otomatik bağlanırlar.
+
+services:
+  agent_rover_04:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: pisim_agent_rover_04
+    restart: unless-stopped
+    stdin_open: true
+    tty: true
+    network_mode: "host"
+    environment:
+      - VEHICLE_CODE=rover_04
+      - VEHICLE_ID=4
+      - ZENOH_MODE=client
+      - ZENOH_ROUTER=tcp://${WINDOWS_IP:-127.0.0.1}:7447
+      - LOG_LEVEL=INFO
+
+  agent_rover_05:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: pisim_agent_rover_05
+    restart: unless-stopped
+    stdin_open: true
+    tty: true
+    network_mode: "host"
+    environment:
+      - VEHICLE_CODE=rover_05
+      - VEHICLE_ID=5
+      - ZENOH_MODE=client
+      - ZENOH_ROUTER=tcp://${WINDOWS_IP:-127.0.0.1}:7447
+      - LOG_LEVEL=INFO
+
+  agent_rover_06:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: pisim_agent_rover_06
+    restart: unless-stopped
+    stdin_open: true
+    tty: true
+    network_mode: "host"
+    environment:
+      - VEHICLE_CODE=rover_06
+      - VEHICLE_ID=6
+      - ZENOH_MODE=client
+      - ZENOH_ROUTER=tcp://${WINDOWS_IP:-127.0.0.1}:7447
+      - LOG_LEVEL=INFO
