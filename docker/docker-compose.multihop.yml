@@ -34,6 +34,8 @@ services:
       - backbone_net
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    stdin_open: true
+    tty: true
     restart: unless-stopped
 
   # ----------------------------------------------------------------------------
@@ -54,6 +56,8 @@ services:
       - isolated_mesh_net
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    stdin_open: true
+    tty: true
     restart: unless-stopped
 
   # ----------------------------------------------------------------------------
@@ -73,4 +77,6 @@ services:
       - isolated_mesh_net
     depends_on:
       - agent_rover_02
+    stdin_open: true
+    tty: true
     restart: unless-stopped

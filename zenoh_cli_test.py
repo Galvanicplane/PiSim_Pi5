@@ -1,19 +1,27 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-zenoh_cli_test.py - PiSim Zenoh P2P Dağınık Ağ ve Topic İnteraktif Test Aracı
-================================================================================
-Bu interaktif CLI aracı, ağdaki Zenoh iletişimini doğrulamak için geliştirilmiştir:
-1. Başlatıldığında ağa bir heartbeat duyurusu (`pisim/nodes/<host_id>`) yayınlar.
-2. Ağdaki tüm aktif topic'leri (Unreal Engine, Pi5, Docker ajanları) anlık keşfeder.
-3. Seçtiğiniz herhangi bir topic'e canlı abone olup gelen verileri ekrana basar.
-4. İstediğiniz topic'e özel metin / JSON mesajı basmanızı sağlar.
-5. Unreal Engine'e doğrudan 'Ping' atıp 'Pong' cevabı ve gidiş-dönüş gecikmesini (RTT) ölçer.
+zenoh_cli_test.py - PiSim Zenoh P2P Dağınık Ağ ve İnteraktif Terminal İletişim Aracı
+======================================================================================
+Bu araç, hem Windows hem de her bir Docker konteyneri içinde ayrı bir terminal olarak
+çalıştırılabilir:
+
+Özellikler:
+1. Otomatik Cihaz Kimliği:
+   - Ortamdaki `VEHICLE_CODE`'a göre (rover_01, rover_02, rover_03) veya hostname ile
+     otomatik olarak kendi topic'ini (`pisim/devices/<cihaz_adi>`) ağa duyurur.
+2. Dağınık Terminal Sohbet Modu (Live Chat / String Messaging):
+   - Herhangi bir Docker terminalinde yazdığınız string mesaj anında diğer Docker ve
+     Windows terminallerine düşer.
+3. Canlı Topic Dinleme & Yayınlama (Inspect & Publish):
+   - Ağdaki tüm aktif topic'leri listeler veya istenen topic'e özel veri basar.
+4. Unreal Engine Ping / Echo Testi.
 
 Kullanım:
-  python zenoh_cli_test.py
-  python zenoh_cli_test.py --mode peer
-  python zenoh_cli_test.py --mode client --router tcp/127.0.0.1:7447
+  Windows:         python zenoh_cli_test.py
+  Docker Rover 1:  docker exec -it pisim_agent_rover_01 python zenoh_cli_test.py
+  Docker Rover 2:  docker exec -it pisim_agent_rover_02 python zenoh_cli_test.py
+  Docker Rover 3:  docker exec -it pisim_agent_rover_03 python zenoh_cli_test.py
 """
 
 import argparse
@@ -41,29 +49,61 @@ class ZenohCliTester:
         self.mode = mode
         self.router_endpoint = router_endpoint
         self.hostname = socket.gethostname()
-        self.node_id = f"tester_{self.hostname}_{os.getpid()}"
+
+        # Otomatik Cihaz Kimliği Belirleme (Docker ortam değişkeni veya Hostname)
+        env_veh = os.environ.get("VEHICLE_CODE", "")
+        if env_veh:
+            self.node_id = f"{env_veh}_{self.hostname}"
+            self.device_name = env_veh
+        else:
+            self.node_id = f"host_{self.hostname}"
+            self.device_name = "Windows_Host"
+
         self.running = True
 
-        # Keşfedilen aktif topic'ler ve son mesajları: {topic_str: (last_seen_time, sample_payload)}
+        # Eğer router belirtilmemişse ortam değişkeninden al (Rover 03 için)
+        if not self.router_endpoint:
+            env_router = os.environ.get("ZENOH_ROUTER", None)
+            if env_router:
+                self.router_endpoint = env_router
+                self.mode = "client"
+
+        listen_ep = os.environ.get("ZENOH_LISTEN_ENDPOINT", None)
+
         self.discovered_topics: Dict[str, tuple] = {}
         self.topics_lock = threading.Lock()
 
-        # Oturumu Aç
+        # Zenoh Oturumunu Yapılandır
         conf = zenoh.Config()
+        if listen_ep:
+            conf.insert_json5("listen/endpoints", json.dumps([listen_ep]))
+            print(f"📡 Zenoh Dinleme Noktası Açıldı: {listen_ep}")
+
         if self.mode == "client" and self.router_endpoint:
             conf.insert_json5("mode", json.dumps("client"))
             conf.insert_json5("connect/endpoints", json.dumps([self.router_endpoint]))
+            print(f"🔗 Zenoh Yönlendiricisine Bağlanılıyor: {self.router_endpoint}")
         else:
             conf.insert_json5("mode", json.dumps("peer"))
+            print(f"📡 Zenoh P2P Mesh Modu Açılıyor...")
 
-        print(f"📡 Zenoh Oturumu Açılıyor ({self.mode.upper()} modu)...")
         self.session = zenoh.open(conf)
-        print("✅ Zenoh Oturumu Başarıyla Açıldı.")
+        print(f"✅ [{self.node_id}] Zenoh Ağına Başarıyla Katıldı!")
 
-        # Ağdaki tüm topic'leri dinleyen küresel izleme abonesi
+        # Kendi Cihaz Varlığımızı Ağa Duyur
+        dev_topic = f"pisim/devices/{self.device_name}"
+        self.session.put(dev_topic, json.dumps({
+            "device": self.device_name,
+            "node_id": self.node_id,
+            "mode": self.mode,
+            "status": "ONLINE",
+            "time": time.time()
+        }))
+
+        # Küresel topic izleyici
         self.wildcard_sub = self.session.declare_subscriber("**", self._on_global_sample)
 
-        # Kendi varlığımızı 2 saniyede bir duyuran iş parçacığı
+        # Heartbeat iş parçacığı
         self.heartbeat_thread = threading.Thread(target=self._heartbeat_loop, daemon=True)
         self.heartbeat_thread.start()
 
@@ -80,7 +120,7 @@ class ZenohCliTester:
                 hb_key = f"pisim/nodes/{self.node_id}"
                 msg = {
                     "node": self.node_id,
-                    "host": self.hostname,
+                    "device": self.device_name,
                     "mode": self.mode,
                     "ts": time.time(),
                 }
@@ -96,7 +136,7 @@ class ZenohCliTester:
         now = time.time()
         with self.topics_lock:
             if not self.discovered_topics:
-                print(" ⏳ Henüz ağda bir veri tespit edilmedi. (Unreal veya ZenohMesh çalışıyor mu?)")
+                print(" ⏳ Henüz ağda bir veri tespit edilmedi.")
                 return []
 
             topics_sorted = sorted(self.discovered_topics.keys())
@@ -105,7 +145,7 @@ class ZenohCliTester:
                 age = now - last_time
                 preview = sample_data.replace("\n", " ")[:60]
                 status = "🟢 Canlı" if age < 4.0 else f"🟡 {age:.1f}s önce"
-                print(f" [{idx:02d}] {status:10s} {t:35s} | Örnek: {preview}...")
+                print(f" [{idx:02d}] {status:10s} {t:38s} | {preview}...")
             return topics_sorted
 
     def subscribe_live(self, topic: str):
@@ -121,7 +161,6 @@ class ZenohCliTester:
             k = str(sample.key_expr)
             p = sample.payload.to_string()
             try:
-                # JSON güzelleştir
                 parsed = json.loads(p)
                 p_fmt = json.dumps(parsed, ensure_ascii=False)
             except Exception:
@@ -146,10 +185,64 @@ class ZenohCliTester:
         self.session.put(topic, message)
         print("✅ Mesaj ağa başarıyla basıldı.")
 
-    def ping_unreal(self, vehicle_code: str = "rover_01"):
-        print(f"\n🏓 Unreal Engine '{vehicle_code}' TopicBridge Ping Testi...")
-        ping_key = f"pisim/{vehicle_code}/ping"
-        pong_key = f"pisim/{vehicle_code}/pong"
+    def live_chat_mode(self, chat_topic: str = "pisim/chat"):
+        """Terminaller arası anlık string / mesajlaşma konsolu."""
+        print("\n" + "=" * 70)
+        print(f" 💬 DAĞITIK TERMİNAL MESAJLAŞMA MODU (Topic: {chat_topic})")
+        print(f"    Cihazınız: [{self.device_name}] ({self.node_id})")
+        print("    Buraya yazacağınız her mesaj tüm diğer Docker ve Windows")
+        print("    terminallerine anında iletilir!")
+        print("    (Çıkmak için boş mesaj atıp ENTER'a veya '/exit' yazın)")
+        print("=" * 70 + "\n")
+
+        stop_chat = threading.Event()
+
+        def _chat_rx(sample):
+            if stop_chat.is_set():
+                return
+            try:
+                pkt = json.loads(sample.payload.to_string())
+                sender = pkt.get("sender", "Bilinmeyen")
+                text = pkt.get("text", "")
+                if sender != self.node_id:
+                    t_str = time.strftime("%H:%M:%S")
+                    sys.stdout.write(f"\r\033[K[{t_str}] 📨 [{sender}]: {text}\n> ")
+                    sys.stdout.flush()
+            except Exception:
+                pass
+
+        sub = self.session.declare_subscriber(chat_topic, _chat_rx)
+
+        # Katılma Bildirimi
+        join_msg = {"sender": self.node_id, "text": f"🎉 [{self.device_name}] sohbete katıldı!", "ts": time.time()}
+        self.session.put(chat_topic, json.dumps(join_msg))
+
+        try:
+            while not stop_chat.is_set():
+                msg = input("> ").strip()
+                if not msg or msg.lower() in ("/exit", "/quit", "q"):
+                    break
+                payload = {
+                    "sender": self.node_id,
+                    "device": self.device_name,
+                    "text": msg,
+                    "timestamp": time.time()
+                }
+                self.session.put(chat_topic, json.dumps(payload))
+        except (KeyboardInterrupt, EOFError):
+            pass
+        finally:
+            stop_chat.set()
+            try:
+                sub.undeclare()
+            except Exception:
+                pass
+            print("\nSohbet modundan çıkıldı.\n")
+
+    def ping_node(self, target_veh: str = "rover_01"):
+        print(f"\n🏓 '{target_veh}' Hedefine Ping Atılıyor...")
+        ping_key = f"pisim/{target_veh}/ping"
+        pong_key = f"pisim/{target_veh}/pong"
 
         pong_received = threading.Event()
         pong_payload = {"data": None, "rtt_ms": 0.0}
@@ -161,20 +254,21 @@ class ZenohCliTester:
             pong_received.set()
 
         sub = self.session.declare_subscriber(pong_key, _on_pong)
-        time.sleep(0.1)  # Abonenin ağa duyurulmasını bekle
+        time.sleep(0.1)
 
         ping_msg = {
             "cmd": "ping",
             "sender": self.node_id,
+            "device": self.device_name,
             "ts": t_start,
         }
         self.session.put(ping_key, json.dumps(ping_msg))
 
-        if pong_received.wait(timeout=2.5):
-            print(f" 🎉 PONG CEVABI ALINDI! (RTT: {pong_payload['rtt_ms']:.2f} ms)")
+        if pong_received.wait(timeout=3.0):
+            print(f" 🎉 PONG YANITI ALINDI! (Gecikme: {pong_payload['rtt_ms']:.2f} ms)")
             print(f"    Gelen Yanıt: {pong_payload['data']}")
         else:
-            print(f" ⚠️ Zaman aşımı! Unreal Engine ({vehicle_code}) veya 'zenoh_mesh.py' açık mı?")
+            print(f" ⚠️ Zaman aşımı! Hedef '{target_veh}' açık mı?")
 
         try:
             sub.undeclare()
@@ -183,44 +277,47 @@ class ZenohCliTester:
 
     def run_menu(self):
         while self.running:
-            print("\n" + "=" * 55)
-            print(" 🕹️  PISIM ZENOH DAĞITIK AĞ TEST MENÜSÜ")
-            print("=" * 55)
-            print(" [1] Aktif Topic'leri Listele (Keşif)")
-            print(" [2] Bir Topic'e Canlı Abone Ol (Canlı Akış)")
-            print(" [3] İstediğin Topic'e Mesaj / Komut Yayınla")
-            print(" [4] Unreal Engine Ping / Echo Testi")
-            print(" [5] Çıkış")
-            print("-" * 55)
+            print("\n" + "=" * 60)
+            print(f" 🕹️  PISIM ZENOH TEST KONSOLU | Cihaz: [{self.device_name}]")
+            print("=" * 60)
+            print(" [1] 💬 Canlı Sohbet / String Mesaj Modu (Terminaller Arası)")
+            print(" [2] 📋 Aktif Topic'leri Listele (Keşif)")
+            print(" [3] 📥 Bir Topic'e Canlı Abone Ol (Canlı Akış)")
+            print(" [4] 📤 İstediğin Topic'e Özel Mesaj / Komut Bas")
+            print(" [5] 🏓 Hedef Cihaza / Unreal'a Ping At")
+            print(" [6] ❌ Çıkış")
+            print("-" * 60)
 
             try:
-                choice = input("Seçiminiz [1-5]: ").strip()
+                choice = input("Seçiminiz [1-6]: ").strip()
             except (KeyboardInterrupt, EOFError):
                 break
 
             if choice == "1":
-                self.list_topics()
+                self.live_chat_mode()
             elif choice == "2":
+                self.list_topics()
+            elif choice == "3":
                 topics = self.list_topics()
                 if topics:
-                    sel = input("\nAbone olmak istediğiniz topic numarasını veya adını girin (Örn: 1 veya pisim/**): ").strip()
+                    sel = input("\nAbone olunacak topic numarasını veya adını girin (Örn: 1 veya pisim/**): ").strip()
                     if sel.isdigit() and 1 <= int(sel) <= len(topics):
                         chosen_topic = topics[int(sel) - 1]
                     else:
                         chosen_topic = sel if sel else "**"
                     self.subscribe_live(chosen_topic)
-            elif choice == "3":
-                target_topic = input("\nYayınlanacak Topic (Örn: pisim/rover_01/actuators veya test/selam): ").strip()
-                if not target_topic:
-                    target_topic = "pisim/rover_01/actuators"
-                msg_body = input("Yayınlanacak Mesaj / JSON (Örn: {\"M_Steer_FL\": 0.5} veya Selam): ").strip()
-                if not msg_body:
-                    msg_body = "{\"test\": \"hello_zenoh\"}"
-                self.publish_message(target_topic, msg_body)
             elif choice == "4":
-                v_code = input("Hedef Araç Kodu [varsayılan: rover_01]: ").strip()
-                self.ping_unreal(v_code if v_code else "rover_01")
+                target_topic = input("\nYayınlanacak Topic (Örn: pisim/rover_03/actuators veya test/mesaj): ").strip()
+                if not target_topic:
+                    target_topic = f"pisim/{self.device_name}/custom"
+                msg_body = input("Mesaj Metni / JSON: ").strip()
+                if not msg_body:
+                    msg_body = f"Selam ben {self.device_name}"
+                self.publish_message(target_topic, msg_body)
             elif choice == "5":
+                v_code = input("Hedef Cihaz Kodu [varsayılan: rover_01]: ").strip()
+                self.ping_node(v_code if v_code else "rover_01")
+            elif choice == "6":
                 break
 
         self.running = False
@@ -228,7 +325,7 @@ class ZenohCliTester:
             self.session.close()
         except Exception:
             pass
-        print("Görüşmek üzere!")
+        print(f"[{self.device_name}] Kapatıldı.")
 
 
 def main():
@@ -243,4 +340,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

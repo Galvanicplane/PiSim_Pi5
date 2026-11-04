@@ -12,13 +12,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Python kütüphaneleri: eclipse-zenoh ve numpy
 RUN pip install --no-cache-dir eclipse-zenoh numpy
 
-# Kaynak kodları kopyala
-COPY vehicle_hardware.py /app/
-COPY pisim_motion.py /app/
-COPY zenoh_mesh.py /app/
-COPY docker/agent_node.py /app/
+# Tüm kaynak kodları kopyala
+COPY . /app/
 
 ENV PYTHONUNBUFFERED=1
 
-CMD ["python", "agent_node.py"]
-
+CMD ["python", "docker/agent_node.py"]
