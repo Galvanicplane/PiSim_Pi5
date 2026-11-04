@@ -38,6 +38,14 @@ import sys
 import time
 from typing import Dict, Optional, Tuple
 
+# Windows ve Linux konsol kod sayfası desteği
+if sys.stdout and hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 logging.basicConfig(
     level=logging.INFO,
     format="[%(asctime)s][%(name)s] %(message)s",

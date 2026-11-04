@@ -22,6 +22,14 @@ import sys
 import threading
 import time
 
+# Windows terminal Türkçe kod sayfası (cp1254/cp437) desteği
+if sys.stdout and hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 try:
     import zenoh
     HAS_ZENOH = True
