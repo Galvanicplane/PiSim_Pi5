@@ -1,0 +1,44 @@
+version: '3.8'
+
+services:
+  # -------------------------------------------------------------
+  # Sürü Beyin 1: Rover 01 Bağımsız Kontrolcüsü
+  # -------------------------------------------------------------
+  agent_rover_01:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: pisim_agent_rover_01
+    environment:
+      - VEHICLE_CODE=rover_01
+      - UE5_HOST=host.docker.internal
+    network_mode: "host"
+    restart: unless-stopped
+
+  # -------------------------------------------------------------
+  # Sürü Beyin 2: Rover 02 Bağımsız Kontrolcüsü
+  # -------------------------------------------------------------
+  agent_rover_02:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: pisim_agent_rover_02
+    environment:
+      - VEHICLE_CODE=rover_02
+      - UE5_HOST=host.docker.internal
+    network_mode: "host"
+    restart: unless-stopped
+
+  # -------------------------------------------------------------
+  # Sürü Beyin 3: Rover 03 Bağımsız Kontrolcüsü
+  # -------------------------------------------------------------
+  agent_rover_03:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: pisim_agent_rover_03
+    environment:
+      - VEHICLE_CODE=rover_03
+      - UE5_HOST=host.docker.internal
+    network_mode: "host"
+    restart: unless-stopped

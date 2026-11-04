@@ -244,8 +244,23 @@ class PiSimMotionController:
 
     def _send_payload(self, payload: dict, repeat: int = 1):
         target_ip = self.ue5_ip if self.ue5_ip else "255.255.255.255"
+        
+        # ROS 2 / Topic Bridge icin hedef port ve topic formati (7410 + v_id)
+        v_digits = "".join(filter(str.isdigit, str(self.target_vehicle)))
+        v_id = int(v_digits) if v_digits else 1
+        topic_port = 7410 + v_id
+
+        if "topic" not in payload:
+            clean_tgt = self.target_vehicle if self.target_vehicle not in ("selected", "active", "all", "") else f"rover_{v_id:02d}"
+            payload["topic"] = f"/{clean_tgt}/actuators"
+
         raw_bytes = (json.dumps(payload) + "\n").encode("utf-8")
-        destinations = {(target_ip, self.command_port), ("127.0.0.1", self.command_port)}
+        destinations = {
+            (target_ip, self.command_port),
+            ("127.0.0.1", self.command_port),
+            (target_ip, topic_port),
+            ("127.0.0.1", topic_port),
+        }
         if self.dedicated_port:
             destinations.add((target_ip, self.dedicated_port))
             destinations.add(("127.0.0.1", self.dedicated_port))
