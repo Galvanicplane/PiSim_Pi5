@@ -1,9 +1,11 @@
 version: '3.8'
 
+# ==============================================================================
+# PiSim Multi-Agent Docker Swarm
+# Hem Windows (Docker Desktop) hem de Raspberry Pi 5 (Linux ARM64) ile tam uyumlu!
+# ==============================================================================
+
 services:
-  # -------------------------------------------------------------
-  # Sürü Beyin 1: Rover 01 Bağımsız Kontrolcüsü
-  # -------------------------------------------------------------
   agent_rover_01:
     build:
       context: ..
@@ -11,13 +13,12 @@ services:
     container_name: pisim_agent_rover_01
     environment:
       - VEHICLE_CODE=rover_01
-      - UE5_HOST=host.docker.internal
-    network_mode: "host"
+      - UE5_HOST=${UE5_HOST:-host.docker.internal}
+      - ZENOH_ROUTER=${ZENOH_ROUTER:-}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     restart: unless-stopped
 
-  # -------------------------------------------------------------
-  # Sürü Beyin 2: Rover 02 Bağımsız Kontrolcüsü
-  # -------------------------------------------------------------
   agent_rover_02:
     build:
       context: ..
@@ -25,13 +26,12 @@ services:
     container_name: pisim_agent_rover_02
     environment:
       - VEHICLE_CODE=rover_02
-      - UE5_HOST=host.docker.internal
-    network_mode: "host"
+      - UE5_HOST=${UE5_HOST:-host.docker.internal}
+      - ZENOH_ROUTER=${ZENOH_ROUTER:-}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     restart: unless-stopped
 
-  # -------------------------------------------------------------
-  # Sürü Beyin 3: Rover 03 Bağımsız Kontrolcüsü
-  # -------------------------------------------------------------
   agent_rover_03:
     build:
       context: ..
@@ -39,7 +39,8 @@ services:
     container_name: pisim_agent_rover_03
     environment:
       - VEHICLE_CODE=rover_03
-      - UE5_HOST=host.docker.internal
-    network_mode: "host"
+      - UE5_HOST=${UE5_HOST:-host.docker.internal}
+      - ZENOH_ROUTER=${ZENOH_ROUTER:-}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     restart: unless-stopped
-

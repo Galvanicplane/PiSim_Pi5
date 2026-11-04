@@ -52,3 +52,4 @@ services:
     depends_on:
       - gateway_node
     restart: unless-stopped
+
