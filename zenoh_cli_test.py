@@ -84,14 +84,16 @@ class ZenohCliTester:
         # Zenoh Oturumunu Yapılandır
         conf = zenoh.Config()
         if listen_ep:
+            conf.insert_json5("mode", json.dumps("peer"))
             conf.insert_json5("listen/endpoints", json.dumps([listen_ep]))
             print(f"📡 Zenoh Dinleme Noktası Açıldı: {listen_ep}")
 
-        if self.mode == "client" and self.router_endpoint:
-            conf.insert_json5("mode", json.dumps("client"))
+        if self.router_endpoint:
+            if not listen_ep:
+                conf.insert_json5("mode", json.dumps("client"))
             conf.insert_json5("connect/endpoints", json.dumps([self.router_endpoint]))
             print(f"🔗 Zenoh Yönlendiricisine Bağlanılıyor: {self.router_endpoint}")
-        else:
+        elif not listen_ep:
             conf.insert_json5("mode", json.dumps("peer"))
             print(f"📡 Zenoh P2P Mesh Modu Açılıyor...")
 
