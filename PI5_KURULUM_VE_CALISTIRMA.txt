@@ -1,0 +1,66 @@
+================================================================================
+ PISIM - RASPBERRY PI 5 KURULUM VE CALISTIRMA KILAVUZU
+================================================================================
+Bu dosya Raspberry Pi 5 terminalinizde adim adim calistiracaginiz tum komutlari
+icerir. Git pull yaptiginiz icin bu dosya su anda Pi 5'inizdedir!
+
+Dosyayi terminalde gormek icin:
+  cat PI5_KURULUM_VE_CALISTIRMA.txt
+
+--------------------------------------------------------------------------------
+1. ADIM: PI 5 UZERINDE ZENOH VE DOCKER KURULUMU
+--------------------------------------------------------------------------------
+NOT: "sudo apt install eclipse-zenoh" calismaz cunku Zenoh bir Python paketidir!
+Zenoh'un Pi 5'te olmamasi Docker konteynerlerini ASLA etkilemez (Docker kendi
+icerisine otomatik kurar). Ancak Pi 5 Host sisteminde kullanmak icin:
+
+A) Python icin Zenoh Kurulumu (Pi 5 Host):
+   pip3 install --break-system-packages eclipse-zenoh
+
+B) Pi 5'e Docker Kurulumu (Eger kurulu degilse tek satir):
+   curl -fsSL https://get.docker.com -o get-docker.sh && sudo sh get-docker.sh
+   sudo usermod -aG docker $USER
+   newgrp docker
+
+--------------------------------------------------------------------------------
+2. ADIM: PI 5 DOCKER KONTEYNERLERINI AYAGA KALDIRMA (Rover 04, 05, 06)
+--------------------------------------------------------------------------------
+Windows bilgisayarinizin Wi-Fi IP adresini (ornek: 192.168.1.100) ogrenin ve
+Pi 5 terminalinde su komutu verin:
+
+   cd ~/PiSim_Pi5/docker
+   WINDOWS_IP=192.168.1.100 docker compose -f docker-compose.pi5.yml up -d --build
+
+(Not: 192.168.1.100 yerine kendi Windows PC'nizin IP'sini yazin).
+Bu komut 3 adet otonom rover beynini Pi 5 icinde baslatir.
+
+--------------------------------------------------------------------------------
+3. ADIM: PI 5 HOST UZERINDEKI GERCEK ROS 2 KOPRUSUNU ACMA
+--------------------------------------------------------------------------------
+Eger Pi 5'teki gercek ROS 2 ortamini (rclpy) Unreal Engine'e baglamak isterseniz:
+
+   cd ~/PiSim_Pi5
+   source /opt/ros/humble/setup.bash   # (Veya jazzy/iron)
+   ZENOH_ROUTER=tcp/192.168.1.100:7447 python3 pi5_ros2_zenoh_bridge.py
+
+--------------------------------------------------------------------------------
+4. ADIM: SOHBET VE ROS 2 TESTLERI
+--------------------------------------------------------------------------------
+
+A) Terminaller Arasi Canli Sohbet Testi (Pi 5'ten mesaj atma):
+   cd ~/PiSim_Pi5
+   ZENOH_ROUTER=tcp/192.168.1.100:7447 python3 zenoh_cli_test.py
+   (Ekranda [1] secip yazmaya baslayin, Windows ve Docker'lara gider!)
+
+B) Pi 5 Konteyneri (Rover 06) icinden sohbete girme:
+   docker exec -it pisim_agent_rover_06 python zenoh_cli_test.py
+
+C) Pi 5'ten Unreal Engine'deki Araci Saf ROS 2 ile Surme:
+   source /opt/ros/humble/setup.bash
+   ros2 topic pub /rover_01/cmd_vel geometry_msgs/msg/Twist "{linear: {x: 2.0}, angular: {z: 0.5}}"
+
+D) Unreal'dan Gelen Sensörleri Pi 5'te Gercek ROS 2 ile Dinleme:
+   ros2 topic echo /rover_01/imu
+   ros2 topic echo /rover_01/gps
+
+================================================================================
