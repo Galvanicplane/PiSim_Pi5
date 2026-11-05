@@ -16,5 +16,6 @@ RUN pip install --no-cache-dir eclipse-zenoh numpy
 COPY . /app/
 
 ENV PYTHONUNBUFFERED=1
+ENV PYTHONPATH="/app"
 
 CMD ["python", "docker/agent_node.py"]

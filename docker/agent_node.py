@@ -38,6 +38,13 @@ import sys
 import time
 from typing import Dict, Optional, Tuple
 
+# Dizin yollarını sys.path'e ekle (Konteyner ve dış çalıştırmada modül erişimi için)
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+PARENT_DIR = os.path.dirname(SCRIPT_DIR)
+for p in (PARENT_DIR, SCRIPT_DIR):
+    if p and p not in sys.path:
+        sys.path.insert(0, p)
+
 # Windows ve Linux konsol kod sayfası desteği
 if sys.stdout and hasattr(sys.stdout, "reconfigure"):
     try:
