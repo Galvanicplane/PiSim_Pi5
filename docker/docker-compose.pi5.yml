@@ -52,3 +52,4 @@ services:
       - ZENOH_MODE=client
       - ZENOH_ROUTER=tcp://${WINDOWS_IP:-127.0.0.1}:7447
       - LOG_LEVEL=INFO
+

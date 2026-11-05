@@ -30,6 +30,7 @@ services:
     environment:
       - VEHICLE_CODE=rover_01
       - UE5_HOST=${UE5_HOST:-host.docker.internal}
+      - ZENOH_ROUTER=tcp/host.docker.internal:7447
     networks:
       - backbone_net
     extra_hosts:
@@ -50,6 +51,7 @@ services:
     environment:
       - VEHICLE_CODE=rover_02
       - UE5_HOST=${UE5_HOST:-host.docker.internal}
+      - ZENOH_ROUTER=tcp/host.docker.internal:7447
       - ZENOH_LISTEN_ENDPOINT=tcp/0.0.0.0:7447
     networks:
       - backbone_net
