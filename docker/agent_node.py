@@ -67,11 +67,26 @@ except ImportError:
 
 from vehicle_hardware import VehicleHardware
 
+def normalize_zenoh_endpoint(ep: str, default_port: int = 7447) -> str:
+    if not ep:
+        return ep
+    ep = ep.strip()
+    if ep.startswith("tcp://"):
+        ep = "tcp/" + ep[6:]
+    elif ep.startswith("udp://"):
+        ep = "udp/" + ep[6:]
+    elif not (ep.startswith("tcp/") or ep.startswith("udp/")):
+        if ":" not in ep:
+            ep = f"tcp/{ep}:{default_port}"
+        else:
+            ep = f"tcp/{ep}"
+    return ep
+
 # Çevre Değişkenleri (Environment Variables)
 VEHICLE_CODE = os.environ.get("VEHICLE_CODE", "rover_01")
 UE5_HOST = os.environ.get("UE5_HOST", "host.docker.internal")
-ZENOH_ROUTER = os.environ.get("ZENOH_ROUTER", None)
-ZENOH_LISTEN = os.environ.get("ZENOH_LISTEN_ENDPOINT", None)
+ZENOH_ROUTER = normalize_zenoh_endpoint(os.environ.get("ZENOH_ROUTER", None))
+ZENOH_LISTEN = normalize_zenoh_endpoint(os.environ.get("ZENOH_LISTEN_ENDPOINT", None))
 
 logger = logging.getLogger(f"Brain-{VEHICLE_CODE}")
 

@@ -48,6 +48,23 @@ except ImportError:
     HAS_ZENOH = False
 
 
+def normalize_zenoh_endpoint(ep: str, default_port: int = 7447) -> str:
+    """tcp://192.168.1.2:7447 veya 192.168.1.2 formatlarını saf Zenoh 'tcp/IP:PORT' formatına dönüştürür."""
+    if not ep:
+        return ep
+    ep = ep.strip()
+    if ep.startswith("tcp://"):
+        ep = "tcp/" + ep[6:]
+    elif ep.startswith("udp://"):
+        ep = "udp/" + ep[6:]
+    elif not (ep.startswith("tcp/") or ep.startswith("udp/")):
+        if ":" not in ep:
+            ep = f"tcp/{ep}:{default_port}"
+        else:
+            ep = f"tcp/{ep}"
+    return ep
+
+
 class ZenohCliTester:
     def __init__(self, mode: str = "peer", router_endpoint: str = None):
         if not HAS_ZENOH:
@@ -88,6 +105,11 @@ class ZenohCliTester:
                     pass
 
         listen_ep = os.environ.get("ZENOH_LISTEN_ENDPOINT", None)
+        if listen_ep:
+            listen_ep = normalize_zenoh_endpoint(listen_ep)
+
+        if self.router_endpoint:
+            self.router_endpoint = normalize_zenoh_endpoint(self.router_endpoint)
 
         self.discovered_topics: Dict[str, tuple] = {}
         self.topics_lock = threading.Lock()

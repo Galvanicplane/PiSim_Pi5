@@ -57,6 +57,22 @@ except ImportError:
     HAS_ZENOH = False
 
 
+def normalize_zenoh_endpoint(ep: str, default_port: int = 7447) -> str:
+    if not ep:
+        return ep
+    ep = ep.strip()
+    if ep.startswith("tcp://"):
+        ep = "tcp/" + ep[6:]
+    elif ep.startswith("udp://"):
+        ep = "udp/" + ep[6:]
+    elif not (ep.startswith("tcp/") or ep.startswith("udp/")):
+        if ":" not in ep:
+            ep = f"tcp/{ep}:{default_port}"
+        else:
+            ep = f"tcp/{ep}"
+    return ep
+
+
 class Pi5Ros2ZenohBridge(Node if HAS_ROS2 else object):
     def __init__(self, router_endpoint: str = None):
         if not HAS_ROS2:
@@ -71,7 +87,8 @@ class Pi5Ros2ZenohBridge(Node if HAS_ROS2 else object):
 
         # Zenoh Oturumu
         conf = zenoh.Config()
-        env_router = os.environ.get("ZENOH_ROUTER", router_endpoint)
+        raw_router = os.environ.get("ZENOH_ROUTER", router_endpoint)
+        env_router = normalize_zenoh_endpoint(raw_router)
         if env_router:
             conf.insert_json5("mode", json.dumps("client"))
             conf.insert_json5("connect/endpoints", json.dumps([env_router]))
