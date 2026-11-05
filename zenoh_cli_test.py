@@ -69,12 +69,23 @@ class ZenohCliTester:
 
         self.running = True
 
-        # Eğer router belirtilmemişse ortam değişkeninden al (Rover 03 için)
+        # Eğer router belirtilmemişse ortam değişkeninden al veya açık yerel router'ı (7447) otomatik tanı
         if not self.router_endpoint:
             env_router = os.environ.get("ZENOH_ROUTER", None)
             if env_router:
                 self.router_endpoint = env_router
                 self.mode = "client"
+            else:
+                try:
+                    s_test = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                    s_test.settimeout(0.3)
+                    if s_test.connect_ex(('127.0.0.1', 7447)) == 0:
+                        self.router_endpoint = "tcp/127.0.0.1:7447"
+                        self.mode = "client"
+                        print("🔌 Aktif Zenoh Yönlendirici (Router) Bulundu (tcp/127.0.0.1:7447). Otomatik bağlanılıyor...")
+                    s_test.close()
+                except Exception:
+                    pass
 
         listen_ep = os.environ.get("ZENOH_LISTEN_ENDPOINT", None)
 

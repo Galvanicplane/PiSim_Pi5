@@ -102,8 +102,8 @@ class ZenohMeshBridge:
                     conf.insert_json5("connect/endpoints", json.dumps([self.router_endpoint]))
                     logger.info(f"Zenoh İstemci Modu: Yönlendiriciye bağlanılıyor -> {self.router_endpoint}")
                 else:
-                    conf.insert_json5("mode", json.dumps("peer"))
-                    logger.info("Zenoh P2P Mesh Modu Aktif (Tüm ağdaki cihazlar otomatik keşfedilir).")
+                    conf.insert_json5("mode", json.dumps("router"))
+                    logger.info("📡 Zenoh Dağıtıcı Router Modu Aktif (Tüm Docker ve Pi5 düğümlerini birbirine bağlar).")
 
                 self.session = zenoh.open(conf)
                 logger.info("✅ Zenoh Oturumu Başarıyla Açıldı.")

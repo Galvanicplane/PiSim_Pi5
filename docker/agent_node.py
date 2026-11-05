@@ -133,13 +133,12 @@ class AutonomousSwarmBrain:
         if HAS_ZENOH:
             conf = zenoh.Config()
             if ZENOH_LISTEN:
-                # Ara aktarıcı düğüm ise MUTLAKA peer modunda olmalı ve dinlemeli!
-                conf.insert_json5("mode", json.dumps("peer"))
+                # Ara aktarıcı düğüm ise MUTLAKA router modunda olmalı ve gelen paketleri yönlendirmeli!
+                conf.insert_json5("mode", json.dumps("router"))
                 conf.insert_json5("listen/endpoints", json.dumps([ZENOH_LISTEN]))
-                logger.info(f"📡 Zenoh Dinleme Noktası Açıldı: {ZENOH_LISTEN}")
+                logger.info(f"📡 Zenoh Router Dinleme Noktası Açıldı: {ZENOH_LISTEN}")
 
             if ZENOH_ROUTER:
-                # İzole düğüm ise ara aktarıcıya bağlan
                 if not ZENOH_LISTEN:
                     conf.insert_json5("mode", json.dumps("client"))
                 conf.insert_json5("connect/endpoints", json.dumps([ZENOH_ROUTER]))
