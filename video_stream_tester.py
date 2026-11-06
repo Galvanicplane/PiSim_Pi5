@@ -68,6 +68,22 @@ except ImportError:
     HAS_ZENOH = False
 
 
+def normalize_zenoh_endpoint(ep: str, default_port: int = 7447) -> str:
+    if not ep:
+        return ep
+    ep = ep.strip()
+    if ep.startswith("tcp://"):
+        ep = "tcp/" + ep[6:]
+    elif ep.startswith("udp://"):
+        ep = "udp/" + ep[6:]
+    elif not (ep.startswith("tcp/") or ep.startswith("udp/")):
+        if ":" not in ep:
+            ep = f"tcp/{ep}:{default_port}"
+        else:
+            ep = f"tcp/{ep}"
+    return ep
+
+
 def create_zenoh_session(mode: str = "peer", router_endpoint: Optional[str] = None, listen_endpoint: Optional[str] = None):
     """Zenoh yapılandırmasını kurar ve oturumu açar."""
     if not HAS_ZENOH:
@@ -81,16 +97,33 @@ def create_zenoh_session(mode: str = "peer", router_endpoint: Optional[str] = No
         router_endpoint = env_router
         mode = "client"
 
+    # Eğer açıkça router belirtilmemişse 7447 portunu kontrol et
+    if not router_endpoint:
+        try:
+            import socket
+            s_test = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            s_test.settimeout(0.3)
+            if s_test.connect_ex(('127.0.0.1', 7447)) == 0:
+                router_endpoint = "tcp/127.0.0.1:7447"
+                mode = "client"
+                print("🔌 Aktif Zenoh Yönlendirici (Router) Bulundu (tcp/127.0.0.1:7447). Otomatik bağlanılıyor...")
+            s_test.close()
+        except Exception:
+            pass
+
     env_listen = os.environ.get("ZENOH_LISTEN_ENDPOINT", None)
     if not listen_endpoint and env_listen:
         listen_endpoint = env_listen
 
     if listen_endpoint:
+        listen_endpoint = normalize_zenoh_endpoint(listen_endpoint)
         conf.insert_json5("listen/endpoints", json.dumps([listen_endpoint]))
         print(f"📡 Zenoh Dinleme Noktası: {listen_endpoint}")
 
-    if mode == "client" and router_endpoint:
-        conf.insert_json5("mode", json.dumps("client"))
+    if router_endpoint:
+        router_endpoint = normalize_zenoh_endpoint(router_endpoint)
+        if not listen_endpoint:
+            conf.insert_json5("mode", json.dumps("client"))
         conf.insert_json5("connect/endpoints", json.dumps([router_endpoint]))
         print(f"🔗 Zenoh Router'a Bağlanılıyor: {router_endpoint}")
     else:
