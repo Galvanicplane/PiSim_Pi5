@@ -1,8 +1,22 @@
 version: '3.8'
 
-# PiSim Swarm - Raspberry Pi 5 Docker Dağıtık Ajan Yapılandırması
-# Bu dosya Raspberry Pi 5 üzerinde 3 adet otonom rover beyni ayağa kaldırır (Rover 04, 05, 06).
-# Windows PC'deki Zenoh Router'a otomatik bağlanırlar.
+# ==============================================================================
+# PiSim Swarm - Raspberry Pi 5 Çok Atlamalı (Multi-Hop) & İzole Ajan Yapılandırması
+# ------------------------------------------------------------------------------
+# Topoloji:
+# 1. agent_rover_04 : Wi-Fi omurgasına bağlı
+# 2. agent_rover_05 : Hem Wi-Fi'a hem de izole ağa bağlı (Ara Aktarıcı / Router)
+# 3. agent_rover_06 : FİZİKSEL OLARAK İZOLE (Wi-Fi'a doğrudan erişim YOK! internal: true)
+#                     Yalnızca agent_rover_05 üzerinden Zenoh atlamasıyla konuşur.
+# ==============================================================================
+
+networks:
+  pi5_backbone_net:
+    driver: bridge
+
+  pi5_isolated_net:
+    driver: bridge
+    internal: true # Dış dünyaya, Wi-Fi'a veya Windows IP'sine doğrudan erişim KESİNLİKLE YOK!
 
 services:
   agent_rover_04:
@@ -13,14 +27,15 @@ services:
     restart: unless-stopped
     stdin_open: true
     tty: true
-    network_mode: "host"
+    networks:
+      - pi5_backbone_net
     environment:
       - VEHICLE_CODE=rover_04
       - VEHICLE_ID=4
-      - ZENOH_MODE=client
-      - ZENOH_ROUTER=tcp://${WINDOWS_IP:-127.0.0.1}:7447
+      - ZENOH_ROUTER=tcp://${WINDOWS_IP:-192.168.1.2}:7447
       - LOG_LEVEL=INFO
 
+  # Ara Köprü / Yönlendirici: Hem Wi-Fi hem İzole ağ
   agent_rover_05:
     build:
       context: ..
@@ -29,14 +44,17 @@ services:
     restart: unless-stopped
     stdin_open: true
     tty: true
-    network_mode: "host"
+    networks:
+      - pi5_backbone_net
+      - pi5_isolated_net
     environment:
       - VEHICLE_CODE=rover_05
       - VEHICLE_ID=5
-      - ZENOH_MODE=client
-      - ZENOH_ROUTER=tcp://${WINDOWS_IP:-127.0.0.1}:7447
+      - ZENOH_ROUTER=tcp://${WINDOWS_IP:-192.168.1.2}:7447
+      - ZENOH_LISTEN_ENDPOINT=tcp/0.0.0.0:7447
       - LOG_LEVEL=INFO
 
+  # TAMAMEN İZOLE DÜĞÜM (Wi-Fi yok, sadece agent_rover_05 üzerinden izler!)
   agent_rover_06:
     build:
       context: ..
@@ -45,11 +63,12 @@ services:
     restart: unless-stopped
     stdin_open: true
     tty: true
-    network_mode: "host"
+    networks:
+      - pi5_isolated_net
+    depends_on:
+      - agent_rover_05
     environment:
       - VEHICLE_CODE=rover_06
       - VEHICLE_ID=6
-      - ZENOH_MODE=client
-      - ZENOH_ROUTER=tcp://${WINDOWS_IP:-127.0.0.1}:7447
+      - ZENOH_ROUTER=tcp/agent_rover_05:7447
       - LOG_LEVEL=INFO
-

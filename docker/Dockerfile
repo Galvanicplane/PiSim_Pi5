@@ -9,8 +9,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     iputils-ping \
     && rm -rf /var/lib/apt/lists/*
 
-# Python kütüphaneleri: eclipse-zenoh ve numpy
-RUN pip install --no-cache-dir eclipse-zenoh numpy
+# Python kütüphaneleri: eclipse-zenoh, numpy ve opencv-python-headless
+RUN pip install --no-cache-dir eclipse-zenoh numpy opencv-python-headless
 
 # Tüm kaynak kodları kopyala
 COPY . /app/

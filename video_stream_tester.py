@@ -369,9 +369,13 @@ def run_viewer(args):
 
     window_name = f"PiSim Live Feed: {target_topic}"
     if not args.headless:
-        cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
-        cv2.resizeWindow(window_name, 960, 540)
-        print("📺 Canlı Görüntü Penceresi Açıldı. (Çıkış: 'q' / 'ESC', Fotoğraf: 's', HUD Aç/Kapa: 'h')\n")
+        try:
+            cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
+            cv2.resizeWindow(window_name, 960, 540)
+            print("📺 Canlı Görüntü Penceresi Açıldı. (Çıkış: 'q' / 'ESC', Fotoğraf: 's', HUD Aç/Kapa: 'h')\n")
+        except Exception as e:
+            print(f"⚠️ GUI Ekranı bulunamadı ({e}). Headless konsol izleme moduna geçiliyor...\n")
+            args.headless = True
     else:
         print("💻 Headless Mod Aktif. Konsol üzerinden telemetri izleniyor...\n")
 
@@ -396,18 +400,21 @@ def run_viewer(args):
                         # Alt Kısayol Şeridi
                         cv2.putText(frame_to_show, "[s] Ekran Goruntusu | [h] HUD Ac/Kapa | [q] Cikis", (20, h - 15), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (200, 200, 200), 1)
 
-                    cv2.imshow(window_name, frame_to_show)
+                    try:
+                        cv2.imshow(window_name, frame_to_show)
 
-                    key = cv2.waitKey(1) & 0xFF
-                    if key in (27, ord('q'), ord('Q')):
-                        print("\n🛑 İzleme durduruldu.")
-                        break
-                    elif key in (ord('s'), ord('S')):
-                        snap_name = f"screenshot_{int(time.time())}.jpg"
-                        cv2.imwrite(snap_name, state.latest_frame)
-                        print(f"\n📸 Ekran görüntüsü kaydedildi -> {snap_name}")
-                    elif key in (ord('h'), ord('H')):
-                        state.show_hud = not state.show_hud
+                        key = cv2.waitKey(1) & 0xFF
+                        if key in (27, ord('q'), ord('Q')):
+                            print("\n🛑 İzleme durduruldu.")
+                            break
+                        elif key in (ord('s'), ord('S')):
+                            snap_name = f"screenshot_{int(time.time())}.jpg"
+                            cv2.imwrite(snap_name, state.latest_frame)
+                            print(f"\n📸 Ekran görüntüsü kaydedildi -> {snap_name}")
+                        elif key in (ord('h'), ord('H')):
+                            state.show_hud = not state.show_hud
+                    except Exception:
+                        args.headless = True
                 else:
                     # Headless konsol çıktısı
                     mbps = (state.bitrate_kb * 8.0) / 1000.0
