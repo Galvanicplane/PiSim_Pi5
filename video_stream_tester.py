@@ -379,6 +379,9 @@ def run_viewer(args):
     else:
         print("💻 Headless Mod Aktif. Konsol üzerinden telemetri izleniyor...\n")
 
+    last_wait_print = time.time()
+    last_save_time = 0.0
+
     try:
         while state.running:
             frame_to_show = None
@@ -416,10 +419,21 @@ def run_viewer(args):
                     except Exception:
                         args.headless = True
                 else:
-                    # Headless konsol çıktısı
+                    # Headless konsol çıktısı (anında ekrana bas)
                     mbps = (state.bitrate_kb * 8.0) / 1000.0
-                    print(f"📺 [IZLEME] Topic: {state.source_topic} | Kare: #{state.frame_count:<6} | FPS: {state.fps:>4.1f} | {state.bitrate_kb:>6.1f} KB/s ({mbps:>4.2f} Mbps)", end="\r")
-                    time.sleep(0.05)
+                    sys.stdout.write(f"\r📺 [IZLEME] Topic: {state.source_topic} | Kare: #{state.frame_count:<6} | FPS: {state.fps:>4.1f} | {state.bitrate_kb:>6.1f} KB/s ({mbps:>4.2f} Mbps) ")
+                    sys.stdout.flush()
+
+                    # Her 2 saniyede bir son kareyi diske de yaz (görsel doğrulama için)
+                    now_t = time.time()
+                    if now_t - last_save_time >= 2.0:
+                        try:
+                            cv2.imwrite("/tmp/live_frame.jpg", frame_to_show)
+                        except Exception:
+                            pass
+                        last_save_time = now_t
+
+                    time.sleep(0.04)
             else:
                 if not args.headless:
                     # Kare bekleniyor göstergesi
@@ -433,7 +447,13 @@ def run_viewer(args):
                     if key in (27, ord('q'), ord('Q')):
                         break
                 else:
-                    time.sleep(0.5)
+                    now_w = time.time()
+                    if now_w - last_wait_print >= 2.0:
+                        timestr = time.strftime("%H:%M:%S")
+                        sys.stdout.write(f"\r⏳ [{timestr}] Video karesi bekleniyor... [Hedef: {target_topic}] ")
+                        sys.stdout.flush()
+                        last_wait_print = now_w
+                    time.sleep(0.1)
 
     except KeyboardInterrupt:
         print("\n🛑 Kullanıcı tarafından durduruldu.")
