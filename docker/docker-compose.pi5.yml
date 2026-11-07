@@ -32,7 +32,7 @@ services:
     environment:
       - VEHICLE_CODE=rover_04
       - VEHICLE_ID=4
-      - ZENOH_ROUTER=tcp://${WINDOWS_IP:-192.168.1.2}:7447
+      - ZENOH_ROUTER=tcp://${WINDOWS_IP:-192.168.1.3}:7447
       - LOG_LEVEL=INFO
 
   # Ara Köprü / Yönlendirici: Hem Wi-Fi hem İzole ağ
@@ -50,7 +50,7 @@ services:
     environment:
       - VEHICLE_CODE=rover_05
       - VEHICLE_ID=5
-      - ZENOH_ROUTER=tcp://${WINDOWS_IP:-192.168.1.2}:7447
+      - ZENOH_ROUTER=tcp://${WINDOWS_IP:-192.168.1.3}:7447
       - ZENOH_LISTEN_ENDPOINT=tcp/0.0.0.0:7447
       - LOG_LEVEL=INFO
 
