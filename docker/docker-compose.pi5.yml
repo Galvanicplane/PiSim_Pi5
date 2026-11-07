@@ -1,4 +1,4 @@
-version: '3.8'
+tamamversion: '3.8'
 
 # ==============================================================================
 # PiSim Swarm - Raspberry Pi 5 Çok Atlamalı (Multi-Hop) & İzole Ajan Yapılandırması
@@ -67,6 +67,8 @@ services:
       - pi5_isolated_net
     depends_on:
       - agent_rover_05
+    ports:
+      - "8088:8088"
     environment:
       - VEHICLE_CODE=rover_06
       - VEHICLE_ID=6

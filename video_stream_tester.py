@@ -304,6 +304,104 @@ class VideoViewerState:
         self.last_stat_time = time.time()
 
 
+import http.server
+import socketserver
+
+
+def start_web_server(port: int, state: VideoViewerState):
+    """Gelen video karelerini tarayıcıdan (Chrome/Safari/Edge) izlemek için MJPEG HTTP sunucusu açar."""
+    class MJPEGHandler(http.server.BaseHTTPRequestHandler):
+        def log_message(self, format, *args):
+            pass
+
+        def do_GET(self):
+            if self.path in ('/', '/index.html'):
+                self.send_response(200)
+                self.send_header('Content-Type', 'text/html; charset=utf-8')
+                self.end_headers()
+                html = f"""<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="utf-8">
+    <title>PiSim Canlı Video Akışı</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        body {{ background: #0c1017; color: #e6edf3; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; text-align: center; margin: 0; padding: 24px; }}
+        h1 {{ font-size: 1.6rem; color: #00ffaa; margin: 0 0 8px 0; text-shadow: 0 0 20px rgba(0,255,170,0.3); }}
+        .meta {{ color: #8b949e; font-size: 0.9rem; margin-bottom: 20px; }}
+        .badge {{ background: #00ffaa22; color: #00ffaa; border: 1px solid #00ffaa44; padding: 4px 12px; border-radius: 20px; font-weight: bold; font-size: 0.8rem; display: inline-block; }}
+        .video-wrapper {{ display: inline-block; padding: 10px; background: #161b22; border: 2px solid #30363d; border-radius: 12px; box-shadow: 0 12px 40px rgba(0,0,0,0.7); max-width: 95%; }}
+        img {{ max-width: 100%; height: auto; border-radius: 8px; display: block; }}
+        .footer {{ margin-top: 16px; color: #6e7681; font-size: 0.8rem; }}
+    </style>
+</head>
+<body>
+    <h1>🎬 PiSim Canlı Kamera Akışı</h1>
+    <div class="meta">
+        <span class="badge">● CANLI YAYIN</span> &nbsp; Topic: <code>{state.source_topic or "pisim/rover_01/camera/compressed"}</code>
+    </div>
+    <div class="video-wrapper">
+        <img src="/stream.mjpg" alt="Canlı Kamera Akışı" />
+    </div>
+    <div class="footer">Docker ve Dağınık Ağ Üzerinden Doğrudan Tarayıcıya Aktarılmaktadır</div>
+</body>
+</html>"""
+                self.wfile.write(html.encode('utf-8'))
+
+            elif self.path == '/stream.mjpg':
+                self.send_response(200)
+                self.send_header('Age', '0')
+                self.send_header('Cache-Control', 'no-cache, private')
+                self.send_header('Pragma', 'no-cache')
+                self.send_header('Content-Type', 'multipart/x-mixed-replace; boundary=FRAME')
+                self.end_headers()
+                try:
+                    while state.running:
+                        jpeg_bytes = None
+                        with state.lock:
+                            if state.latest_frame is not None:
+                                _, enc = cv2.imencode('.jpg', state.latest_frame, [int(cv2.IMWRITE_JPEG_QUALITY), 80])
+                                jpeg_bytes = enc.tobytes()
+                        if jpeg_bytes:
+                            self.wfile.write(b'--FRAME\r\n')
+                            self.send_header('Content-Type', 'image/jpeg')
+                            self.send_header('Content-Length', str(len(jpeg_bytes)))
+                            self.end_headers()
+                            self.wfile.write(jpeg_bytes)
+                            self.wfile.write(b'\r\n')
+                        time.sleep(0.04) # ~25 FPS
+                except Exception:
+                    pass
+
+            elif self.path == '/snapshot.jpg':
+                jpeg_bytes = None
+                with state.lock:
+                    if state.latest_frame is not None:
+                        _, enc = cv2.imencode('.jpg', state.latest_frame)
+                        jpeg_bytes = enc.tobytes()
+                if jpeg_bytes:
+                    self.send_response(200)
+                    self.send_header('Content-Type', 'image/jpeg')
+                    self.send_header('Content-Length', str(len(jpeg_bytes)))
+                    self.end_headers()
+                    self.wfile.write(jpeg_bytes)
+                else:
+                    self.send_response(404)
+                    self.end_headers()
+
+    class ThreadedHTTPServer(socketserver.ThreadingMixIn, http.server.HTTPServer):
+        daemon_threads = True
+
+    try:
+        server = ThreadedHTTPServer(('0.0.0.0', port), MJPEGHandler)
+        print(f"\n🌐 [CANLI WEB YAYINI AÇILDI] Tarayıcınızdan izlemek için açın:")
+        print(f"   👉 http://localhost:{port} (veya http://<cihaz_ip>:{port})\n")
+        t = threading.Thread(target=server.serve_forever, daemon=True)
+        t.start()
+    except Exception as e:
+        print(f"⚠️ Web sunucusu başlatılamadı (Port {port}): {e}")
+
+
 def run_viewer(args):
     """Zenoh Topic'inden Gelen Canlı Video Akışını Dinler ve Ekranda Açar."""
     if not HAS_CV2:
@@ -366,6 +464,9 @@ def run_viewer(args):
     target_topic = args.topic
     print(f"👂 Canlı Video Aboneliği Açılıyor -> [Zenoh Topic: {target_topic}]")
     sub = session.declare_subscriber(target_topic, on_video_sample)
+
+    if args.web:
+        start_web_server(args.web, state)
 
     window_name = f"PiSim Live Feed: {target_topic}"
     if not args.headless:
@@ -499,6 +600,7 @@ def main():
 
     # İzleyici Özel Parametreleri
     parser.add_argument("--headless", action="store_true", help="Grafik arayüzü olmadan sadece konsol metriklerini izle")
+    parser.add_argument("--web", "-w", type=int, nargs="?", const=8088, default=None, help="Canlı video akışını dahili web sunucusuyla tarayıcıya açar (Varsayılan port: 8088)")
 
     args = parser.parse_args()
 
