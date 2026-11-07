@@ -13,8 +13,7 @@ networks:
     driver: bridge
 
   pi5_isolated_net:
-    driver: bridge
-    internal: true # Dış dünyaya, Wi-Fi'a veya Windows IP'sine doğrudan erişim KESİNLİKLE YOK!
+    driver: bridge # Yalnızca Rover 05 ve 06 arasındaki iç ağ (Rover 06 omurgaya ve Windows'a doğrudan bağlı değildir)
 
 services:
   agent_rover_04:
