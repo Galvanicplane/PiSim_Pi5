@@ -258,9 +258,18 @@ class ZenohMeshBridge:
             target_port = UNREAL_BASE_TX_PORT + v_id
 
             # UDP Paketi Formatla ve Unreal'a Gönder
-            packet = {"topic": f"/{v_code}/actuators", "motors": json.loads(payload)}
+            packet = {
+                "topic": f"/{v_code}/actuators",
+                "cmd": "actuators",
+                "target": v_code,
+                "motors": json.loads(payload),
+                "timeout_ms": 600,
+            }
             raw = json.dumps(packet).encode("utf-8")
+            # Hem TopicBridge portuna (7410 + id) hem de Araç Dedicated portuna (7402 + id) ilet
             self.udp_tx_sock.sendto(raw, (self.ue5_ip, target_port))
+            self.udp_tx_sock.sendto(raw, (self.ue5_ip, 7402 + v_id))
+            self.udp_tx_sock.sendto(raw, (self.ue5_ip, 7402))
 
     def _on_zenoh_channels(self, sample):
         """Zenoh'tan gelen ArduPilot PWM kanallarını Unreal'a iletir."""
@@ -272,9 +281,16 @@ class ZenohMeshBridge:
             v_id = self._extract_vehicle_id(v_code)
             target_port = UNREAL_BASE_TX_PORT + v_id
 
-            packet = {"topic": f"/{v_code}/channels", "channels": json.loads(payload)}
+            packet = {
+                "topic": f"/{v_code}/channels",
+                "cmd": "channels",
+                "target": v_code,
+                "channels": json.loads(payload),
+                "timeout_ms": 600,
+            }
             raw = json.dumps(packet).encode("utf-8")
             self.udp_tx_sock.sendto(raw, (self.ue5_ip, target_port))
+            self.udp_tx_sock.sendto(raw, (self.ue5_ip, 7402 + v_id))
 
     def _on_zenoh_cmd_vel(self, sample):
         """Zenoh'tan gelen Twist hız komutunu Unreal'a iletir."""
@@ -290,12 +306,17 @@ class ZenohMeshBridge:
             packet = {
                 "topic": f"/{v_code}/cmd_vel",
                 "cmd": "cmd_vel",
+                "target": v_code,
+                "linear": cmd_data.get("linear", {}),
+                "angular": cmd_data.get("angular", {}),
                 "linear_x": cmd_data.get("linear", {}).get("x", 0.0),
                 "angular_z": cmd_data.get("angular", {}).get("z", 0.0),
-                "timeout_ms": 500,
+                "timeout_ms": 600,
             }
             raw = json.dumps(packet).encode("utf-8")
             self.udp_tx_sock.sendto(raw, (self.ue5_ip, target_port))
+            self.udp_tx_sock.sendto(raw, (self.ue5_ip, 7402 + v_id))
+            self.udp_tx_sock.sendto(raw, (self.ue5_ip, 7402))
 
     def _on_zenoh_ping(self, sample):
         """Zenoh'tan gelen ping testini Unreal TopicBridge'e iletir."""

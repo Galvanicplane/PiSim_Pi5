@@ -296,20 +296,21 @@ class ZenohTopicMonitor:
         lines.append(f"║ 🎮 UNREAL SİMÜLASYON ARAÇLARI: {v_str[:box_width-34]}".ljust(box_width - 2) + " ║")
 
         # -------------------------------------------------------------
-        # 2. PI 5 DOCKER AJANLARI (Beyinler)
+        # 2. AJANLAR (Pi 5 Yerel ve Docker Beyinleri)
         # -------------------------------------------------------------
         active_agents = []
         for a_id, a_data in self.docker_agents.items():
             if (now - a_data["last_seen"]) <= 4.0:
                 conn_icon = "🟢" if a_data.get("connected") else "🟡"
-                active_agents.append(f"{a_id} ({conn_icon} ➔ {a_data.get('target', 'auto')})")
+                tag = "🐳 Docker" if ("docker" in a_id.lower() or "win11" in a_id.lower()) else "🍓 Pi5"
+                active_agents.append(f"[{tag}] {a_id} ({conn_icon} ➔ {a_data.get('target', 'auto')})")
 
         if active_agents:
-            a_str = f"🤖 [ {', '.join(sorted(active_agents))} ]"
+            a_str = f"[ {', '.join(sorted(active_agents))} ]"
         else:
-            a_str = "Ağda aktif Docker ajanı yok"
+            a_str = "Ağda aktif otopilot ajanı yok"
 
-        lines.append(f"║ 🧠 PI 5 DOCKER AJANLARI      : {a_str[:box_width-34]}".ljust(box_width - 2) + " ║")
+        lines.append(f"║ 🧠 OTOPİLOT AJANLARI         : {a_str[:box_width-34]}".ljust(box_width - 2) + " ║")
         lines.append(f"╠{line_bar}╣")
 
         # Tablo Başlığı

@@ -27,8 +27,8 @@ services:
     networks:
       - pi5_backbone_net
     environment:
-      - VEHICLE_CODE=rover_04
-      - TARGET_VEHICLE=${TARGET_VEHICLE:-auto}
+      - VEHICLE_CODE=pi5/docker_rover_04
+      - TARGET_VEHICLE=${TARGET_VEHICLE:-rover_01}
       - VEHICLE_ID=4
       - ZENOH_ROUTER=tcp://${WINDOWS_IP:-192.168.1.3}:7447
       - LOG_LEVEL=INFO
@@ -46,8 +46,8 @@ services:
       - pi5_backbone_net
       - pi5_isolated_net
     environment:
-      - VEHICLE_CODE=rover_05
-      - TARGET_VEHICLE=${TARGET_VEHICLE:-auto}
+      - VEHICLE_CODE=pi5/docker_rover_05
+      - TARGET_VEHICLE=${TARGET_VEHICLE:-rover_01}
       - VEHICLE_ID=5
       - ZENOH_ROUTER=tcp://${WINDOWS_IP:-192.168.1.3}:7447
       - ZENOH_LISTEN_ENDPOINT=tcp/0.0.0.0:7447
@@ -69,8 +69,8 @@ services:
     ports:
       - "8088:8088"
     environment:
-      - VEHICLE_CODE=rover_06
-      - TARGET_VEHICLE=${TARGET_VEHICLE:-auto}
+      - VEHICLE_CODE=pi5/docker_rover_06
+      - TARGET_VEHICLE=${TARGET_VEHICLE:-rover_01}
       - VEHICLE_ID=6
       - ZENOH_ROUTER=tcp/agent_rover_05:7447
       - LOG_LEVEL=INFO

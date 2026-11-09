@@ -1,68 +1,55 @@
 ================================================================================
- PISIM - RASPBERRY PI 5 KURULUM VE ÇALIŞTIRMA KILAVUZU
+ PISIM - RASPBERRY PI 5 KURULUM, TEST VE ÇALIŞTIRMA KILAVUZU
 ================================================================================
 Bu kılavuz, PiSim otonom araç sürüsü, ArduPilot L1 otopilot mimarisi ve
 dağıtık Zenoh ağı bileşenlerinin kullanımını içerir.
 
 --------------------------------------------------------------------------------
-1. MİMARİ DOSYALARI
+1. MİMARİ VE DOSYALAR
 --------------------------------------------------------------------------------
-1) topic_monitor.py     : Ağdaki tüm topic'leri, araçları ve frekansları canlı izleme
-2) mission_planner.py   : Parametrik rastgele görev ve 4 hedef üreteci (100m kuralı)
+1) topic_monitor.py     : Ağdaki aktif araçları, topic'leri ve frekansları canlı izleme
+2) test_drive_echo.py   : Unreal'daki aracın hareketini 3 saniyede doğrulayan echo testi
 3) agent_supervisor.py  : Bağlantı kontrolcüsü, görev koordinatörü ve sabit HUD
 4) autopilot_driver.py  : ArduPilot AP_L1_Control otopilot navigasyon motoru
-5) vehicle_hardware.py  : Ackermann direksiyon ve aktüatör fizik katmanı
-6) zenoh_mesh.py        : Zenoh router ve yönlendirici omurga
-7) video_stream_tester.py: Video/kamera yayıncısı ve web izleyicisi
+5) mission_planner.py   : Parametrik rastgele görev ve 4 hedef üreteci (100m kuralı)
+6) zenoh_mesh.py        : Zenoh router ve yönlendirici omurga (Windows PC)
 
 --------------------------------------------------------------------------------
-2. CANLI TOPIC'LERİ AYRI BİR TERMİNALDEN İZLEME (Topic Monitor)
+2. İSİMLENDİRME STANDARDI
 --------------------------------------------------------------------------------
-Unreal Engine veya ağdaki tüm topic'leri canlı görmek için ayrı bir terminalde:
+- Unreal'daki Simülasyon Araçları : rover_01, rover_02 (veya win11_rover01)
+- Pi 5'te Yerel Çalışan Ajanlar   : pi5_rover01, pi5_rover05
+- Docker İçinde Çalışan Ajanlar   : pi5/docker_rover_04, pi5/docker_rover_05
+
+--------------------------------------------------------------------------------
+3. UNREAL'DAKİ ARACIN KOMUT ALIP ALMADIĞINI TEST ETME (Echo Testi)
+--------------------------------------------------------------------------------
+Unreal'da aracı Play ile başlattıktan sonra, hareket edip etmediğini test edin:
+   python3 test_drive_echo.py --vehicle rover_01
+(Sağa direksiyon + gaz darbesi gönderir ve dönen IMU/GPS ile hareketi doğrular).
+
+--------------------------------------------------------------------------------
+4. DOCKER OLMADAN, DOĞRUDAN PI 5'TE ÇALIŞTIRMA (Native Python)
+--------------------------------------------------------------------------------
+A) Pi 5 Terminal 1 - Ağ ve Topic Monitörünü Açın:
    python3 topic_monitor.py
-   (Veya Router IP ile: python3 topic_monitor.py --router tcp/192.168.1.3:7447)
+   (Hiçbir IP girmeden açılır, ağdaki Unreal araçlarını ve canlı Hz'i gösterir).
 
-Hızlı liste görmek için (`ros2 topic list` gibi):
-   python3 topic_monitor.py --list
+B) Pi 5 Terminal 2 - İlk Aracı (rover_01) Süren Ajanı Başlatın:
+   python3 agent_supervisor.py --agent pi5_rover01 --vehicle rover_01 --distance 100
 
-Belirli bir topic'in içini canlı dinlemek için (`ros2 topic echo` gibi):
-   python3 topic_monitor.py --echo pisim/rover_01/gps
-
---------------------------------------------------------------------------------
-3. DOCKER'A HANGİ ARACA BAĞLANACAĞINI BELİRTME (3 YÖNTEM)
---------------------------------------------------------------------------------
-
-A) YÖNTEM 1: OTOMATİK KEŞİF (Varsayılan - Hiçbir ayar yapmanıza gerek yok)
-   Docker ayağa kalktığında otomatik olarak `TARGET_VEHICLE=auto` modundadır.
-   Unreal'da hangi aracı başlatırsanız (örneğin rover_01), Docker bunu otomatik
-   keşfeder ve o araca bağlanıp göreve başlar!
-
-B) YÖNTEM 2: ÇALIŞIRKEN ANINDA ARAÇ ATAMA (Konteyneri Kapatmadan!)
-   Ayrı bir terminalden istediğiniz konteynere yeni araç atayın:
-   python3 agent_supervisor.py --agent rover_04 --assign rover_01
-   Konteyner hiç durmadan anında rover_01'e kilitlenir!
-
-C) YÖNTEM 3: İNTERAKTİF SEÇİM VEYA ELLE BELİRTME
-   Konteyner içinde seçim yapmak için:
-   docker exec -it pisim_agent_rover_04 python agent_supervisor.py --select
-   (Ekrana ağdaki araçların listesi gelir, klavyeden 1 veya rover_01 seçersiniz).
-
-   Veya doğrudan elle başlatmak için:
-   docker exec -it pisim_agent_rover_04 python agent_supervisor.py --vehicle rover_01
+C) İkinci Araç İçin (rover_02):
+   python3 agent_supervisor.py --agent pi5_rover02 --vehicle rover_02 --distance 100
 
 --------------------------------------------------------------------------------
-4. PI 5 DOCKER KONTEYNERLERİNİ BAŞLATMA
+5. DOCKER İLE ÇALIŞTIRMA (Konteynerler İle)
 --------------------------------------------------------------------------------
-1. Kodları çekin:
-   cd ~/PiSim_Pi5
-   git pull origin main
-
-2. Konteynerleri başlatın:
+1. Konteynerleri ayağa kaldırın:
    cd ~/PiSim_Pi5/docker
    docker compose -f docker-compose.pi5.yml down
-   WINDOWS_IP=192.168.1.3 docker compose -f docker-compose.pi5.yml up -d --build
+   docker compose -f docker-compose.pi5.yml up -d --build
 
-3. Konteyner ekranını izlemek için:
+2. Canlı HUD ekranını izlemek için:
    docker attach pisim_agent_rover_04
    (Ayrılmak için: Ctrl+P ardından Ctrl+Q)
 ================================================================================
