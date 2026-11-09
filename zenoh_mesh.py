@@ -146,11 +146,17 @@ class ZenohMeshBridge:
                 my_ip = "127.0.0.1"
 
             beacon = json.dumps({"pisim_zenoh": True, "endpoint": f"tcp/{my_ip}:7447"}).encode("utf-8")
-            try:
-                b_sock.sendto(beacon, ("255.255.255.255", 7447))
-            except Exception:
-                pass
-            time.sleep(1.5)
+            targets = [("255.255.255.255", 7447), ("255.255.255.255", 7448)]
+            if my_ip != "127.0.0.1" and "." in my_ip:
+                prefix = ".".join(my_ip.split(".")[:3])
+                targets.extend([(f"{prefix}.255", 7447), (f"{prefix}.255", 7448)])
+
+            for tgt in targets:
+                try:
+                    b_sock.sendto(beacon, tgt)
+                except Exception:
+                    pass
+            time.sleep(0.35)
         b_sock.close()
 
     def stop(self):

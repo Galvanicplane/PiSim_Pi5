@@ -87,8 +87,7 @@ def main():
             parts = str(sample.key_expr).split("/")
             if len(parts) >= 3 and parts[0] == "pisim":
                 cand_code = parts[1]
-                from agent_supervisor import is_vehicle_match
-                if is_vehicle_match(v_code, cand_code):
+                if v_code.lower() == "auto" or cand_code == v_code:
                     actual_vehicle_code = cand_code
                     data = json.loads(sample.payload.to_string())
                     q = data.get("orientation", {})
@@ -109,8 +108,7 @@ def main():
             parts = str(sample.key_expr).split("/")
             if len(parts) >= 3 and parts[0] == "pisim":
                 cand_code = parts[1]
-                from agent_supervisor import is_vehicle_match
-                if is_vehicle_match(v_code, cand_code):
+                if v_code.lower() == "auto" or cand_code == v_code:
                     actual_vehicle_code = cand_code
                     data = json.loads(sample.payload.to_string())
                     received_gps_count += 1

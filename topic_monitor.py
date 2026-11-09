@@ -39,16 +39,22 @@ except ImportError:
     HAS_ZENOH = False
 
 
-def auto_discover_zenoh_endpoint(timeout_sec: float = 0.6, verbose: bool = True) -> Optional[str]:
-    """Ağdaki Zenoh router veya yayın noktasını hiçbir IP girmeden dinamik olarak keşfeder."""
+def auto_discover_zenoh_endpoint(timeout_sec: float = 0.8, verbose: bool = True) -> Optional[str]:
+    """
+    Ağdaki Zenoh router veya yayın noktasını hiçbir IP girmeden dinamik olarak keşfeder.
+    3 Kademeli Sıfır-Yapılandırma (Zero-Config) Keşif:
+      1. Yerel Loopback (127.0.0.1:7447)
+      2. LAN UDP Broadcast Beacon Dinleme (Port 7447 & 7448)
+      3. LAN Alt Ağ (Subnet /24) Hızlı Port 7447 Taraması (Wi-Fi Multicast/Broadcast filtrelerini aşar)
+    """
     if verbose:
         print("\n" + "=" * 68)
         print("🔍 [AĞ KEŞFİ BAŞLATILDI] (Sıfır IP / Zero-Config Otomatik Arama)")
 
-    # 1. Yerel bilgisayardaki 7447 portunu kontrol et
+    # 1. Yerel bilgisayardaki 7447 portunu kontrol et (Loopback)
     try:
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        s.settimeout(0.2)
+        s.settimeout(0.15)
         if s.connect_ex(('127.0.0.1', 7447)) == 0:
             s.close()
             if verbose:
@@ -60,37 +66,80 @@ def auto_discover_zenoh_endpoint(timeout_sec: float = 0.6, verbose: bool = True)
     except Exception:
         pass
 
-    # 2. Yerel ağdaki (LAN) UDP broadcast beacon dinle (Port 7447)
+    # 2. Yerel ağdaki (LAN) UDP broadcast beacon dinle (Port 7447 & 7448)
     if verbose:
-        print(f"  ├── 📡 Yerel ağ (LAN UDP 7447) dinleniyor ({timeout_sec:.1f} sn)...")
+        print(f"  ├── 📡 1. Aşama: Yerel ağ UDP beacon dinleniyor ({timeout_sec:.1f} sn)...")
+
+    for port in (7447, 7448):
+        try:
+            rx_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            rx_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            if hasattr(socket, "SO_REUSEPORT"):
+                try:
+                    rx_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
+                except Exception:
+                    pass
+            rx_sock.bind(("", port))
+            rx_sock.settimeout(timeout_sec)
+            data, addr = rx_sock.recvfrom(2048)
+            rx_sock.close()
+            text = data.decode("utf-8", errors="ignore").strip()
+            if "pisim_zenoh" in text:
+                pkt = json.loads(text)
+                discovered_ep = pkt.get("endpoint") or f"tcp/{addr[0]}:7447"
+                if verbose:
+                    print(f"  ├── 🎯 LAN BEACON YAKALANDI! Paket Gönderen Cihaz: {addr[0]}")
+                    print(f"  └── ✅ BAĞLANTI: Dinamik Keşfedilen IP -> {discovered_ep} (Ezbere değil, ağdan okundu)")
+                    print("=" * 68 + "\n")
+                return discovered_ep
+        except Exception:
+            pass
+
+    # 3. Wi-Fi / Router broadcast kısıtlamalarını aşmak için hızlı yerel alt ağ (/24) taraması
+    if verbose:
+        print("  ├── 🔍 2. Aşama: Yerel alt ağ (Subnet) Zenoh Port 7447 hızlı taraması yapılıyor...")
 
     try:
-        rx_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        rx_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        if hasattr(socket, "SO_REUSEPORT"):
-            try:
-                rx_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
-            except Exception:
-                pass
-        rx_sock.bind(("", 7447))
-        rx_sock.settimeout(timeout_sec)
-        data, addr = rx_sock.recvfrom(2048)
-        rx_sock.close()
-        text = data.decode("utf-8", errors="ignore").strip()
-        if "pisim_zenoh" in text:
-            pkt = json.loads(text)
-            discovered_ep = pkt.get("endpoint") or f"tcp/{addr[0]}:7447"
-            if verbose:
-                print(f"  ├── 🎯 LAN BEACON YAKALANDI! Paket Gönderen Cihaz: {addr[0]}")
-                print(f"  └── ✅ BAĞLANTI: Dinamik Keşfedilen IP -> {discovered_ep} (Ezbere değil, ağdan okundu)")
-                print("=" * 68 + "\n")
-            return discovered_ep
-    except socket.timeout:
-        if verbose:
-            print("  ├── ℹ️ LAN Beacon sinyali duyulmadı (Ağda harici router beacon basmıyor).")
+        import concurrent.futures
+
+        s_ip = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            s_ip.connect(('8.8.8.8', 80))
+            my_ip = s_ip.getsockname()[0]
+        except Exception:
+            my_ip = '127.0.0.1'
+        finally:
+            s_ip.close()
+
+        if my_ip != "127.0.0.1" and "." in my_ip:
+            ip_prefix = ".".join(my_ip.split(".")[:3])
+            target_ips = [f"{ip_prefix}.{i}" for i in range(1, 255) if f"{ip_prefix}.{i}" != my_ip]
+
+            def check_target_ip(ip):
+                try:
+                    s_probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                    s_probe.settimeout(0.25)
+                    r = s_probe.connect_ex((ip, 7447))
+                    s_probe.close()
+                    if r == 0:
+                        return f"tcp/{ip}:7447"
+                except Exception:
+                    pass
+                return None
+
+            with concurrent.futures.ThreadPoolExecutor(max_workers=64) as ex:
+                futures = [ex.submit(check_target_ip, ip) for ip in target_ips]
+                for fut in concurrent.futures.as_completed(futures):
+                    res = fut.result()
+                    if res:
+                        if verbose:
+                            print(f"  ├── 🎯 ALT AĞ TARAMASINDA ZENOH YÖNLENDİRİCİSİ BULUNDU: {res}")
+                            print(f"  └── ✅ BAĞLANTI: Dinamik Keşfedilen IP -> {res}")
+                            print("=" * 68 + "\n")
+                        return res
     except Exception as e:
         if verbose:
-            print(f"  ├── ⚠️ LAN dinleme uyarısı: {e}")
+            print(f"  ├── ⚠️ Alt ağ tarama uyarısı: {e}")
 
     if verbose:
         print("  └── 🌐 Yönlendirici IP'siz Mod: Saf Zenoh P2P Dağınık Ağ Modu Aktif (Multicast Discovery: 224.0.0.225:7446)")
