@@ -81,8 +81,12 @@ def normalize_zenoh_endpoint(ep: Optional[str], default_port: int = 7447) -> Opt
     return ep
 
 
-def auto_discover_zenoh_endpoint(timeout_sec: float = 0.5) -> Optional[str]:
-    """Ağdaki Zenoh router veya yayın noktasını hiçbir IP girmeden otomatik keşfeder."""
+def auto_discover_zenoh_endpoint(timeout_sec: float = 0.6, verbose: bool = True) -> Optional[str]:
+    """Ağdaki Zenoh router veya yayın noktasını hiçbir IP girmeden dinamik olarak keşfeder."""
+    if verbose:
+        print("\n" + "=" * 68)
+        print("🔍 [AĞ KEŞFİ BAŞLATILDI] (Sıfır IP / Zero-Config Otomatik Arama)")
+
     # 1. Yerel bilgisayardaki 7447 portunu kontrol et
     try:
         import socket
@@ -90,12 +94,19 @@ def auto_discover_zenoh_endpoint(timeout_sec: float = 0.5) -> Optional[str]:
         s.settimeout(0.2)
         if s.connect_ex(('127.0.0.1', 7447)) == 0:
             s.close()
+            if verbose:
+                print("  ├── 🔌 Yerel Zenoh Yönlendiricisi Bulundu: tcp/127.0.0.1:7447 (Loopback)")
+                print("  └── ✅ BAĞLANTI: Bu bilgisayardaki yerel Zenoh omurgasına bağlanıldı.")
+                print("=" * 68 + "\n")
             return "tcp/127.0.0.1:7447"
         s.close()
     except Exception:
         pass
 
     # 2. Yerel ağdaki (LAN) UDP broadcast beacon dinle (Port 7447)
+    if verbose:
+        print(f"  ├── 📡 Yerel ağ (LAN UDP 7447) dinleniyor ({timeout_sec:.1f} sn)...")
+
     try:
         import socket
         rx_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -112,10 +123,22 @@ def auto_discover_zenoh_endpoint(timeout_sec: float = 0.5) -> Optional[str]:
         text = data.decode("utf-8", errors="ignore").strip()
         if "pisim_zenoh" in text:
             pkt = json.loads(text)
-            return pkt.get("endpoint") or f"tcp/{addr[0]}:7447"
-    except Exception:
-        pass
+            discovered_ep = pkt.get("endpoint") or f"tcp/{addr[0]}:7447"
+            if verbose:
+                print(f"  ├── 🎯 LAN BEACON YAKALANDI! Paket Gönderen Cihaz: {addr[0]}")
+                print(f"  └── ✅ BAĞLANTI: Dinamik Keşfedilen IP -> {discovered_ep} (Ezbere değil, ağdan okundu)")
+                print("=" * 68 + "\n")
+            return discovered_ep
+    except socket.timeout:
+        if verbose:
+            print("  ├── ℹ️ LAN Beacon sinyali duyulmadı (Ağda harici router beacon basmıyor).")
+    except Exception as e:
+        if verbose:
+            print(f"  ├── ⚠️ LAN dinleme uyarısı: {e}")
 
+    if verbose:
+        print("  └── 🌐 Yönlendirici IP'siz Mod: Saf Zenoh P2P Dağınık Ağ Modu Aktif (Multicast Discovery: 224.0.0.225:7446)")
+        print("=" * 68 + "\n")
     return None
 
 
