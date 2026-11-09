@@ -12,11 +12,13 @@ Runs the HTML5/CSS/JS tactical dashboard on Raspberry Pi 5 (Linux ARM64), Window
 - Hiçbir yerde sahte / fake veri veya mesaj üretmez; tüm veriler gerçektir!
 """
 
+import argparse
 import http.server
 import socketserver
 import threading
 import socket
 import json
+import math
 import time
 import sys
 import os
@@ -24,6 +26,15 @@ import subprocess
 import webbrowser
 from pathlib import Path
 from urllib.parse import urlparse, parse_qs
+from typing import Optional
+
+try:
+    import zenoh
+    HAS_ZENOH = True
+except ImportError:
+    HAS_ZENOH = False
+
+from agent_supervisor import auto_discover_zenoh_endpoint, normalize_zenoh_endpoint
 
 # Import discovery service from beacon_sender
 from beacon_sender import PiSimDiscoveryService, get_local_ip, get_all_local_ips, get_broadcast_targets, send_probe_burst, DISCOVERY_PORT
@@ -839,6 +850,210 @@ def run_udp_video_listener():
             pass
 
 
+def run_zenoh_telemetry_worker(router_endpoint: Optional[str] = None):
+    """
+    Zenoh Topic Köprüsü:
+    'pisim/*/gps', 'pisim/*/imu', 'pisim/*/camera/compressed', 'fleet/*/state'
+    topic'lerini dinleyerek web arayüzünü (harita, telemetri, göstergeler) canlı günceller.
+    """
+    global latest_telemetry, fleet_telemetry, selected_vehicle_code, latest_jpeg_frame
+    global discovered_ue5_ip, last_ue5_contact_time
+
+    if not HAS_ZENOH:
+        print("[Zenoh Telemetri] ℹ️ 'eclipse-zenoh' modülü bulunamadı, yalnızca UDP modu dinlenecek.")
+        return
+
+    ep = router_endpoint or auto_discover_zenoh_endpoint(verbose=False)
+    conf = zenoh.Config()
+    norm_ep = normalize_zenoh_endpoint(ep)
+    if norm_ep:
+        conf.insert_json5("mode", json.dumps("client"))
+        conf.insert_json5("connect/endpoints", json.dumps([norm_ep]))
+        print(f"[Zenoh Telemetri] 🔗 Yönlendiriciye bağlanılıyor: {norm_ep}")
+    else:
+        conf.insert_json5("mode", json.dumps("peer"))
+        print("[Zenoh Telemetri] 🌐 P2P modda başlatılıyor.")
+
+    try:
+        session = zenoh.open(conf)
+        print("[Zenoh Telemetri] ✅ Zenoh telemetri oturumu başarıyla açıldı.")
+        add_system_log(f"📡 [ZENOH KÖPRÜSÜ] Zenoh ağına bağlanıldı ({norm_ep or 'P2P'}). Canlı topic dinleniyor.")
+    except Exception as e:
+        print(f"[Zenoh Telemetri] ⚠️ Zenoh oturumu açılamadı: {e}")
+        return
+
+    prev_gps_tracker = {}
+
+    def on_sample(sample):
+        nonlocal prev_gps_tracker
+        global selected_vehicle_code, latest_jpeg_frame, last_ue5_contact_time, discovered_ue5_ip
+        key = str(sample.key_expr)
+        parts = key.split("/")
+        now_ts = time.time()
+
+        # 1. PISIM Sensör Topic'leri (pisim/<v_code>/...)
+        if key.startswith("pisim/") and len(parts) >= 3:
+            v_code = parts[1]
+            sub_type = parts[2]
+
+            # A. Kamera karesi (pisim/<v_code>/camera/compressed)
+            if sub_type == "camera":
+                raw_bytes = sample.payload.to_bytes()
+                if raw_bytes and (selected_vehicle_code is None or selected_vehicle_code == v_code):
+                    with video_lock:
+                        latest_jpeg_frame = raw_bytes
+                return
+
+            # Diğer sensörler JSON formatında
+            try:
+                data = json.loads(sample.payload.to_string())
+            except Exception:
+                return
+
+            with telemetry_lock:
+                last_ue5_contact_time = now_ts
+                if not discovered_ue5_ip:
+                    discovered_ue5_ip = "127.0.0.1"
+
+                if v_code not in fleet_telemetry:
+                    fleet_telemetry[v_code] = {
+                        "timestamp": now_ts,
+                        "sim_timestamp": float(data.get("timestamp", now_ts)),
+                        "last_rx_time": now_ts,
+                        "rx_count": 0,
+                        "code": v_code,
+                        "id": 1,
+                        "name": v_code,
+                        "vehicle_code": v_code,
+                        "vehicle_id": 1,
+                        "vehicle_name": v_code,
+                        "connected": True,
+                        "ue5_ip": discovered_ue5_ip,
+                        "msg": f"ZENOH_{v_code}",
+                        "pos_x": 0.0,
+                        "pos_y": 0.0,
+                        "pos_z": 0.0,
+                        "roll": 0.0,
+                        "pitch": 0.0,
+                        "yaw": 0.0,
+                        "speed": 0.0,
+                        "altitude": 0.0,
+                        "battery": 98.0,
+                        "lat": 39.9334,
+                        "lon": 32.8597,
+                        "flight_mode": "AKTİF",
+                        "yaw_rate_rad": 0.0,
+                        "speed_mps": 0.0,
+                    }
+                    print(f"  ✅ [ZENOH TELEMETRİ] Yeni araç keşfedildi: {v_code}")
+                    add_system_log(f"✅ [ZENOH] Yeni araç keşfedildi: {v_code}")
+
+                entry = fleet_telemetry[v_code]
+                entry["last_rx_time"] = now_ts
+                entry["rx_count"] += 1
+                entry["connected"] = True
+
+                # GPS Sensörü
+                if sub_type == "gps":
+                    lat = float(data.get("latitude", data.get("lat", entry.get("lat", 0.0))))
+                    lon = float(data.get("longitude", data.get("lon", entry.get("lon", 0.0))))
+                    alt = float(data.get("altitude", data.get("alt", entry.get("altitude", 0.0))))
+                    
+                    spd_mps = float(data.get("speed", 0.0))
+                    if spd_mps == 0.0 and v_code in prev_gps_tracker:
+                        p_lat, p_lon, p_t = prev_gps_tracker[v_code]
+                        dt = now_ts - p_t
+                        if 0.1 <= dt <= 2.0:
+                            dlat = math.radians(lat - p_lat)
+                            dlon = math.radians(lon - p_lon)
+                            dist_m = 6371000.0 * math.sqrt(dlat * dlat + (dlon * math.cos(math.radians(lat))) ** 2)
+                            spd_mps = dist_m / dt
+                    prev_gps_tracker[v_code] = (lat, lon, now_ts)
+
+                    heading = float(data.get("heading", entry.get("yaw", 0.0)))
+                    entry["lat"] = lat
+                    entry["lon"] = lon
+                    entry["altitude"] = round(alt, 1)
+                    entry["speed"] = round(spd_mps * 3.6, 1)
+                    entry["speed_mps"] = round(spd_mps, 2)
+                    if "heading" in data:
+                        entry["yaw"] = round(heading, 1)
+
+                # IMU Sensörü
+                elif sub_type == "imu":
+                    q = data.get("orientation", {})
+                    qx = float(q.get("x", 0.0))
+                    qy = float(q.get("y", 0.0))
+                    qz = float(q.get("z", 0.0))
+                    qw = float(q.get("w", 1.0))
+                    sinr_cosp = 2.0 * (qw * qx + qy * qz)
+                    cosr_cosp = 1.0 - 2.0 * (qx * qx + qy * qy)
+                    roll = math.degrees(math.atan2(sinr_cosp, cosr_cosp))
+
+                    sinp = 2.0 * (qw * qy - qz * qx)
+                    pitch = math.degrees(math.asin(max(-1.0, min(1.0, sinp))))
+
+                    siny_cosp = 2.0 * (qw * qz + qx * qy)
+                    cosy_cosp = 1.0 - 2.0 * (qy * qy + qz * qz)
+                    yaw = math.degrees(math.atan2(siny_cosp, cosy_cosp))
+                    if yaw < 0.0:
+                        yaw += 360.0
+
+                    ang_vel = data.get("angular_velocity", {})
+                    yaw_rate = float(ang_vel.get("z", 0.0)) if isinstance(ang_vel, dict) else 0.0
+
+                    entry["roll"] = round(roll, 2)
+                    entry["pitch"] = round(pitch, 2)
+                    entry["yaw"] = round(yaw, 1)
+                    entry["yaw_rate_rad"] = round(yaw_rate, 3)
+
+                # Eyleyici Durumu
+                elif sub_type == "actuators":
+                    st = data.get("M_Steer_FL", 0.0)
+                    th = data.get("M_Wheel_FL", 0.0)
+                    entry["msg"] = f"Direksiyon: {st:+.2f} | Gaz: {th:+.2f}"
+
+                # Her 5 pakette bir SQLite veritabanına kaydet
+                if entry["rx_count"] % 5 == 0:
+                    telemetry_db.queue_telemetry_row(entry)
+
+                if not selected_vehicle_code:
+                    selected_vehicle_code = v_code
+
+                if selected_vehicle_code == v_code:
+                    latest_telemetry.update(entry)
+                    latest_telemetry["connected"] = True
+                    latest_telemetry["streaming"] = True
+
+        # 2. Filo / Ajan Durum Topic'leri (fleet/<agent_id>/state)
+        elif key.startswith("fleet/") and len(parts) >= 3:
+            agent_id = parts[1]
+            try:
+                data = json.loads(sample.payload.to_string())
+            except Exception:
+                return
+            tgt_v = data.get("target_vehicle")
+            with telemetry_lock:
+                if tgt_v and tgt_v in fleet_telemetry:
+                    wp_idx = data.get("current_wp", data.get("wp_idx", 0))
+                    total_wps = data.get("total_wps", 4)
+                    mode_txt = f"OTONOM [{agent_id}] WP:{wp_idx}/{total_wps}"
+                    fleet_telemetry[tgt_v]["flight_mode"] = mode_txt
+                    if selected_vehicle_code == tgt_v:
+                        latest_telemetry["flight_mode"] = mode_txt
+
+    sub_pisim = session.declare_subscriber("pisim/**", on_sample)
+    sub_fleet = session.declare_subscriber("fleet/**", on_sample)
+
+    try:
+        while True:
+            time.sleep(1.0)
+    except Exception:
+        pass
+    finally:
+        session.close()
+
+
 def launch_in_app_mode(url: str):
     """
     Sayfayı native Uygulama Modunda (Kenarlıksız, adres çubuğu olmadan) açar.
@@ -920,6 +1135,14 @@ def swarm_mission_listener():
             time.sleep(0.05)
 
 def main():
+    global PORT
+    parser = argparse.ArgumentParser(description="PiSim Studio - Tactical Web Dashboard GCS")
+    parser.add_argument("--router", "-r", type=str, default=None, help="Zenoh Router adresi (boş bırakılırsa otomatik keşfedilir)")
+    parser.add_argument("--port", "-p", type=int, default=PORT, help=f"HTTP Web portu (varsayılan: {PORT})")
+    args, _ = parser.parse_known_args()
+
+    PORT = args.port
+
     local_ip = get_local_ip()
     print("=================================================================")
     print("  🚀 PiSim Studio - Raspberry Pi 5 Tactical Web Dashboard GCS    ")
@@ -929,6 +1152,7 @@ def main():
     print(f" [+] Yerel Adres   : http://localhost:{PORT}/dashboard.html")
     print(f" [+] Ağ Adresi     : http://{local_ip}:{PORT}/dashboard.html")
     print(f" [+] Keşif Radarı  : UDP Port {DISCOVERY_PORT} (Beacon & Probe)")
+    print(f" [+] Zenoh Topic   : pisim/** ve fleet/** (Otomatik Keşif Aktif)")
     print(f" [+] Telemetri RX  : UDP Port {TELEMETRY_PORT}")
     print(f" [+] Canlı Video RX: UDP Port {VIDEO_PORT}")
     print("=================================================================")
@@ -939,7 +1163,7 @@ def main():
         fleet_telemetry.clear()
         cached_db_fleet.clear()
     print(" [+] SQL Veritabanı: Temizlendi (0 satır). Yalnızca bu oturumda gelen canlı araçlar kaydedilecek.")
-    add_system_log("🧹 [TEMİZ BAŞLANGIÇ] SQL tablosu sıfırlandı. Canlı UDP 7400 araç telemetrileri bekleniyor...")
+    add_system_log("🧹 [TEMİZ BAŞLANGIÇ] SQL tablosu sıfırlandı. Canlı Zenoh topic telemetrileri bekleniyor...")
 
     global discovery_service_ref
     # 0b. Sürü Görev Dinleyicisini Başlat (UDP Port 7405)
@@ -977,10 +1201,16 @@ def main():
     discovery.on_sql_rows_received = on_sql_rows_received
     discovery.start()
 
-    # 2. SQL Senkronizasyon işçisi kaldırıldı: Her araç 2Hz doğrudan atar ve Pi 5 kendi SQLite'ına yazar.
-    # telemetry_db.init_db() başlangıçta veritabanını ve 10 saniyelik RAM tampon işçisini zaten kurar.
+    # 2. Zenoh Canlı Topic Dinleyicisini Başlat (pisim/** ve fleet/**)
+    t_zenoh = threading.Thread(
+        target=run_zenoh_telemetry_worker,
+        args=(args.router,),
+        daemon=True,
+        name="ZenohTelemetryWorker"
+    )
+    t_zenoh.start()
 
-    # 3. UDP Canlı Telemetri Dinleyicisini Başlat (Port 7400)
+    # 3. UDP Canlı Telemetri Dinleyicisini Başlat (Port 7400 - Eski/Yedek Köprü)
     t_telemetry = threading.Thread(target=run_udp_telemetry_listener, daemon=True, name="TelemetryListener")
     t_telemetry.start()
 

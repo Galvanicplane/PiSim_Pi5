@@ -760,10 +760,24 @@ def main():
                 chosen_vehicle = choice
             else:
                 chosen_vehicle = vehicles[0]
+            dist_input = input(f"Hedef noktalar arası asgari mesafe (metre) [varsayılan: {args.distance:.1f}m]: ").strip()
+            if dist_input:
+                try:
+                    args.distance = float(dist_input)
+                except ValueError:
+                    pass
         else:
             print("⚠️ Ağda henüz aktif yayın yapan araç bulunamadı (Unreal henüz başlatılmamış olabilir).")
             val = input("Bağlanılacak araç kodunu elle girin (veya otomatik keşif için 'auto'): ").strip()
             chosen_vehicle = val if val else "auto"
+            dist_input = input(f"Hedef noktalar arası asgari mesafe (metre) [varsayılan: {args.distance:.1f}m]: ").strip()
+            if dist_input:
+                try:
+                    args.distance = float(dist_input)
+                except ValueError:
+                    pass
+
+    print(f"🎯 [GÖREV YAPILANDIRMASI] Hedef Araç: [{chosen_vehicle}] | Asgari Mesafe: {args.distance:.1f} m | Hedef Sayısı: {args.count}")
 
     agent = AgentSupervisor(
         agent_id=args.agent,
