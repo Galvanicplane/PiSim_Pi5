@@ -73,55 +73,69 @@ def main():
     session = zenoh.open(conf)
     print("✅ Zenoh Oturumu Başarıyla Açıldı.")
 
-    # 2. Sensör Dinleyicileri
+    # 2. Sensör Dinleyicileri (Akıllı Kod Eşleştirme)
+    actual_vehicle_code = v_code
     initial_yaw: Optional[float] = None
     latest_yaw: Optional[float] = None
     latest_speed: float = 0.0
     received_imu_count = 0
     received_gps_count = 0
 
-    def on_imu(sample):
-        nonlocal initial_yaw, latest_yaw, received_imu_count
+    def on_imu_wildcard(sample):
+        nonlocal initial_yaw, latest_yaw, received_imu_count, actual_vehicle_code
         try:
-            data = json.loads(sample.payload.to_string())
-            q = data.get("orientation", {})
-            qx, qy, qz, qw = q.get("x", 0.0), q.get("y", 0.0), q.get("z", 0.0), q.get("w", 1.0)
-            yaw_rad = math.atan2(2.0 * (qw * qz + qx * qy), 1.0 - 2.0 * (qy * qy + qz * qz))
-            deg = math.degrees(yaw_rad)
-            if deg < 0: deg += 360.0
-            if initial_yaw is None:
-                initial_yaw = deg
-            latest_yaw = deg
-            received_imu_count += 1
+            parts = str(sample.key_expr).split("/")
+            if len(parts) >= 3 and parts[0] == "pisim":
+                cand_code = parts[1]
+                from agent_supervisor import is_vehicle_match
+                if is_vehicle_match(v_code, cand_code):
+                    actual_vehicle_code = cand_code
+                    data = json.loads(sample.payload.to_string())
+                    q = data.get("orientation", {})
+                    qx, qy, qz, qw = q.get("x", 0.0), q.get("y", 0.0), q.get("z", 0.0), q.get("w", 1.0)
+                    yaw_rad = math.atan2(2.0 * (qw * qz + qx * qy), 1.0 - 2.0 * (qy * qy + qz * qz))
+                    deg = math.degrees(yaw_rad)
+                    if deg < 0: deg += 360.0
+                    if initial_yaw is None:
+                        initial_yaw = deg
+                    latest_yaw = deg
+                    received_imu_count += 1
         except Exception:
             pass
 
-    def on_gps(sample):
-        nonlocal received_gps_count, latest_speed
+    def on_gps_wildcard(sample):
+        nonlocal received_gps_count, latest_speed, actual_vehicle_code
         try:
-            data = json.loads(sample.payload.to_string())
-            received_gps_count += 1
-            latest_speed = float(data.get("speed", 0.0))
+            parts = str(sample.key_expr).split("/")
+            if len(parts) >= 3 and parts[0] == "pisim":
+                cand_code = parts[1]
+                from agent_supervisor import is_vehicle_match
+                if is_vehicle_match(v_code, cand_code):
+                    actual_vehicle_code = cand_code
+                    data = json.loads(sample.payload.to_string())
+                    received_gps_count += 1
+                    latest_speed = float(data.get("speed", 0.0))
         except Exception:
             pass
 
-    session.declare_subscriber(f"pisim/{v_code}/imu", on_imu)
-    session.declare_subscriber(f"pisim/{v_code}/gps", on_gps)
+    session.declare_subscriber("pisim/*/imu", on_imu_wildcard)
+    session.declare_subscriber("pisim/*/gps", on_gps_wildcard)
 
     # 3. Önce Mevcut Sensör Durumunu Kontrol Et (1 saniye)
-    print(f"\n📡 1. Adım: Unreal Engine sensörleri dinleniyor (pisim/{v_code}/imu & gps)...")
+    print(f"\n📡 1. Adım: Unreal Engine sensörleri dinleniyor ('{v_code}' aranıyor)...")
     time.sleep(1.2)
 
     if received_imu_count == 0 and received_gps_count == 0:
-        print(f"❌ UYARI: Unreal Engine'den '{v_code}' için HİÇBİR SENSÖR GELMEDİ!")
+        print(f"❌ UYARI: Unreal Engine'den '{v_code}' ile eşleşen HİÇBİR SENSÖR GELMEDİ!")
         print("   Olası Sebepler:")
         print("   1) Unreal Engine açık değil veya 'Play' tuşuna basılmadı.")
-        print("   2) Sahnede aktif olan aracın kodu 'rover_01' değil (Farklı bir isim olabilir).")
+        print("   2) Sahnede aktif olan aracın kodu farklı.")
         print("   3) Windows'ta 'zenoh_mesh.py' çalışmıyor.")
         session.close()
         return
 
-    print(f"  └── 🟢 Sensörler Alınıyor! (IMU: {received_imu_count} paket, Başlangıç Açısı: {initial_yaw:.1f}°)")
+    v_code = actual_vehicle_code
+    print(f"  └── 🟢 Sensörler Alınıyor! Hedef: [{v_code}] (IMU: {received_imu_count} paket, Başlangıç Açısı: {initial_yaw:.1f}°)")
 
     # 4. Sürüş Test Komutu Gönder (Sağa %50 Direksiyon + %60 Gaz)
     print(f"\n🕹️ 2. Adım: Unreal'a Test Sürüş Darbesi Gönderiliyor (Sağa Direksiyon: +0.6, Gaz: %60)...")
