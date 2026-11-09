@@ -278,15 +278,18 @@ class PiSimRequestHandler(http.server.SimpleHTTPRequestHandler):
             return
 
         # 2c. Görev ve Metro Hattı REST API uç noktası
-        if clean_path == '/api/mission':
+        if clean_path in ('/api/mission', '/api/missions'):
             self.send_response(200)
             self.send_header('Content-Type', 'application/json')
             self.send_header('Access-Control-Allow-Origin', '*')
             self.send_header('Cache-Control', 'no-cache, no-store, must-revalidate')
             self.end_headers()
-            v_code = selected_vehicle_code if selected_vehicle_code else None
+            qs = parse_qs(parsed_url.query)
+            query_code = qs.get('code', [None])[0]
+            v_code = query_code if query_code else selected_vehicle_code
             m = telemetry_db.get_active_mission(v_code)
-            res = {"status": "OK", "mission": m}
+            all_m = telemetry_db.get_all_active_missions()
+            res = {"status": "OK", "mission": m, "all_missions": all_m}
             self.wfile.write(json.dumps(res).encode('utf-8'))
             return
 

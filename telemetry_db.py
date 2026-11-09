@@ -590,7 +590,8 @@ def get_active_mission(vehicle_code: str = None, only_active: bool = True) -> di
             """, (vehicle_code, norm_code, f"%{norm_code}%", vehicle_code))
             row = cursor.fetchone()
 
-        if not row:
+        # Sadece belirli bir araç kodu istenmediyse en güncel göreve geri düş (fallback)
+        if not row and not vehicle_code:
             cursor.execute(f"""
                 SELECT mission_id, vehicle_code, title, status, total_steps, active_step, created_at, updated_at,
                        (julianday('now', 'localtime') - julianday(updated_at)) * 86400 as age_sec
@@ -649,6 +650,73 @@ def get_active_mission(vehicle_code: str = None, only_active: bool = True) -> di
     except Exception as e:
         print(f"⚠️ [telemetry_db] get_active_mission hatası: {e}")
         return None
+
+
+def get_all_active_missions(only_active: bool = True) -> list:
+    """Tüm araçların aktif görev planlarını ve duraklarını liste olarak döner (Çoklu Araç Harita Çizimi)."""
+    try:
+        conn = sqlite3.connect(str(DB_FILE), timeout=3.0)
+        cursor = conn.cursor()
+        status_filter = "WHERE status = 'RUNNING'" if only_active else ""
+        cursor.execute(f"""
+            SELECT mission_id, vehicle_code, title, status, total_steps, active_step, created_at, updated_at,
+                   (julianday('now', 'localtime') - julianday(updated_at)) * 86400 as age_sec
+            FROM missions 
+            {status_filter}
+            ORDER BY updated_at DESC
+        """)
+        rows = cursor.fetchall()
+        if not rows:
+            conn.close()
+            return []
+
+        missions = []
+        seen_vehicles = set()
+        for r in rows:
+            v_code = r[1]
+            if v_code in seen_vehicles:
+                continue
+            seen_vehicles.add(v_code)
+            age_sec = r[8] if len(r) > 8 and r[8] is not None else 0.0
+            if only_active and age_sec > 300.0:
+                continue
+            m_id = r[0]
+            m_obj = {
+                "mission_id": m_id,
+                "vehicle_code": v_code,
+                "title": r[2],
+                "status": r[3],
+                "total_steps": r[4],
+                "active_step": r[5],
+                "created_at": r[6],
+                "updated_at": r[7],
+                "steps": []
+            }
+            cursor.execute("""
+                SELECT step_index, action_type, title, target_lat, target_lon, speed_mps, turn_radius_m, wait_target, wait_condition, state, executed_at
+                FROM mission_steps WHERE mission_id = ? ORDER BY step_index ASC
+            """, (m_id,))
+            for step_row in cursor.fetchall():
+                m_obj["steps"].append({
+                    "step_index": step_row[0],
+                    "action": step_row[1],
+                    "title": step_row[2],
+                    "lat": step_row[3],
+                    "lon": step_row[4],
+                    "speed": step_row[5],
+                    "turn_radius": step_row[6],
+                    "wait_target": step_row[7],
+                    "wait_condition": step_row[8],
+                    "state": step_row[9],
+                    "executed_at": step_row[10]
+                })
+            missions.append(m_obj)
+
+        conn.close()
+        return missions
+    except Exception as e:
+        print(f"⚠️ [telemetry_db] get_all_active_missions hatası: {e}")
+        return []
 
 
 def record_swarm_event(vehicle_code: str, event_type: str, details: str = ""):

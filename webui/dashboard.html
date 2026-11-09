@@ -940,9 +940,21 @@
 
         async function syncMissionMetroLine() {
             try {
-                const res = await fetch('/api/mission');
+                const targetCode = window.userSelectedVehicleCode || '';
+                const res = await fetch(`/api/mission?code=${encodeURIComponent(targetCode)}`);
                 if (!res.ok) return;
                 const data = await res.json();
+
+                // 1. Haritada tüm aktif araçların rotalarını aynı anda çiz (Çoklu Araç Harita Görünümü)
+                if (data && data.all_missions && data.all_missions.length > 0) {
+                    drawAllMissionsOnMap(data.all_missions);
+                } else if (data && data.mission && data.mission.steps) {
+                    drawAllMissionsOnMap([data.mission]);
+                } else {
+                    clearMissionFromMap();
+                }
+
+                // 2. Metro çubuğunda seçili aracın görev duraklarını göster
                 if (!data || !data.mission) {
                     renderEmptyMetroLine();
                     return;
@@ -955,15 +967,15 @@
             } catch (err) {}
         }
 
-        let missionMapPolyline = null;
+        let missionMapPolylines = [];
         let missionMapMarkers = [];
 
         function clearMissionFromMap() {
             if (tacticalMap && typeof L !== 'undefined') {
-                if (missionMapPolyline) {
-                    try { tacticalMap.removeLayer(missionMapPolyline); } catch (e) {}
-                    missionMapPolyline = null;
-                }
+                missionMapPolylines.forEach(p => {
+                    try { tacticalMap.removeLayer(p); } catch (e) {}
+                });
+                missionMapPolylines = [];
                 missionMapMarkers.forEach(m => {
                     try { tacticalMap.removeLayer(m); } catch (e) {}
                 });
@@ -971,67 +983,75 @@
             }
         }
 
-        function drawMissionOnMap(steps) {
+        const VEHICLE_MISSION_COLORS = ['#00e5ff', '#ff9100', '#00dfb6', '#e040fb', '#ffd600', '#ff5252'];
+
+        function drawAllMissionsOnMap(missions) {
             if (!tacticalMap || typeof L === 'undefined') return;
             clearMissionFromMap();
-            if (!steps || steps.length === 0) return;
+            if (!missions || missions.length === 0) return;
 
-            const routePoints = [];
-            let wpIndex = 1;
+            missions.forEach((m, vIdx) => {
+                const steps = m.steps || [];
+                if (steps.length === 0) return;
+                const vColor = VEHICLE_MISSION_COLORS[vIdx % VEHICLE_MISSION_COLORS.length];
+                const rawCode = m.vehicle_code || `R${vIdx+1}`;
+                const vShort = rawCode.split('-')[0].replace('rover_', 'R').replace('RV', 'R');
+                const routePoints = [];
 
-            steps.forEach((st) => {
-                if (st.lat && st.lon && (Math.abs(st.lat) > 0.001 || Math.abs(st.lon) > 0.001)) {
-                    const latlng = [Number(st.lat), Number(st.lon)];
-                    routePoints.push(latlng);
+                steps.forEach((st, sIdx) => {
+                    if (st.lat && st.lon && (Math.abs(st.lat) > 0.001 || Math.abs(st.lon) > 0.001)) {
+                        const latlng = [Number(st.lat), Number(st.lon)];
+                        routePoints.push(latlng);
 
-                    const isPassed = (st.state === "PASSED");
-                    const isActive = (st.state === "ACTIVE");
-                    const color = isPassed ? "#00dfb6" : (isActive ? "#00e5ff" : "#ffaa00");
-                    const bgGlow = isActive ? "0 0 14px #00e5ff" : "0 0 6px rgba(0,0,0,0.85)";
+                        const isPassed = (st.state === "PASSED");
+                        const isActive = (st.state === "ACTIVE");
+                        const dotColor = isPassed ? "#00dfb6" : (isActive ? vColor : "#ffaa00");
+                        const bgGlow = isActive ? `0 0 14px ${vColor}` : "0 0 6px rgba(0,0,0,0.85)";
 
-                    const customIcon = L.divIcon({
-                        className: 'tactical-mission-wp',
-                        html: `<div style="background:${color}; color:#000; font-weight:900; font-size:10px; font-family:var(--font-mono); width:24px; height:24px; border-radius:50%; display:flex; align-items:center; justify-content:center; border:2px solid #ffffff; box-shadow:${bgGlow}; transform:translate(-12px, -12px);">${wpIndex}</div>`,
-                        iconSize: [0, 0]
-                    });
+                        const customIcon = L.divIcon({
+                            className: 'tactical-mission-wp',
+                            html: `<div style="background:${dotColor}; color:#000; font-weight:900; font-size:9px; font-family:var(--font-mono); min-width:24px; height:24px; padding:0 3px; border-radius:12px; display:flex; align-items:center; justify-content:center; border:2px solid #ffffff; box-shadow:${bgGlow}; transform:translate(-12px, -12px);">${vShort}.${sIdx+1}</div>`,
+                            iconSize: [0, 0]
+                        });
 
-                    const marker = L.marker(latlng, { icon: customIcon }).addTo(tacticalMap);
-                    marker.bindPopup(`
-                        <div style="font-family:var(--font-mono); font-size:11px; color:#ffffff; background:#060b0f; padding:6px; border:1px solid ${color}; border-radius:4px;">
-                            <b style="color:${color};">📍 HEDEF ${wpIndex}: ${st.title}</b><br>
-                            <span style="color:#aaa;">Eylem:</span> <b>${st.action}</b><br>
-                            <span style="color:#aaa;">GPS:</span> ${Number(st.lat).toFixed(6)}, ${Number(st.lon).toFixed(6)}<br>
-                            <span style="color:#aaa;">Durum:</span> <b style="color:${color};">${st.state}</b>
-                        </div>
-                    `);
-                    missionMapMarkers.push(marker);
-                    wpIndex++;
+                        const marker = L.marker(latlng, { icon: customIcon }).addTo(tacticalMap);
+                        marker.bindPopup(`
+                            <div style="font-family:var(--font-mono); font-size:11px; color:#ffffff; background:#060b0f; padding:6px; border:1px solid ${vColor}; border-radius:4px;">
+                                <b style="color:${vColor};">🚗 ${m.vehicle_code} - HEDEF ${sIdx+1}</b><br>
+                                <span style="color:#aaa;">Tanım:</span> <b>${st.title}</b><br>
+                                <span style="color:#aaa;">GPS:</span> ${Number(st.lat).toFixed(6)}, ${Number(st.lon).toFixed(6)}<br>
+                                <span style="color:#aaa;">Durum:</span> <b style="color:${dotColor};">${st.state}</b>
+                            </div>
+                        `);
+                        missionMapMarkers.push(marker);
+                    }
+                });
+
+                if (routePoints.length > 1) {
+                    const poly = L.polyline(routePoints, {
+                        color: vColor,
+                        weight: 3,
+                        dashArray: '8, 8',
+                        opacity: 0.85
+                    }).addTo(tacticalMap);
+                    missionMapPolylines.push(poly);
                 }
             });
-
-            if (routePoints.length > 1) {
-                missionMapPolyline = L.polyline(routePoints, {
-                    color: '#00e5ff',
-                    weight: 3,
-                    dashArray: '8, 8',
-                    opacity: 0.85
-                }).addTo(tacticalMap);
-            }
         }
 
         function renderEmptyMetroLine() {
-            clearMissionFromMap();
             const container = document.getElementById('metro-stops-container');
             const titleEl = document.getElementById('metro-mission-title');
             const statusEl = document.getElementById('metro-mission-status');
-            if (titleEl) titleEl.innerText = "BOŞTA";
+            const targetName = window.userSelectedVehicleCode ? `[${window.userSelectedVehicleCode}] ` : "";
+            if (titleEl) titleEl.innerText = `${targetName}BOŞTA`;
             if (statusEl) {
                 statusEl.innerText = "BEKLEMEDE";
                 statusEl.style.borderColor = "var(--mono-border)";
                 statusEl.style.color = "var(--text-muted)";
             }
-            if (container && container.innerHTML.indexOf("Henüz görev başlatılmadı") === -1) {
-                container.innerHTML = `<div style="font-size: 9.5px; color: var(--text-muted); font-style: italic; padding: 4px;">Henüz görev başlatılmadı. Görev başladığında duraklar burada akar.</div>`;
+            if (container) {
+                container.innerHTML = `<div style="font-size: 9.5px; color: var(--text-muted); font-style: italic; padding: 4px;">${targetName ? targetName + 'için henüz görev başlatılmadı.' : 'Henüz görev başlatılmadı. Sol panelden bir araç seçebilirsiniz.'}</div>`;
             }
         }
 
@@ -1091,9 +1111,6 @@
             });
 
             container.innerHTML = html;
-
-            // Haritada rotayı ve numaralı hedefleri çiz
-            drawMissionOnMap(steps);
         }
 
         window.addEventListener('DOMContentLoaded', () => {

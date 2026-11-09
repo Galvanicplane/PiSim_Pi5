@@ -47,7 +47,7 @@ services:
       - pi5_isolated_net
     environment:
       - VEHICLE_CODE=pi5/docker_rover_05
-      - TARGET_VEHICLE=${TARGET_VEHICLE:-rover_01}
+      - TARGET_VEHICLE=${TARGET_VEHICLE_2:-rover_02}
       - VEHICLE_ID=5
       - ZENOH_ROUTER=tcp://${WINDOWS_IP:-192.168.1.3}:7447
       - ZENOH_LISTEN_ENDPOINT=tcp/0.0.0.0:7447
