@@ -605,7 +605,7 @@ def get_active_mission(vehicle_code: str = None, only_active: bool = True) -> di
             return None
 
         age_sec = row[8] if len(row) > 8 and row[8] is not None else 0.0
-        if only_active and age_sec > 20.0:
+        if only_active and age_sec > 300.0:
             cursor.execute("UPDATE missions SET status = 'ABORTED' WHERE mission_id = ?", (row[0],))
             conn.commit()
             conn.close()

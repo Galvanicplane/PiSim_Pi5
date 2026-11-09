@@ -530,6 +530,76 @@ class AgentSupervisor:
         except Exception:
             pass
 
+    def _publish_mission_plan(self):
+        """Oluşturulan görev planını Zenoh topic'i üzerinden yayınlar ve veritabanına kaydeder."""
+        if not self.mission:
+            return
+
+        mission_dict = {
+            "mission_id": self.mission.mission_id,
+            "vehicle_code": self.target_vehicle,
+            "title": f"Otonom Devriye ({self.target_vehicle})",
+            "status": "RUNNING",
+            "total_steps": self.mission.total_waypoints,
+            "active_step": max(0, self.current_wp_idx - 1),
+            "steps": [
+                {
+                    "step_index": idx,
+                    "action": "GOTO",
+                    "title": f"Hedef {idx + 1} ({wp.target_dist_m:.0f}m)",
+                    "lat": wp.lat,
+                    "lon": wp.lon,
+                    "speed": self.driver.cruise_speed_mps,
+                    "turn_radius": self.driver.min_turn_radius_m,
+                    "state": "ACTIVE" if idx == (self.current_wp_idx - 1) else ("PASSED" if idx < (self.current_wp_idx - 1) else "UPCOMING"),
+                }
+                for idx, wp in enumerate(self.mission.waypoints)
+            ]
+        }
+
+        if self.session:
+            try:
+                payload = json.dumps(mission_dict)
+                self.session.put(f"pisim/{self.target_vehicle}/mission", payload)
+                self.session.put(f"fleet/{self.agent_id}/mission", payload)
+            except Exception:
+                pass
+
+        try:
+            import telemetry_db
+            telemetry_db.save_mission_plan(mission_dict)
+        except Exception:
+            pass
+
+    def _publish_mission_step(self, step_idx: int, state: str = "ACTIVE"):
+        """Aktif adım durumunu Zenoh ve yerel veritabanına bildirir."""
+        if not self.mission:
+            return
+        step_data = {
+            "mission_id": self.mission.mission_id,
+            "vehicle_code": self.target_vehicle,
+            "step_index": step_idx,
+            "state": state,
+            "current_wp": step_idx + 1,
+            "total_wps": self.mission.total_waypoints,
+            "timestamp": time.time(),
+        }
+        if self.session:
+            try:
+                payload = json.dumps(step_data)
+                self.session.put(f"pisim/{self.target_vehicle}/mission_step", payload)
+                self.session.put(f"fleet/{self.agent_id}/mission_step", payload)
+            except Exception:
+                pass
+
+        try:
+            import telemetry_db
+            telemetry_db.update_mission_step_state(self.mission.mission_id, step_idx, state, self.target_vehicle)
+            for i in range(step_idx):
+                telemetry_db.update_mission_step_state(self.mission.mission_id, i, "PASSED", self.target_vehicle)
+        except Exception:
+            pass
+
     def start(self):
         """Ajan ana döngüsünü başlatır."""
         self.running = True
@@ -543,6 +613,7 @@ class AgentSupervisor:
         sys.stdout.flush()
 
         step_delay = 0.05  # 20 Hz kontrol döngüsü
+        last_mission_heartbeat = 0.0
 
         try:
             while self.running:
@@ -570,6 +641,8 @@ class AgentSupervisor:
                     self.current_wp_idx = 1
                     first_wp = self.mission.waypoints[0]
                     self.driver.set_target_waypoint(first_wp.lat, first_wp.lon, index=1)
+                    self._publish_mission_plan()
+                    self._publish_mission_step(0, "ACTIVE")
 
                 elif not has_recent_data and self.connected:
                     # BAĞLANTI KOPTU! Acil durdurma uygula
@@ -599,11 +672,14 @@ class AgentSupervisor:
                     # Hedefe ulaşıldı mı?
                     if cmd.is_arrived:
                         if self.current_wp_idx < self.mission.total_waypoints:
+                            self._publish_mission_step(self.current_wp_idx - 1, "PASSED")
                             self.current_wp_idx += 1
                             next_wp = self.mission.waypoints[self.current_wp_idx - 1]
                             self.driver.set_target_waypoint(next_wp.lat, next_wp.lon, index=self.current_wp_idx)
+                            self._publish_mission_step(self.current_wp_idx - 1, "ACTIVE")
                         else:
                             # 4 HEDEFİN TÜMÜ TAMAMLANDI!
+                            self._publish_mission_step(self.current_wp_idx - 1, "PASSED")
                             self.completed_missions_count += 1
                             self.mission = generate_random_mission(
                                 origin_lat=cur_lat,
@@ -615,8 +691,16 @@ class AgentSupervisor:
                             self.current_wp_idx = 1
                             first_wp = self.mission.waypoints[0]
                             self.driver.set_target_waypoint(first_wp.lat, first_wp.lon, index=1)
+                            self._publish_mission_plan()
+                            self._publish_mission_step(0, "ACTIVE")
                     else:
                         self._publish_commands(cmd)
+
+                # Görev adımı canlılık kalp atışı (Dashboard veritabanını taze tutar)
+                if now - last_mission_heartbeat >= 1.5:
+                    last_mission_heartbeat = now
+                    if self.connected and self.mission:
+                        self._publish_mission_step(max(0, self.current_wp_idx - 1), "ACTIVE")
 
                 # -------------------------------------------------------------
                 # 3. SABİT (AŞAĞI KAYMAYAN) CANLI HUD EKRANI

@@ -910,6 +910,23 @@ def run_zenoh_telemetry_worker(router_endpoint: Optional[str] = None):
             except Exception:
                 return
 
+            # Görev Planı Topic'i (pisim/<v_code>/mission)
+            if sub_type == "mission":
+                telemetry_db.save_mission_plan(data)
+                add_system_log(f"📋 [GÖREV PLANI] {v_code} için yeni rota yüklendi ({len(data.get('steps', []))} durak)")
+                return
+
+            # Görev Adımı Durumu (pisim/<v_code>/mission_step)
+            elif sub_type == "mission_step":
+                m_id = data.get("mission_id")
+                st_idx = int(data.get("step_index", 0))
+                st_state = data.get("state", "ACTIVE")
+                if m_id:
+                    telemetry_db.update_mission_step_state(m_id, st_idx, st_state, v_code)
+                    for i in range(st_idx):
+                        telemetry_db.update_mission_step_state(m_id, i, "PASSED", v_code)
+                return
+
             with telemetry_lock:
                 last_ue5_contact_time = now_ts
                 if not discovered_ue5_ip:
@@ -1025,22 +1042,38 @@ def run_zenoh_telemetry_worker(router_endpoint: Optional[str] = None):
                     latest_telemetry["connected"] = True
                     latest_telemetry["streaming"] = True
 
-        # 2. Filo / Ajan Durum Topic'leri (fleet/<agent_id>/state)
+        # 2. Filo / Ajan Durum Topic'leri (fleet/<agent_id>/...)
         elif key.startswith("fleet/") and len(parts) >= 3:
             agent_id = parts[1]
+            sub_type = parts[2]
             try:
                 data = json.loads(sample.payload.to_string())
             except Exception:
                 return
-            tgt_v = data.get("target_vehicle")
-            with telemetry_lock:
-                if tgt_v and tgt_v in fleet_telemetry:
-                    wp_idx = data.get("current_wp", data.get("wp_idx", 0))
-                    total_wps = data.get("total_wps", 4)
-                    mode_txt = f"OTONOM [{agent_id}] WP:{wp_idx}/{total_wps}"
-                    fleet_telemetry[tgt_v]["flight_mode"] = mode_txt
-                    if selected_vehicle_code == tgt_v:
-                        latest_telemetry["flight_mode"] = mode_txt
+
+            if sub_type == "mission":
+                telemetry_db.save_mission_plan(data)
+                return
+            elif sub_type == "mission_step":
+                m_id = data.get("mission_id")
+                st_idx = int(data.get("step_index", 0))
+                st_state = data.get("state", "ACTIVE")
+                v_code = data.get("vehicle_code")
+                if m_id:
+                    telemetry_db.update_mission_step_state(m_id, st_idx, st_state, v_code)
+                    for i in range(st_idx):
+                        telemetry_db.update_mission_step_state(m_id, i, "PASSED", v_code)
+                return
+            elif sub_type == "state":
+                tgt_v = data.get("target_vehicle")
+                with telemetry_lock:
+                    if tgt_v and tgt_v in fleet_telemetry:
+                        wp_idx = data.get("current_wp", data.get("wp_index", data.get("wp_idx", 0)))
+                        total_wps = data.get("total_wps", 4)
+                        mode_txt = f"OTONOM [{agent_id}] WP:{wp_idx}/{total_wps}"
+                        fleet_telemetry[tgt_v]["flight_mode"] = mode_txt
+                        if selected_vehicle_code == tgt_v:
+                            latest_telemetry["flight_mode"] = mode_txt
 
     sub_pisim = session.declare_subscriber("pisim/**", on_sample)
     sub_fleet = session.declare_subscriber("fleet/**", on_sample)
