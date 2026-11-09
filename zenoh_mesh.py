@@ -254,9 +254,32 @@ class ZenohMeshBridge:
                     logger.debug(f"RX döngüsü hatası: {e}")
 
     def _extract_vehicle_id(self, vehicle_code: str) -> int:
-        """'rover_01' gibi kodlardan tam sayı ID (1) çıkarır."""
-        digits = "".join(filter(str.isdigit, vehicle_code))
-        return int(digits) if digits else 1
+        """'RV01-8AD131', 'rover_02', 'pi5_rover01' gibi kodlardan aracın tam sayı ID'sini (1, 2, ...) çıkarır."""
+        code = str(vehicle_code).strip()
+        if "_" in code and not code.upper().startswith("ROVER_"):
+            code = code.split("_")[-1]
+
+        code_upper = code.upper()
+        # Unreal formatı: RV01-XXXX veya RV02-XXXX
+        if code_upper.startswith("RV") and "-" in code_upper:
+            prefix = code_upper.split("-")[0]
+            digits = "".join(filter(str.isdigit, prefix))
+            if digits:
+                return max(1, int(digits))
+
+        if "-" in code_upper:
+            code_upper = code_upper.split("-")[0]
+
+        digits = "".join(filter(str.isdigit, code_upper))
+        if digits:
+            try:
+                val = int(digits)
+                if val > 64:
+                    val = int(digits[-2:])
+                return max(1, val)
+            except Exception:
+                pass
+        return 1
 
     def _on_zenoh_actuators(self, sample):
         """Zenoh'tan gelen aktüatör komutunu Unreal'ın PiSimTopicBridge'ine yönlendirir."""
@@ -267,6 +290,12 @@ class ZenohMeshBridge:
             v_code = parts[1]
             v_id = self._extract_vehicle_id(v_code)
             target_port = UNREAL_BASE_TX_PORT + v_id
+            dedicated_port = 7402 + v_id
+
+            if not (1024 <= target_port <= 65535):
+                target_port = UNREAL_BASE_TX_PORT + 1
+            if not (1024 <= dedicated_port <= 65535):
+                dedicated_port = 7403
 
             # UDP Paketi Formatla ve Unreal'a Gönder
             packet = {
@@ -277,10 +306,13 @@ class ZenohMeshBridge:
                 "timeout_ms": 600,
             }
             raw = json.dumps(packet).encode("utf-8")
-            # Hem TopicBridge portuna (7410 + id) hem de Araç Dedicated portuna (7402 + id) ilet
-            self.udp_tx_sock.sendto(raw, (self.ue5_ip, target_port))
-            self.udp_tx_sock.sendto(raw, (self.ue5_ip, 7402 + v_id))
-            self.udp_tx_sock.sendto(raw, (self.ue5_ip, 7402))
+            try:
+                # Hem TopicBridge portuna (7410 + id) hem de Araç Dedicated portuna (7402 + id) ilet
+                self.udp_tx_sock.sendto(raw, (self.ue5_ip, target_port))
+                self.udp_tx_sock.sendto(raw, (self.ue5_ip, dedicated_port))
+                self.udp_tx_sock.sendto(raw, (self.ue5_ip, 7402))
+            except Exception as ex:
+                logger.debug(f"Aktüatör UDP iletim hatası ({v_code}): {ex}")
 
     def _on_zenoh_channels(self, sample):
         """Zenoh'tan gelen ArduPilot PWM kanallarını Unreal'a iletir."""
@@ -291,6 +323,12 @@ class ZenohMeshBridge:
             v_code = parts[1]
             v_id = self._extract_vehicle_id(v_code)
             target_port = UNREAL_BASE_TX_PORT + v_id
+            dedicated_port = 7402 + v_id
+
+            if not (1024 <= target_port <= 65535):
+                target_port = UNREAL_BASE_TX_PORT + 1
+            if not (1024 <= dedicated_port <= 65535):
+                dedicated_port = 7403
 
             packet = {
                 "topic": f"/{v_code}/channels",
@@ -300,8 +338,12 @@ class ZenohMeshBridge:
                 "timeout_ms": 600,
             }
             raw = json.dumps(packet).encode("utf-8")
-            self.udp_tx_sock.sendto(raw, (self.ue5_ip, target_port))
-            self.udp_tx_sock.sendto(raw, (self.ue5_ip, 7402 + v_id))
+            try:
+                self.udp_tx_sock.sendto(raw, (self.ue5_ip, target_port))
+                self.udp_tx_sock.sendto(raw, (self.ue5_ip, dedicated_port))
+                self.udp_tx_sock.sendto(raw, (self.ue5_ip, 7402))
+            except Exception as ex:
+                logger.debug(f"Kanal UDP iletim hatası ({v_code}): {ex}")
 
     def _on_zenoh_cmd_vel(self, sample):
         """Zenoh'tan gelen Twist hız komutunu Unreal'a iletir."""
@@ -312,6 +354,12 @@ class ZenohMeshBridge:
             v_code = parts[1]
             v_id = self._extract_vehicle_id(v_code)
             target_port = UNREAL_BASE_TX_PORT + v_id
+            dedicated_port = 7402 + v_id
+
+            if not (1024 <= target_port <= 65535):
+                target_port = UNREAL_BASE_TX_PORT + 1
+            if not (1024 <= dedicated_port <= 65535):
+                dedicated_port = 7403
 
             cmd_data = json.loads(payload)
             packet = {
@@ -325,9 +373,12 @@ class ZenohMeshBridge:
                 "timeout_ms": 600,
             }
             raw = json.dumps(packet).encode("utf-8")
-            self.udp_tx_sock.sendto(raw, (self.ue5_ip, target_port))
-            self.udp_tx_sock.sendto(raw, (self.ue5_ip, 7402 + v_id))
-            self.udp_tx_sock.sendto(raw, (self.ue5_ip, 7402))
+            try:
+                self.udp_tx_sock.sendto(raw, (self.ue5_ip, target_port))
+                self.udp_tx_sock.sendto(raw, (self.ue5_ip, dedicated_port))
+                self.udp_tx_sock.sendto(raw, (self.ue5_ip, 7402))
+            except Exception as ex:
+                logger.debug(f"cmd_vel UDP iletim hatası ({v_code}): {ex}")
 
     def _on_zenoh_ping(self, sample):
         """Zenoh'tan gelen ping testini Unreal TopicBridge'e iletir."""
@@ -338,8 +389,18 @@ class ZenohMeshBridge:
             v_code = parts[1]
             v_id = self._extract_vehicle_id(v_code)
             target_port = UNREAL_BASE_TX_PORT + v_id
+            dedicated_port = 7402 + v_id
+            if not (1024 <= target_port <= 65535):
+                target_port = UNREAL_BASE_TX_PORT + 1
+            if not (1024 <= dedicated_port <= 65535):
+                dedicated_port = 7403
+
             packet = {"topic": f"/{v_code}/ping", "cmd": "ping", "msg": payload}
-            self.udp_tx_sock.sendto(json.dumps(packet).encode("utf-8"), (self.ue5_ip, target_port))
+            try:
+                self.udp_tx_sock.sendto(json.dumps(packet).encode("utf-8"), (self.ue5_ip, target_port))
+                self.udp_tx_sock.sendto(json.dumps(packet).encode("utf-8"), (self.ue5_ip, dedicated_port))
+            except Exception:
+                pass
 
     def _on_zenoh_fleet_state(self, sample):
         """Diğer P2P ajanlarından gelen dağıtık bellek durumunu günceller."""
@@ -369,8 +430,20 @@ class ZenohMeshBridge:
         # Doğrudan UDP yedekleme (Zenoh bağımsız çalışması için)
         v_id = self._extract_vehicle_id(vehicle_code)
         target_port = UNREAL_BASE_TX_PORT + v_id
+        dedicated_port = 7402 + v_id
+        if not (1024 <= target_port <= 65535):
+            target_port = UNREAL_BASE_TX_PORT + 1
+        if not (1024 <= dedicated_port <= 65535):
+            dedicated_port = 7403
+
         packet = {"topic": f"/{vehicle_code}/actuators", "motors": motors}
-        self.udp_tx_sock.sendto(json.dumps(packet).encode("utf-8"), (self.ue5_ip, target_port))
+        raw = json.dumps(packet).encode("utf-8")
+        try:
+            self.udp_tx_sock.sendto(raw, (self.ue5_ip, target_port))
+            self.udp_tx_sock.sendto(raw, (self.ue5_ip, dedicated_port))
+            self.udp_tx_sock.sendto(raw, (self.ue5_ip, 7402))
+        except Exception:
+            pass
 
     def get_fleet_telemetry(self) -> Dict[str, Any]:
         """Tüm filonun canlı dağıtık durumunu anında döndürür (SQL kilitlemesi olmadan!)."""

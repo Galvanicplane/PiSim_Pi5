@@ -302,7 +302,7 @@ class AgentSupervisor:
             vehicle_code=self.target_vehicle if not self.auto_discovery else "waiting",
             min_turn_radius_m=min_turn_radius_m,
             cruise_speed_mps=cruise_speed_mps,
-            wp_radius_m=5.0,
+            wp_radius_m=6.0,
         )
 
         # Aktif Görev Planı (Dosya 1)

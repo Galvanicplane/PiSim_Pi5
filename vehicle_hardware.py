@@ -163,8 +163,8 @@ class VehicleHardware:
             # 2. Tekerlek Devirleri (Ackermann yumuşak diferansiyel akışı)
             # İki taraf da aynı yönde ileri döner, dış tekerlek hafifçe hızlı akar
             if abs(steering) > 0.05 and abs(throttle) > 0.01:
-                # Hafif hız farkı: İç teker %20 yavaş, dış teker %20 hızlı (asla zıt değil!)
-                diff_factor = 0.25 * abs(steering)
+                # Yumuşak hız farkı: Aşırı tekerlek kayması ve çatışmasını önlemek için %10 ile sınırlı
+                diff_factor = 0.10 * abs(steering)
                 if steering > 0:  # Sağa dönüş
                     v_left = throttle * (1.0 + diff_factor)
                     v_right = throttle * (1.0 - diff_factor)

@@ -94,7 +94,7 @@ class ArduPilotDriver:
         max_steer_deg: float = 35.0,
         min_turn_radius_m: float = 4.0,
         cruise_speed_mps: float = 2.2,
-        wp_radius_m: float = 5.0,
+        wp_radius_m: float = 6.0,
         l1_period: float = 7.5,
         l1_damping: float = 0.75,
         drive_mode: str = "ACKERMANN",
@@ -120,6 +120,13 @@ class ArduPilotDriver:
         self.target_lat: Optional[float] = None
         self.target_lon: Optional[float] = None
         self.wp_index: int = 0
+
+        # Yumuşatma & Slew Rate Limiter Durumu (Tekerlek ve Direksiyon Çırpınmasını Önler)
+        self.current_steer: float = 0.0
+        self.current_throttle: float = 0.0
+        self.last_compute_time: Optional[float] = None
+        self.max_steer_rate: float = 1.8       # Saniyede max normalize direksiyon değişimi
+        self.max_throttle_rate: float = 1.2    # Saniyede max normalize gaz değişimi
 
     def set_target_waypoint(self, lat: float, lon: float, index: int = 1):
         """Sürücüye yeni bir hedef koordinat (WGS84 lat, lon) atar."""
@@ -147,6 +154,13 @@ class ArduPilotDriver:
         if self.target_lat is None or self.target_lon is None:
             return self.emergency_stop()
 
+        now = time.time()
+        if self.last_compute_time is not None:
+            dt = max(0.01, min(0.25, now - self.last_compute_time))
+        else:
+            dt = 0.05
+        self.last_compute_time = now
+
         # 1. Hedefe mesafe ve pusula kerterizi (WGS84 Haversine)
         _, _, dist_m, target_bearing_deg = haversine_distance_and_bearing(
             cur_lat, cur_lon, self.target_lat, self.target_lon
@@ -154,7 +168,8 @@ class ArduPilotDriver:
 
         # 2. Varış Kontrolü (Arrival Acceptance)
         if dist_m <= self.wp_radius_m:
-            cmd = self.emergency_stop()
+            # Varış anında momentum korunur, ani sıfırlama yapılmaz
+            cmd = self.emergency_stop(hold_current=True)
             cmd.dist_to_target_m = dist_m
             cmd.bearing_deg = target_bearing_deg
             cmd.is_arrived = True
@@ -171,34 +186,50 @@ class ArduPilotDriver:
             effective_speed = max(0.8, cur_speed_mps)
 
         # 5. ArduPilot L1 Lookahead Mesafesi Hesabı
-        # L1 = (1 / pi) * damping * period * V
         l1_dist = (1.0 / math.pi) * self.l1_damping * self.l1_period * effective_speed
-        # L1 mesafesini minimum dönüş yarıçapının 2 katı ile hedefe kalan mesafe arasında sınırla
         l1_min = 2.0 * self.min_turn_radius_m
         l1_dist = max(l1_min, min(max(l1_min, dist_m), l1_dist))
 
-        # 6. ArduPilot Çevik Direksiyon Açısı (Heading Error Proportional Gain)
-        # 35 derecelik bir yön hatasında ön tekerlekler tam açıya (%100 Full Lock) ulaşır.
-        # Bu sayede araç geniş yay çizmek yerine keskin ve kararlı döner.
-        steer_norm = max(-1.0, min(1.0, heading_err / 35.0))
+        # 6. Proximity Damping (Yaklaşma Filtresi - Singularity Shield)
+        # Hedefe yaklaşıldığında pusula açısının aniden arkaya geçmesiyle oluşan savrulmayı önler
+        if dist_m < 10.0:
+            proximity_steer_cap = max(0.25, min(1.0, (dist_m - self.wp_radius_m * 0.4) / 6.0))
+        else:
+            proximity_steer_cap = 1.0
+
+        raw_steer = max(-1.0, min(1.0, heading_err / 40.0))
+        target_steer = max(-proximity_steer_cap, min(proximity_steer_cap, raw_steer))
+
+        # 7. Slew Rate Limiter (Direksiyon Yumuşatma - Tekerleklerin Savrulmasını Keser)
+        max_steer_delta = self.max_steer_rate * dt
+        steer_diff = target_steer - self.current_steer
+        steer_diff = max(-max_steer_delta, min(max_steer_delta, steer_diff))
+        self.current_steer += steer_diff
+        steer_norm = self.current_steer
         steer_deg = steer_norm * self.max_steer_deg
         omega_cmd = (steer_norm * effective_speed) / max(0.5, self.wheelbase_m)
 
-        # 7. ArduPilot Viraj Hız Kontrolü (Corner Slowdown & Proximity)
-        # Yön hatası büyükse gazı kes, araç burnunu hedefe çevirsin; düze çıktıkça tam gaza çık
+        # 8. ArduPilot Viraj Hız Kontrolü (Corner Slowdown & Proximity)
         abs_err = abs(heading_err)
         if abs_err > 60.0:
-            heading_factor = 0.35   # Sert viraj: Yavaşla ve keskin dön
+            heading_factor = 0.40   # Sert viraj: Dengeli dönüş
         elif abs_err > 30.0:
-            heading_factor = 0.50
+            heading_factor = 0.65
         else:
-            heading_factor = 1.0 - (abs_err / 60.0) * 0.5
+            heading_factor = 1.0 - (abs_err / 60.0) * 0.35
 
-        # Hedefe yaklaştıkça kontrollü yavaşlama (Son 10 metre)
-        proximity_factor = min(1.0, max(0.5, dist_m / 10.0))
+        # Hedefe yaklaştıkça yumuşak yavaşlama
+        proximity_factor = min(1.0, max(0.55, dist_m / 12.0))
 
-        throttle_norm = 0.70 * heading_factor * proximity_factor
-        throttle_norm = max(0.28, min(0.85, throttle_norm))
+        target_throttle = 0.70 * heading_factor * proximity_factor
+        target_throttle = max(0.30, min(0.80, target_throttle))
+
+        # 9. Slew Rate Limiter (Gaz Yumuşatma - Ani Tork ve Pati Önleme)
+        max_throt_delta = self.max_throttle_rate * dt
+        throt_diff = target_throttle - self.current_throttle
+        throt_diff = max(-max_throt_delta, min(max_throt_delta, throt_diff))
+        self.current_throttle += throt_diff
+        throttle_norm = self.current_throttle
 
         # 10. Eyleyici Motor Değerleri (VehicleHardware üzerinden)
         motors = self.hardware.compute_actuators(throttle=throttle_norm, steering=steer_norm)
@@ -223,19 +254,23 @@ class ArduPilotDriver:
             twist=twist,
         )
 
-    def emergency_stop(self) -> DriveCommand:
-        """Acil durum veya varış anında tüm motorları ve direksiyonu sıfırlar."""
-        motors = self.hardware.compute_actuators(throttle=0.0, steering=0.0)
+    def emergency_stop(self, hold_current: bool = False) -> DriveCommand:
+        """Acil durum veya varış anında komut üretir."""
+        if not hold_current:
+            self.current_throttle = 0.0
+            self.current_steer = 0.0
+
+        motors = self.hardware.compute_actuators(throttle=self.current_throttle, steering=self.current_steer)
         twist = {
-            "linear": {"x": 0.0, "y": 0.0, "z": 0.0},
+            "linear": {"x": round(self.current_throttle * self.cruise_speed_mps, 3), "y": 0.0, "z": 0.0},
             "angular": {"x": 0.0, "y": 0.0, "z": 0.0},
         }
         return DriveCommand(
-            throttle=0.0,
-            steering=0.0,
-            steer_deg=0.0,
+            throttle=round(self.current_throttle, 3),
+            steering=round(self.current_steer, 3),
+            steer_deg=round(self.current_steer * self.max_steer_deg, 2),
             omega_cmd=0.0,
-            linear_speed_cmd=0.0,
+            linear_speed_cmd=round(self.current_throttle * self.cruise_speed_mps, 2),
             dist_to_target_m=0.0,
             bearing_deg=0.0,
             heading_err_deg=0.0,
