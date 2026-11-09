@@ -207,7 +207,12 @@ class ZenohMeshBridge:
                 # 1. Zenoh Ağına Yayınla (DDS/ROS2/Pi5 istemcileri dinleyebilir)
                 if self.session:
                     try:
-                        self.session.put(zenoh_key, json.dumps(msg))
+                        if clean_topic.endswith("camera/compressed") and isinstance(msg, dict) and "data" in msg:
+                            import base64
+                            jpeg_raw = base64.b64decode(msg["data"])
+                            self.session.put(zenoh_key, jpeg_raw)
+                        else:
+                            self.session.put(zenoh_key, json.dumps(msg))
                     except Exception:
                         pass
 

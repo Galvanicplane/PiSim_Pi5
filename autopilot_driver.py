@@ -94,17 +94,17 @@ class ArduPilotDriver:
         max_steer_deg: float = 35.0,
         min_turn_radius_m: float = 4.0,
         cruise_speed_mps: float = 2.2,
-        wp_radius_m: float = 3.5,
+        wp_radius_m: float = 5.0,
         l1_period: float = 7.5,
         l1_damping: float = 0.75,
         drive_mode: str = "ACKERMANN",
     ):
         self.vehicle_code = vehicle_code
         self.wheelbase_m = max(0.1, float(wheelbase_m))
-        self.max_steer_deg = max(10.0, float(max_steer_deg))
+        self.max_steer_deg = max(15.0, float(max_steer_deg))
         self.min_turn_radius_m = max(1.0, float(min_turn_radius_m))
         self.cruise_speed_mps = max(0.5, float(cruise_speed_mps))
-        self.wp_radius_m = max(1.0, float(wp_radius_m))
+        self.wp_radius_m = max(2.0, float(wp_radius_m))
         self.l1_period = max(2.0, float(l1_period))
         self.l1_damping = max(0.5, float(l1_damping))
 
@@ -177,28 +177,28 @@ class ArduPilotDriver:
         l1_min = 2.0 * self.min_turn_radius_m
         l1_dist = max(l1_min, min(max(l1_min, dist_m), l1_dist))
 
-        # 6. ArduPilot İstenen Yanal İvme & Açısal Hız (Omega)
-        # a_cmd = 2 * (V^2 / L1) * sin(eta)
-        # omega_cmd = a_cmd / V = (2 * V / L1) * sin(eta)
-        omega_cmd = (2.0 * effective_speed / l1_dist) * math.sin(eta_rad)
+        # 6. ArduPilot Çevik Direksiyon Açısı (Heading Error Proportional Gain)
+        # 35 derecelik bir yön hatasında ön tekerlekler tam açıya (%100 Full Lock) ulaşır.
+        # Bu sayede araç geniş yay çizmek yerine keskin ve kararlı döner.
+        steer_norm = max(-1.0, min(1.0, heading_err / 35.0))
+        steer_deg = steer_norm * self.max_steer_deg
+        omega_cmd = (steer_norm * effective_speed) / max(0.5, self.wheelbase_m)
 
-        # 7. Geniş Dönüş Yarıçapı Sınırlaması (|omega| <= V / R_min)
-        omega_max = max(0.1, effective_speed / self.min_turn_radius_m)
-        omega_cmd = max(-omega_max, min(omega_max, omega_cmd))
+        # 7. ArduPilot Viraj Hız Kontrolü (Corner Slowdown & Proximity)
+        # Yön hatası büyükse gazı kes, araç burnunu hedefe çevirsin; düze çıktıkça tam gaza çık
+        abs_err = abs(heading_err)
+        if abs_err > 60.0:
+            heading_factor = 0.35   # Sert viraj: Yavaşla ve keskin dön
+        elif abs_err > 30.0:
+            heading_factor = 0.50
+        else:
+            heading_factor = 1.0 - (abs_err / 60.0) * 0.5
 
-        # 8. Ackermann Direksiyon Açısı (delta = atan(Wheelbase * omega / V))
-        steer_rad = math.atan((self.wheelbase_m * omega_cmd) / effective_speed)
-        steer_deg = math.degrees(steer_rad)
-        steer_norm = max(-1.0, min(1.0, steer_deg / self.max_steer_deg))
+        # Hedefe yaklaştıkça kontrollü yavaşlama (Son 10 metre)
+        proximity_factor = min(1.0, max(0.5, dist_m / 10.0))
 
-        # 9. ArduPilot Viraj Hız Kontrolü (Corner Slowdown)
-        # Yön hatası büyükse gazı azalt, düze çıktıkça tam gaza çık
-        heading_factor = max(0.35, math.cos(eta_rad))
-        # Hedefe yaklaştıkça yavaşlama (Son 12 metre)
-        proximity_factor = min(1.0, max(0.4, dist_m / 12.0))
-
-        throttle_norm = 0.60 * heading_factor * proximity_factor
-        throttle_norm = max(0.25, min(0.80, throttle_norm))
+        throttle_norm = 0.70 * heading_factor * proximity_factor
+        throttle_norm = max(0.28, min(0.85, throttle_norm))
 
         # 10. Eyleyici Motor Değerleri (VehicleHardware üzerinden)
         motors = self.hardware.compute_actuators(throttle=throttle_norm, steering=steer_norm)
