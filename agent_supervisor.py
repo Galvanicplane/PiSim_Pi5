@@ -202,6 +202,29 @@ def send_assignment(router_endpoint: Optional[str], target_agent: str, target_ve
         return False
 
 
+def is_vehicle_match(target: str, discovered_code: str) -> bool:
+    """rover_01, RV01, 1 gibi kullanıcı girdilerini RV01-8AD131 gibi Unreal kodlarıyla akıllı eşleştirir."""
+    if not target or target.lower() in ("auto", "all"):
+        return True
+    t_clean = target.lower().strip()
+    d_clean = discovered_code.lower().strip()
+    if t_clean == d_clean:
+        return True
+    # Rakam eşleşmesi: "1" veya "rover_01" -> "rv01..."
+    t_digits = "".join(filter(str.isdigit, t_clean))
+    d_digits = "".join(filter(str.isdigit, d_clean))
+    if t_digits and d_digits:
+        if int(t_digits) == int(d_digits):
+            return True
+    if t_clean in d_clean or d_clean in t_clean:
+        return True
+    t_rv = t_clean.replace("rover_", "rv").replace("rover", "rv")
+    d_rv = d_clean.replace("rover_", "rv").replace("rover", "rv")
+    if t_rv and d_rv and (t_rv in d_rv or d_rv in t_rv):
+        return True
+    return False
+
+
 class AgentSupervisor:
     """
     Konteyner ve araç koordinatörü:
@@ -346,7 +369,6 @@ class AgentSupervisor:
         if not self.session:
             return
 
-        # Varsa eski sensör aboneliklerini temizle
         for s in self.subs:
             try:
                 s.undeclare()
@@ -354,17 +376,11 @@ class AgentSupervisor:
                 pass
         self.subs.clear()
 
-        if self.auto_discovery:
-            # Otomatik keşif modu: Tüm araçların GPS ve IMU topic'lerini dinle
-            s_gps = self.session.declare_subscriber("pisim/*/gps", self._on_gps_wildcard)
-            s_imu = self.session.declare_subscriber("pisim/*/imu", self._on_imu_wildcard)
-            self.subs.extend([s_gps, s_imu])
-        else:
-            # Belirli araca doğrudan abone ol
-            s_gps = self.session.declare_subscriber(f"pisim/{self.target_vehicle}/gps", self._on_gps_direct)
-            s_imu = self.session.declare_subscriber(f"pisim/{self.target_vehicle}/imu", self._on_imu_direct)
-            s_ping = self.session.declare_subscriber(f"pisim/{self.target_vehicle}/ping", self._on_ping)
-            self.subs.extend([s_gps, s_imu, s_ping])
+        # Tüm araçların GPS ve IMU akışlarını joker (wildcard) ile dinle ve akıllı eşleştir
+        s_gps = self.session.declare_subscriber("pisim/*/gps", self._on_gps_wildcard)
+        s_imu = self.session.declare_subscriber("pisim/*/imu", self._on_imu_wildcard)
+        s_ping = self.session.declare_subscriber("pisim/*/ping", self._on_ping)
+        self.subs.extend([s_gps, s_imu, s_ping])
 
     def _on_assign(self, sample):
         """Uzaktan gelen 'şu araca bağlan' komutunu işler."""
@@ -384,9 +400,16 @@ class AgentSupervisor:
             if len(parts) >= 2 and parts[0] == "pisim":
                 v_code = parts[1]
                 self.discovered_vehicles.add(v_code)
+                # 1. Otomatik keşif modu ise ilk araca kilitlen
                 if self.auto_discovery and not self.connected:
-                    # Otomatik keşfedilen ilk araca bağlan!
                     self.set_target_vehicle(v_code)
+                    self._on_gps_direct(sample)
+                # 2. Kullanıcı 'rover_01' demiş ama Unreal 'RV01-8AD131' basıyorsa akıllıca kilitlen!
+                elif not self.connected and is_vehicle_match(self.target_vehicle, v_code):
+                    if self.target_vehicle != v_code:
+                        self.set_target_vehicle(v_code)
+                    self._on_gps_direct(sample)
+                elif self.target_vehicle == v_code:
                     self._on_gps_direct(sample)
         except Exception:
             pass
@@ -397,7 +420,7 @@ class AgentSupervisor:
             if len(parts) >= 2 and parts[0] == "pisim":
                 v_code = parts[1]
                 self.discovered_vehicles.add(v_code)
-                if self.target_vehicle == v_code:
+                if self.target_vehicle == v_code or is_vehicle_match(self.target_vehicle, v_code):
                     self._on_imu_direct(sample)
         except Exception:
             pass

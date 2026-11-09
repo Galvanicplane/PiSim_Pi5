@@ -1,0 +1,1762 @@
+<!DOCTYPE html>
+<html lang="tr" data-pattern="dots" data-theme="petronas">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PiSim - Taktik Görev Kontrol Kokpiti</title>
+    <link rel="stylesheet" href="style.css?v=2.5.0">
+    <link rel="stylesheet" href="leaflet.css" onerror="this.onerror=null;this.href='https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';">
+    <script src="leaflet.js"></script>
+    <script>
+        if (typeof L === 'undefined') {
+            document.write('<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">');
+            document.write('<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"><\/script>');
+        }
+    </script>
+    <style>
+        html, body {
+            background-color: #06090c !important;
+            background: #06090c radial-gradient(ellipse at center, #0e141c 0%, #040608 100%) !important;
+        }
+        /* Leaflet Taktik Karanlık Tema & Marker Stilleri */
+        .leaflet-container {
+            background-color: #06090c !important;
+            font-family: var(--font-mono, monospace) !important;
+        }
+        .leaflet-bar a {
+            background-color: #0d131a !important;
+            color: #00dfb6 !important;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1) !important;
+        }
+        .leaflet-bar a:hover {
+            background-color: #1f2937 !important;
+            color: #ffffff !important;
+        }
+        .leaflet-popup-content-wrapper {
+            background: #090d12 !important;
+            color: #e6edf3 !important;
+            border: 1px solid #00dfb6 !important;
+            border-radius: 4px !important;
+            box-shadow: 0 0 15px rgba(0, 223, 182, 0.3) !important;
+            font-size: 11px !important;
+            font-family: var(--font-mono, monospace) !important;
+        }
+        .leaflet-popup-tip {
+            background: #090d12 !important;
+        }
+        .rover-marker-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            transform: translate(-50%, -50%);
+        }
+        .rover-marker-icon {
+            width: 28px;
+            height: 28px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .rover-marker-icon.active {
+            background: rgba(0, 223, 182, 0.25);
+            border: 2px solid #00dfb6;
+            box-shadow: 0 0 12px #00dfb6, inset 0 0 6px #00dfb6;
+            color: #00dfb6;
+        }
+        .rover-marker-icon.passive {
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            color: #8b949e;
+        }
+        .rover-label-tag {
+            background: rgba(6, 9, 12, 0.85);
+            border: 1px solid var(--mono-border);
+            color: #00e5ff;
+            font-size: 8.5px;
+            font-weight: 800;
+            padding: 1px 4px;
+            border-radius: 3px;
+            white-space: nowrap;
+            margin-top: 2px;
+            pointer-events: none;
+        }
+    
+        /* Metro Durağı Görev Hattı Animasyon ve Stilleri */
+        .metro-stops-track::-webkit-scrollbar {
+            height: 4px;
+        }
+        .metro-stops-track::-webkit-scrollbar-thumb {
+            background: var(--accent-color);
+            border-radius: 2px;
+        }
+        @keyframes metroPulse {
+            0% { box-shadow: 0 0 0 0 rgba(0, 229, 255, 0.7); transform: scale(1); }
+            50% { box-shadow: 0 0 0 6px rgba(0, 229, 255, 0); transform: scale(1.1); }
+            100% { box-shadow: 0 0 0 0 rgba(0, 229, 255, 0); transform: scale(1); }
+        }
+        .metro-dot-pulsing {
+            animation: metroPulse 1.6s infinite;
+        }
+    </style>
+</head>
+<body>
+    <!-- 0. VS CODE TARZI ÜST MENÜ ÇUBUĞU -->
+    <header class="vscode-menu-bar">
+        <div class="vscode-menu-group">
+            <span style="font-weight: 900; color: var(--accent-color); margin-right: 8px; letter-spacing: 1px;">
+                // PISIM STUDIO (GCS)
+            </span>
+            <span class="vscode-menu-item" onclick="triggerProbeFromDashboard()">[📡 CİHAZ KEŞFİ YAP]</span>
+            <span class="vscode-menu-item" style="color: #ffaa00; font-weight: 800;" onclick="toggleTeleopModal()">[🎮 MANUEL SÜRÜŞ (WASD)]</span>
+            <span class="vscode-menu-item" style="color: #00dfb6; font-weight: 800;" onclick="openSqlModal()">[🛢️ SQL TABLOSU]</span>
+            <a href="/sql.html" target="_blank" class="vscode-menu-item" style="color: #00e5ff; font-weight: 800; text-decoration: none;">[🛢️ CANLI SQL SAYFASI ↗]</a>
+            <span class="vscode-menu-item" onclick="openModal('ayarlar')">Ayarlar</span>
+            <span class="vscode-menu-item" onclick="openModal('bilgi')">Bilgi</span>
+        </div>
+
+        <div class="vscode-menu-group" style="font-size: 10px; gap: 8px;">
+            <span style="color: var(--text-dark);">UDP 7400 RX</span>
+            <span id="header-status-badge" style="background: rgba(255, 170, 0, 0.15); color: #ffaa00; padding: 1px 6px; border: 1px solid #ffaa00; font-weight: 800;">
+                BEKLİYOR
+            </span>
+            <span id="header-greeting-badge" style="background: rgba(0, 229, 255, 0.12); color: #00e5ff; padding: 1px 8px; border: 1px solid rgba(0, 229, 255, 0.35); font-weight: 800; font-family: var(--font-mono); display: none;">
+                HI FROM ...
+            </span>
+            
+            <!-- 5'Lİ TEMA DEĞİŞTİRME BUTONU -->
+            <button id="btn-theme-switcher" class="cod-btn cod-btn-accent" style="padding: 3px 10px; font-size: 10px;" onclick="cycleTheme()">
+                TEMA: 1/5 PETRONAS F1
+            </button>
+        </div>
+    </header>
+
+    <!-- ANA 3 SÜTUNLU TAKTİK GRID DÜZENİ -->
+    <main class="fleet-dashboard-layout">
+        
+        <!-- 1. SOL PANEL: GERÇEK CANLI ARAÇ LİSTESİ -->
+        <aside class="fleet-sidebar cod-panel">
+            <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--mono-border); padding-bottom: 6px;">
+                <div style="font-size: 12px; font-weight: 800; color: #ffffff; letter-spacing: 1px;">
+                    // ARAÇLAR
+                </div>
+                <div style="display: flex; gap: 6px; align-items: center;">
+                    <span id="vehicle-count-tag" style="font-size: 10px; color: var(--accent-color); font-weight: 700;">[0 BAĞLI]</span>
+                    <button class="cod-btn" onclick="clearFleet()" title="Çevrimdışı eski araçları temizle" style="padding: 2px 6px; font-size: 9px; border-color: rgba(255,255,255,0.2);">🧹 TEMİZLE</button>
+                </div>
+            </div>
+
+            <div class="vehicle-list" id="vehicle-cards-container">
+                <div id="no-vehicles-msg" style="padding: 24px 12px; text-align: center; color: var(--text-muted); font-size: 11px; border: 1px dashed var(--mono-border); border-radius: 4px; margin-top: 8px;">
+                    <div style="font-size: 24px; margin-bottom: 8px; opacity: 0.6;">📡</div>
+                    <div style="font-weight: 800; color: #ffffff; margin-bottom: 4px;">BAĞLI ARAÇ YOK</div>
+                    <div style="font-size: 9px; color: var(--text-dark); line-height: 1.4;">
+                        Unreal Engine simülasyonu başlatıldığında (Port 7400) aktif araç burada listelenecektir.
+                    </div>
+                </div>
+            </div>
+
+                        <!-- TAM EKRAN CANLI SQL TABLOSU BUTONU -->
+            <a href="/sql.html" target="_blank" style="text-decoration:none; display:block; margin-top:8px; margin-bottom:8px; text-align:center; padding:7px 10px; background:rgba(0,223,182,0.12); border:1px solid var(--accent-color); color:var(--accent-color); font-size:10.5px; font-weight:800; font-family:var(--font-mono); transition:all 0.2s; clip-path:polygon(0 0, calc(100% - 6px) 0, 100% 6px, 100% 100%, 6px 100%, 0 calc(100% - 6px));">
+                🛢️ CANLI SQL TABLOSU (TAM EKRAN) ↗
+            </a>
+
+            <!-- SOL PANEL ALT BİLGİLENDİRME -->
+            <div style="font-size: 10px; color: var(--text-muted); border-top: 1px solid var(--mono-border); padding-top: 6px; line-height: 1.4;">
+                <span style="color: var(--accent-color);">[i]</span> Canlı telemetri paketleri Raspberry Pi 5 üzerinde UDP Port 7400 üzerinden dinlenmektedir.
+            </div>
+        </aside>
+
+        <!-- 2. ORTA SÜTUN: HARİTA (DOTS DESENİ) + YÜKSEK VE IŞIK DÖNEN KÖPRÜ PANELİ -->
+        <section class="fleet-center-area">
+            
+            <!-- ORTA ÜST: TAKTİK DÜNYA HARİTASI (LEAFLET.JS İNTERAKTİF VEKTÖR & TAKİP) -->
+            <div class="tactical-map-viewport cod-panel" style="position: relative; overflow: hidden; padding: 10px;">
+                <!-- LEAFLET HARİTA KANVASI (GOOGLE MAPS TARZI SÜRÜKLE, TEKERLEKLE ZOOM) -->
+                <div id="tactical-leaflet-map" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 1;"></div>
+
+                <!-- ÜST BİLGİ ŞERİDİ (Z-INDEX 20) -->
+                <div style="display: flex; justify-content: space-between; align-items: center; z-index: 20; position: relative; pointer-events: none;">
+                    <div style="font-size: 11px; font-weight: 800; color: #ffffff; letter-spacing: 1px; background: rgba(6, 9, 12, 0.85); padding: 4px 10px; border-radius: 4px; border: 1px solid var(--mono-border); pointer-events: auto; backdrop-filter: blur(4px);">
+                        // TAKTİK HARİTA (CANLI GNSS)
+                    </div>
+                    <div style="display: flex; gap: 6px; align-items: center; background: rgba(6, 9, 12, 0.85); padding: 4px 10px; border-radius: 4px; border: 1px solid var(--mono-border); pointer-events: auto; backdrop-filter: blur(4px);">
+                        <span style="font-size: 9px; color: var(--text-muted);">GNSS:</span>
+                        <span id="gnss-fix-label" style="font-size: 9px; font-weight: 800; color: var(--accent-color);">SİNYAL BEKLENİYOR</span>
+                    </div>
+                </div>
+
+                <!-- HARİTA KONTROL VE TAKİP TUŞLARI (Z-INDEX 20) -->
+                <div style="margin-top: auto; display: flex; justify-content: space-between; align-items: flex-end; z-index: 20; position: relative; pointer-events: none;">
+                    <div style="font-size: 10px; color: var(--text-muted); background: rgba(6, 9, 12, 0.85); padding: 4px 10px; border-radius: 4px; border: 1px solid var(--mono-border); pointer-events: auto; backdrop-filter: blur(4px);">
+                        HEDEF: <b id="map-target-label" style="color: var(--accent-color);">Simülasyon Bekleniyor</b>
+                    </div>
+                    <div style="display: flex; gap: 5px; pointer-events: auto;">
+                        <button id="btn-map-layer" class="cod-btn" style="padding: 4px 10px; font-size: 10px; font-weight: 800; border-color: #00dfb6; color: #00dfb6; background: rgba(0, 223, 182, 0.18);" onclick="cycleMapLayer()">🛰️ UYDU: GOOGLE (CANLI)</button>
+                        <button id="btn-toggle-teleop" class="cod-btn" style="padding: 4px 10px; font-size: 10px; font-weight: 800; border-color: #ffaa00; color: #ffaa00; background: rgba(255, 170, 0, 0.15);" onclick="toggleTeleopModal()">🎮 MANUEL (WASD)</button>
+                        <button id="btn-toggle-follow" class="cod-btn" style="padding: 4px 10px; font-size: 10px; font-weight: 800; border-color: var(--accent-color); color: var(--accent-color); background: rgba(0, 223, 182, 0.18);" onclick="toggleFollowVehicle()">🎯 TAKİP: AÇIK</button>
+                        <button class="cod-btn" style="padding: 4px 10px; font-size: 10px;" onclick="zoomMapIn()">[+]</button>
+                        <button class="cod-btn" style="padding: 4px 10px; font-size: 10px;" onclick="zoomMapOut()">[-]</button>
+                        <button class="cod-btn" style="padding: 4px 10px; font-size: 10px;" onclick="centerMap()">MERKEZLE</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ORTA ALT: SİMÜLASYON KÖPRÜSÜ -->
+            <div class="conn-bridge-card">
+                <div class="conn-bridge-blob"></div>
+
+                <div class="conn-bridge-bg">
+                    <div class="conn-bridge-header">
+                        <div style="display: flex; align-items: center; gap: 6px;">
+                            <span style="font-size: 11px; font-weight: 800; color: #ffffff; letter-spacing: 0.5px;">
+                                // SİMÜLASYON VERİ VE PROTOKOL KÖPRÜSÜ
+                            </span>
+                            <span id="bridge-status-tag" class="bridge-status-badge" style="background: rgba(255, 170, 0, 0.15); color: #ffaa00; border-color: #ffaa00;">
+                                DİNLENİYOR [UDP 7499 / 7400]
+                            </span>
+                        </div>
+                        <div style="display: flex; align-items: center; gap: 6px;">
+                            <span style="font-size: 9.5px; color: var(--accent-color); font-weight: 700;">
+                                ● PASİF DİNLEME AKTİF
+                            </span>
+                        </div>
+                    </div>
+
+                    <!-- İKİ YÖNLÜ VERİ BORULARI (Sadece gerçek veri aktığında animasyonlu yanar, bağlı değilken gri/sönüktür) -->
+                    <div class="data-flow-container">
+                        <div class="data-node-endpoint" id="node-pi5">
+                            <div class="node-title">RASPBERRY PI 5</div>
+                            <div class="node-sub" id="node-pi5-sub">PORT: 7400 RX</div>
+                        </div>
+
+                        <div class="data-flow-center-branches">
+                            <div class="branch-tier" id="tier-sitl">
+                                <div class="two-way-pipe-group" id="channel-sitl" onclick="inspectChannel('sitl')">
+                                    <div class="pipe-lane">
+                                        <span class="pipe-dir-tag" style="color:var(--accent-color);">TX→</span>
+                                        <div class="data-pipe tx"><div class="data-pipe-packet"></div></div>
+                                    </div>
+                                    <div class="pipe-lane">
+                                        <span class="pipe-dir-tag" style="color:#00e5ff;">RX←</span>
+                                        <div class="data-pipe rx"><div class="data-pipe-packet"></div></div>
+                                    </div>
+                                </div>
+
+                                <div class="data-node" id="node-center-telemetry" onclick="inspectChannel('sitl')" style="cursor: pointer; min-width: 120px;">
+                                    <div class="node-title">UDP 7400 TELEMETRİ</div>
+                                    <div class="node-sub" id="node-center-msg">JSON / SITL</div>
+                                </div>
+
+                                <div class="two-way-pipe-group" id="channel-ue5" onclick="inspectChannel('ue5')">
+                                    <div class="pipe-lane">
+                                        <span class="pipe-dir-tag" style="color:var(--accent-color);">TX→</span>
+                                        <div class="data-pipe tx"><div class="data-pipe-packet"></div></div>
+                                    </div>
+                                    <div class="pipe-lane">
+                                        <span class="pipe-dir-tag" style="color:#00e5ff;">RX←</span>
+                                        <div class="data-pipe rx"><div class="data-pipe-packet"></div></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="data-node-endpoint" id="node-ue5">
+                            <div class="node-title">UNREAL ENGINE 5</div>
+                            <div class="node-sub" id="node-ue5-sub">CHAOS FİZİK</div>
+                        </div>
+                    </div>
+
+                    <!-- KENDİ IP BİLGİSİ VE HEDEF UNREAL IP BİLGİSİ (ALT PANEL) -->
+                    <div class="manual-connection-bar" style="display: flex; justify-content: space-between; align-items: center; background: rgba(0, 0, 0, 0.45); border: 1px solid var(--mono-border); padding: 5px 10px; margin-bottom: 4px; font-family: var(--font-mono); font-size: 10px; clip-path: polygon(0 0, calc(100% - 6px) 0, 100% 6px, 100% 100%, 6px 100%, 0 calc(100% - 6px));">
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <span style="color: var(--text-muted); font-weight: 700;">📡 BU CİHAZ (PI 5) IP:</span>
+                            <span id="label-local-ip" style="color: #00e5ff; font-weight: 800; background: rgba(0, 229, 255, 0.1); padding: 1px 6px; border: 1px solid rgba(0, 229, 255, 0.3);">YÜKLENİYOR...</span>
+                        </div>
+                        
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <span style="color: var(--text-muted); font-weight: 700;">HEDEF (UNREAL ENGINE) IP:</span>
+                            <span id="label-target-ue5-ip" style="color: var(--accent-color); font-weight: 800; background: rgba(0, 223, 182, 0.1); padding: 1px 8px; border: 1px solid rgba(0, 223, 182, 0.3);">DİNLENİYOR (PROBE BEKLENİYOR)...</span>
+                        </div>
+                    </div>
+
+                    <!-- GERÇEK PAKET AKIŞI BİLGİ PENCERESİ (GENİŞLETİLMİŞ LOG ALANI) -->
+                    <div class="channel-stream-log" id="channel-packet-log" style="height: 180px; min-height: 180px; background: rgba(0, 0, 0, 0.65); border: 1px solid var(--mono-border); padding: 6px 10px; font-family: var(--font-mono); clip-path: polygon(0 0, calc(100% - 6px) 0, 100% 6px, 100% 100%, 6px 100%, 0 calc(100% - 6px));">
+                        <div style="color: var(--accent-color); font-weight: 800; margin-bottom: 4px; border-bottom: 1px solid var(--mono-border); padding-bottom: 3px; display: flex; justify-content: space-between;">
+                            <span>// CANLI PAKET AKIŞI: <span id="inspected-channel-name">Pi5 ⇄ UE5 (Port 7400 / 7499)</span></span>
+                            <span style="font-size: 9px; color: var(--text-muted); cursor: pointer;" onclick="clearPacketLogs()">TEMİZLE</span>
+                        </div>
+                        <div id="packet-stream-lines" class="packet-lines-box" style="height: calc(100% - 24px); overflow-y: auto;">
+                            <div id="packet-placeholder" style="color: var(--text-dark); font-size: 9.5px; padding: 4px;">
+                                [DİNLENİYOR] Port 7499 & 7400 dinleniyor (Unreal Engine probe bekleniyor)...
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- 3. SAĞ PANEL: CANLI ARAÇ DETAYLARI & KONTROL -->
+        <aside class="fleet-sidebar cod-panel">
+            <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--mono-border); padding-bottom: 6px;">
+                <div style="font-size: 12px; font-weight: 800; color: #ffffff; letter-spacing: 1px;">
+                    // ARAÇ DETAYLARI
+                </div>
+                <div id="active-status-badge" style="font-size: 10px; color: var(--text-muted); font-weight: 700;">
+                    [BEKLEMEDE]
+                </div>
+            </div>
+
+            <div style="font-size: 13px; font-weight: 900; color: var(--accent-color); margin-top: 4px;" id="detail-vehicle-title">
+                [BAĞLANTI BEKLENİYOR]
+            </div>
+            <div style="font-size: 10.5px; font-weight: 800; color: #00e5ff; font-family: var(--font-mono); margin-top: 2px;" id="detail-vehicle-greeting">
+                [SELAMLAMA BEKLENİYOR]
+            </div>
+
+            <!-- KAMERA VE SENSÖR ÖNİZLEME PENCERESİ -->
+            <button id="btn-toggle-video" onclick="toggleVideoSubscription()" style="width: 100%; padding: 5px 8px; font-family: var(--font-mono); font-size: 10px; font-weight: 700; background: rgba(0, 223, 182, 0.12); border: 1px solid var(--accent-color); color: var(--accent-color); cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px; margin-top: 6px; margin-bottom: 4px; transition: all 0.2s; clip-path: polygon(0 0, calc(100% - 5px) 0, 100% 5px, 100% 100%, 5px 100%, 0 calc(100% - 5px));">
+                📹 CANLI VİDEO YAYININA ABONE OL
+            </button>
+            <div class="camera-preview-frame" style="position: relative; overflow: hidden;">
+                <img id="camera-live-feed" src="" alt="Canlı Kamera" style="display: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; z-index: 1;" />
+                <div style="position: relative; z-index: 2; display: flex; justify-content: space-between; font-size: 9px; color: var(--accent-color); font-weight: 800;">
+                    <span>[FPV KAMERA / SENSÖR]</span>
+                    <span id="cam-telemetry-overlay">FOV: 85° • EO/IR</span>
+                </div>
+
+                <div id="camera-placeholder-center" style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 28px; height: 28px; border: 1px solid var(--accent-color); border-radius: 50%; display: flex; align-items: center; justify-content: center; pointer-events: none; z-index: 2;">
+                    <div style="width: 4px; height: 4px; background: var(--accent-color); border-radius: 50%;"></div>
+                </div>
+
+                <div style="position: relative; z-index: 2; display: flex; justify-content: space-between; font-size: 9px; color: var(--text-muted); margin-top: auto;">
+                    <span id="detail-coords">--° N, --° E</span>
+                    <span id="detail-alt-tag">ALT: -- m</span>
+                </div>
+            </div>
+
+            <!-- ==================== SAĞA-SOLA KAYDIRILABİLİR METRO DURAĞI GÖREV HATTI ==================== -->
+            <div class="metro-mission-box" style="margin-top: 6px; margin-bottom: 6px; padding: 6px 8px; background: rgba(6, 11, 15, 0.95); border: 1px solid var(--mono-border); clip-path: polygon(0 0, calc(100% - 6px) 0, 100% 6px, 100% 100%, 6px 100%, 0 calc(100% - 6px));">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                    <div style="font-size: 10px; font-weight: 800; color: #00e5ff; letter-spacing: 0.5px;">
+                        🚇 GÖREV PLANI: <span id="metro-mission-title" style="color: #ffffff;">BOŞTA</span>
+                    </div>
+                    <div id="metro-mission-status" style="font-size: 8.5px; padding: 1px 6px; border-radius: 3px; font-weight: 800; background: rgba(0, 223, 182, 0.15); color: #00dfb6; border: 1px solid #00dfb6;">
+                        BEKLEMEDE
+                    </div>
+                </div>
+
+                <!-- Sağa Sola Kaydırılabilir Metro Hattı Konteyneri -->
+                <div id="metro-stops-container" class="metro-stops-track" style="display: flex; align-items: center; overflow-x: auto; padding: 8px 4px; scrollbar-width: thin; scroll-behavior: smooth; gap: 2px;">
+                    <div style="font-size: 9.5px; color: var(--text-muted); font-style: italic; padding: 4px;">Henüz görev başlatılmadı. Görev başladığında duraklar burada akar.</div>
+                </div>
+            </div>
+
+            <!-- MODÜL TELEMETRİ VERİLERİ (GERÇEK VERİLER) -->
+            <div class="telemetry-module-grid">
+                <div class="module-stat-card" style="grid-column: span 2;">
+                    <div class="label">3B DÜNYA KONUMU (X, Y, Z METRE):</div>
+                    <div class="val" id="detail-xyz-val" style="color: #00e5ff; font-size: 11.5px; font-family: var(--font-mono);">X: 0.0m | Y: 0.0m | Z: 0.0m</div>
+                </div>
+                <div class="module-stat-card" style="grid-column: span 2;">
+                    <div class="label">ORYANTASYON (ROLL / PITCH / YAW):</div>
+                    <div class="val" id="detail-rpy-val" style="color: #ffaa00; font-size: 11px; font-family: var(--font-mono);">R: 0.0° | P: 0.0° | Y: 0.0°</div>
+                </div>
+                <div class="module-stat-card">
+                    <div class="label">HIZ:</div>
+                    <div class="val" id="detail-speed-val">-- km/s</div>
+                </div>
+                <div class="module-stat-card">
+                    <div class="label">BATARYA:</div>
+                    <div class="val" id="detail-battery-val" style="color: var(--accent-color);">-- %</div>
+                </div>
+                <div class="module-stat-card">
+                    <div class="label">UÇUŞ MODU:</div>
+                    <div class="val" id="detail-mission-val">BEKLİYOR</div>
+                </div>
+                <div class="module-stat-card">
+                    <div class="label">İRTİFA:</div>
+                    <div class="val" id="detail-sensors-val">-- m</div>
+                </div>
+            </div>
+
+            <!-- TAKTİK AKSİYON BUTONLARI -->
+            <div style="display: flex; flex-direction: column; gap: 6px; margin-top: 2px;">
+                <div class="tooltip-btn-wrapper">
+                    <button class="tooltip-btn" onclick="armCurrentVehicle()">
+                        <span class="btn-inner" style="padding: 7px 12px; font-size: 11px;">MOTORLARI KUR [ARM]</span>
+                    </button>
+                    <div class="tooltip-popup"><span>Seçili aracın motor aktüatör çıkışlarını tetikler.</span></div>
+                </div>
+
+                <div class="tooltip-btn-wrapper">
+                    <button class="tooltip-btn" onclick="sendWaypointMission()">
+                        <span class="btn-inner" style="padding: 7px 12px; font-size: 11px;">YENİ GÖREV / ROTA GÖNDER</span>
+                    </button>
+                    <div class="tooltip-popup"><span>Araca seçili harita koordinatını yeni waypoint olarak atar.</span></div>
+                </div>
+
+                <div class="tooltip-btn-wrapper">
+                    <button class="tooltip-btn btn-danger-override" onclick="emergencyStopCurrentVehicle()">
+                        <span class="btn-inner" style="padding: 7px 12px; font-size: 11px;">ACİL DURDUR [E-STOP]</span>
+                    </button>
+                    <div class="tooltip-popup"><span>Seçili araca anında acil fren ve motor durdurma komutu gönderir!</span></div>
+                </div>
+            </div>
+
+            <!-- SİSTEM LOGLARI -->
+            <div style="margin-top: auto; display: flex; flex-direction: column; gap: 4px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; font-size: 10px; color: var(--text-muted); letter-spacing: 1px;">
+                    <span>SİSTEM LOGLARI:</span>
+                    <span style="cursor: pointer; color: var(--accent-color);" onclick="clearLogs()">TEMİZLE</span>
+                </div>
+                <div id="system-log-terminal" style="height: 105px; background: var(--mono-dark); border: 1px solid var(--mono-border); font-size: 10px; font-family: var(--font-mono); padding: 6px 8px; overflow-y: auto; color: var(--text-muted); line-height: 1.5; clip-path: polygon(0 0, calc(100% - 6px) 0, 100% 6px, 100% 100%, 6px 100%, 0 calc(100% - 6px));">
+                    <div>[SİSTEM] PiSim Taktik GCS başlatıldı.</div>
+                    <div>[AĞ] UDP Port 7400 dinleniyor (Telemetri RX).</div>
+                    <div>[RADAR] UDP Port 7499 otomatik keşif aktif (Beacon & Prob).</div>
+                    <div style="color: var(--accent-color);">[BEKLEMEDE] Unreal Engine simülasyon bağlantısı bekleniyor...</div>
+                </div>
+            </div>
+        </aside>
+    </main>
+
+    <!-- ETKİLEŞİM, TEMA DEĞİŞTİRİCİ VE GERÇEK VERİ SCRİPTİ -->
+    <script>
+        // 5 FARKLI TEMA
+        const themes = [
+            { id: "petronas", name: "1/5 PETRONAS F1" },
+            { id: "tokyonight", name: "2/5 TOKYO NIGHT" },
+            { id: "gruvbox", name: "3/5 GRUVBOX AMBER" },
+            { id: "dracula", name: "4/5 DRACULA NEON" },
+            { id: "light-tactical", name: "5/5 LIGHT OPS (AÇIK)" }
+        ];
+        let currentThemeIndex = 0;
+
+        function cycleTheme() {
+            currentThemeIndex = (currentThemeIndex + 1) % themes.length;
+            applyTheme(themes[currentThemeIndex]);
+        }
+
+        function applyTheme(theme) {
+            document.documentElement.setAttribute('data-theme', theme.id);
+            document.getElementById('btn-theme-switcher').innerText = `TEMA: ${theme.name}`;
+            localStorage.setItem('pisim-theme', theme.id);
+        }
+
+        const savedThemeId = localStorage.getItem('pisim-theme');
+        if (savedThemeId) {
+            const idx = themes.findIndex(t => t.id === savedThemeId);
+            if (idx !== -1) {
+                currentThemeIndex = idx;
+                applyTheme(themes[idx]);
+            }
+        }
+
+                // ==================== İNTERAKTİF TAKTİK HARİTA (LEAFLET.JS) ====================
+        let tacticalMap = null;
+        let isFollowingVehicle = false;
+        const fleetMarkers = {};
+        let lastSelectedLat = 39.9334;
+        let lastSelectedLon = 32.8597;
+        let lastInitialCenterDone = false;
+        let currentTileKey = 'google_hybrid';
+        let currentTileLayer = null;
+
+        function getTileLayer(key) {
+            if (key === 'google_streets') {
+                return L.tileLayer('https://mt{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}', {
+                    maxZoom: 20,
+                    subdomains: ['0', '1', '2', '3'],
+                    attribution: '&copy; Google Maps Streets'
+                });
+            } else if (key === 'esri_satellite') {
+                return L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+                    maxZoom: 19,
+                    attribution: '&copy; Esri World Imagery'
+                });
+            } else if (key === 'google_hybrid') {
+                return L.tileLayer('https://mt{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', {
+                    maxZoom: 20,
+                    subdomains: ['0', '1', '2', '3'],
+                    attribution: '&copy; Google Maps Satellite'
+                });
+            } else if (key === 'dark_matter') {
+                return L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+                    maxZoom: 20,
+                    subdomains: 'abcd',
+                    attribution: '&copy; CartoDB &copy; OpenStreetMap'
+                });
+            } else {
+                return L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                    maxZoom: 19,
+                    attribution: '&copy; OpenStreetMap'
+                });
+            }
+        }
+
+        function setTileLayer(key) {
+            if (!tacticalMap || typeof L === 'undefined') return;
+            if (currentTileLayer) {
+                try { tacticalMap.removeLayer(currentTileLayer); } catch(e){}
+            }
+            currentTileKey = key;
+            currentTileLayer = getTileLayer(key);
+            currentTileLayer.addTo(tacticalMap);
+
+            const btn = document.getElementById('btn-map-layer');
+            if (btn) {
+                if (key === 'google_hybrid') {
+                    btn.innerText = "🛰️ UYDU: GOOGLE (CANLI)";
+                    btn.style.color = "#00dfb6";
+                    btn.style.borderColor = "#00dfb6";
+                } else if (key === 'esri_satellite') {
+                    btn.innerText = "🛰️ UYDU: ESRI ARCGIS";
+                    btn.style.color = "#00e5ff";
+                    btn.style.borderColor = "#00e5ff";
+                } else if (key === 'google_streets') {
+                    btn.innerText = "🗺️ MOD: GOOGLE SOKAK";
+                    btn.style.color = "#ffaa00";
+                    btn.style.borderColor = "#ffaa00";
+                } else if (key === 'dark_matter') {
+                    btn.innerText = "🌑 MOD: KARANLIK";
+                    btn.style.color = "#8b949e";
+                    btn.style.borderColor = "#8b949e";
+                } else {
+                    btn.innerText = "🌍 MOD: OSM";
+                    btn.style.color = "#ffffff";
+                    btn.style.borderColor = "#ffffff";
+                }
+            }
+        }
+
+        function cycleMapLayer() {
+            const keys = ['google_hybrid', 'esri_satellite', 'google_streets', 'dark_matter', 'osm'];
+            const nextIdx = (keys.indexOf(currentTileKey) + 1) % keys.length;
+            setTileLayer(keys[nextIdx]);
+            addLog(`Harita Katmanı Değiştirildi: ${keys[nextIdx].toUpperCase()}`);
+        }
+
+        function initTacticalMap() {
+            try {
+                if (typeof L === 'undefined') {
+                    console.warn("Leaflet kütüphanesi henüz yüklenmedi, 300ms sonra tekrar denenecek...");
+                    setTimeout(initTacticalMap, 300);
+                    return;
+                }
+                const mapContainer = document.getElementById('tactical-leaflet-map');
+                if (!mapContainer || tacticalMap) return;
+
+                // Varsayılan merkez: Ankara ODTÜ / Simülasyon Koordinatları
+                tacticalMap = L.map('tactical-leaflet-map', {
+                    center: [39.9334, 32.8597],
+                    zoom: 17,
+                    zoomControl: false,
+                    attributionControl: false
+                });
+
+                // Varsayılan olarak Google Uydu (Hybrid) katmanını yükle
+                setTileLayer('google_hybrid');
+                updateFollowButton();
+
+                // Kullanıcı haritayı elle kaydırdığında takibi serbest bırak
+                tacticalMap.on('dragstart', () => {
+                    if (isFollowingVehicle) {
+                        isFollowingVehicle = false;
+                        updateFollowButton();
+                    }
+                });
+
+                // Haritada boş bir yere tıklandığında sadece GPS koordinatlarını göster (Kontrol/Çizim yapmaz)
+                tacticalMap.on('click', (e) => {
+                    const latStr = e.latlng.lat.toFixed(6);
+                    const lonStr = e.latlng.lng.toFixed(6);
+                    const lbl = document.getElementById('map-target-label');
+                    if (lbl) {
+                        lbl.innerText = `TIKLANAN GPS: ${latStr}° N, ${lonStr}° E`;
+                    }
+                    L.popup()
+                        .setLatLng(e.latlng)
+                        .setContent(`<div style="font-family:monospace; font-size:10.5px;"><b style="color:#00dfb6;">📍 KOORDİNAT</b><br>Lat: <b>${latStr}</b><br>Lon: <b>${lonStr}</b></div>`)
+                        .openOn(tacticalMap);
+                    addLog(`📍 Harita Koordinatı: --lat ${latStr} --lon ${lonStr}`);
+                });
+
+                // Sayfa ilk yüklendiğinde ve pencere değiştiğinde Leaflet boyutunu düzelt
+                setTimeout(() => { if (tacticalMap) tacticalMap.invalidateSize(); }, 200);
+                setTimeout(() => { if (tacticalMap) tacticalMap.invalidateSize(); }, 800);
+                setTimeout(() => { if (tacticalMap) tacticalMap.invalidateSize(); }, 2000);
+                window.addEventListener('resize', () => { if (tacticalMap) tacticalMap.invalidateSize(); });
+            } catch (e) {
+                console.error("Harita başlatma hatası:", e);
+            }
+        }
+
+        function updateFollowButton() {
+            const btn = document.getElementById('btn-toggle-follow');
+            if (!btn) return;
+            if (isFollowingVehicle) {
+                btn.innerText = "🎯 TAKİP: AÇIK";
+                btn.style.borderColor = "var(--accent-color)";
+                btn.style.color = "var(--accent-color)";
+                btn.style.background = "rgba(0, 223, 182, 0.18)";
+            } else {
+                btn.innerText = "⚪ TAKİP: KAPALI";
+                btn.style.borderColor = "rgba(255, 255, 255, 0.25)";
+                btn.style.color = "var(--text-muted)";
+                btn.style.background = "rgba(0, 0, 0, 0.35)";
+            }
+        }
+
+        function toggleFollowVehicle() {
+            isFollowingVehicle = !isFollowingVehicle;
+            updateFollowButton();
+            if (isFollowingVehicle) {
+                centerMap();
+                addLog("Harita: Seçili araç otomatik takip moduna alındı.");
+            }
+        }
+
+        function zoomMapIn() {
+            if (tacticalMap) tacticalMap.zoomIn();
+        }
+
+        function zoomMapOut() {
+            if (tacticalMap) tacticalMap.zoomOut();
+        }
+
+        function centerMap() {
+            if (tacticalMap) {
+                tacticalMap.panTo([lastSelectedLat, lastSelectedLon], { animate: true, duration: 0.6 });
+                isFollowingVehicle = true;
+                updateFollowButton();
+                addLog("Harita: Seçili araca odaklandı.");
+            }
+        }
+
+// ==================== CANLI VE GERÇEK TELEMETRİ KÖPRÜSÜ ====================
+        let isConnected = false;
+        let isFetchingTelemetry = false;
+        let lastLoggedSec = 0;
+        let wasConnectedLogFired = false;
+        const loggedHistory = new Set();
+
+        async function syncLiveTelemetry() {
+            if (isFetchingTelemetry) return;
+            isFetchingTelemetry = true;
+            try {
+                const res = await fetch('/api/telemetry');
+                if (!res.ok) return;
+                const data = await res.json();
+                if (!data) return;
+
+                // 1. IP Bilgilerini Güncelle
+                if (data.local_ip) {
+                    const lblLocalIp = document.getElementById('label-local-ip');
+                    if (lblLocalIp) lblLocalIp.innerText = data.local_ip;
+                }
+                const targetIpEl = document.getElementById('label-target-ue5-ip');
+                if (targetIpEl) {
+                    if (data.ue5_ip) {
+                        targetIpEl.innerText = `${data.ue5_ip}:7400 [BAĞLI]`;
+                        targetIpEl.style.color = "#00e5ff";
+                    } else {
+                        targetIpEl.innerText = "DİNLENİYOR (PROBE BEKLENİYOR)...";
+                        targetIpEl.style.color = "var(--text-muted)";
+                    }
+                }
+                if (data.ue5_ip) {
+                    const inpTarget = document.getElementById('input-manual-target-ip');
+                    if (inpTarget && !inpTarget.value) inpTarget.placeholder = data.ue5_ip;
+                }
+
+                // 2. KÖPRÜ DURUMU: UE5'ten keşif paketi / heartbeat / SQL verisi geliyorsa köprü bağlıdır
+                const isUeConnected = Boolean(data.connected === true);
+                const isStreaming = Boolean(data.streaming === true);
+                isConnected = isUeConnected;
+
+                const statusTag = document.getElementById('bridge-status-tag');
+                const headerBadge = document.getElementById('header-status-badge');
+                const headerGreeting = document.getElementById('header-greeting-badge');
+                const activeBadge = document.getElementById('active-status-badge');
+                const pipes = document.querySelectorAll('.two-way-pipe-group');
+                const cardsContainer = document.getElementById('vehicle-cards-container');
+                const countTag = document.getElementById('vehicle-count-tag');
+                const radarBlip = document.getElementById('live-radar-blip');
+                const detailGreeting = document.getElementById('detail-vehicle-greeting');
+                const nodeCenterMsg = document.getElementById('node-center-msg');
+
+                // 3. Sistem loglarını aktar (SQL çekimi, RX mesajları vb.) - HEM ALT PANELE HEM SAĞ SİSTEM LOGUNA
+                if (Array.isArray(data.recent_logs)) {
+                    data.recent_logs.forEach(msg => {
+                        if (!loggedHistory.has(msg)) {
+                            loggedHistory.add(msg);
+                            addLog(msg);
+                            addPacketLog(msg); // Alt paneldeki büyük canlı log akışına anında ekle!
+                            if (loggedHistory.size > 200) loggedHistory.clear();
+                        }
+                    });
+                }
+
+                // 4. Veri Kanalları ve Düğüm Parlamaları
+                if (isUeConnected) {
+                    pipes.forEach(p => p.classList.add('connected'));
+                    const nPi5 = document.getElementById('node-pi5');
+                    const nUe5 = document.getElementById('node-ue5');
+                    const nCenter = document.getElementById('node-center-telemetry');
+                    if (nPi5) nPi5.classList.add('active-node');
+                    if (nUe5) nUe5.classList.add('active-node');
+                    if (nCenter) nCenter.classList.add('active-node');
+
+                    if (statusTag) {
+                        statusTag.innerText = `UE5 BAĞLI [${data.ue5_ip || 'AĞ'}]`;
+                        statusTag.style.background = "var(--accent-dim)";
+                        statusTag.style.color = "var(--accent-color)";
+                        statusTag.style.borderColor = "var(--accent-color)";
+                    }
+                    if (headerBadge) {
+                        headerBadge.innerText = "ONLINE";
+                        headerBadge.style.background = "var(--accent-dim)";
+                        headerBadge.style.color = "var(--accent-color)";
+                        headerBadge.style.borderColor = "var(--accent-color)";
+                    }
+                } else {
+                    pipes.forEach(p => p.classList.remove('connected'));
+                    const nPi5 = document.getElementById('node-pi5');
+                    const nUe5 = document.getElementById('node-ue5');
+                    const nCenter = document.getElementById('node-center-telemetry');
+                    if (nPi5) nPi5.classList.remove('active-node');
+                    if (nUe5) nUe5.classList.remove('active-node');
+                    if (nCenter) nCenter.classList.remove('active-node');
+
+                    if (statusTag) {
+                        statusTag.innerText = "UE5 BEKLENİYOR [UDP 7499]";
+                        statusTag.style.background = "rgba(255, 170, 0, 0.15)";
+                        statusTag.style.color = "#ffaa00";
+                        statusTag.style.borderColor = "#ffaa00";
+                    }
+                    if (headerBadge) {
+                        headerBadge.innerText = "BEKLEMEDE";
+                        headerBadge.style.background = "rgba(255, 170, 0, 0.15)";
+                        headerBadge.style.color = "#ffaa00";
+                        headerBadge.style.borderColor = "#ffaa00";
+                    }
+                }
+
+                // 5. SOL PANEL: DOĞRUDAN GELEN CANLI MESAJLARDAN FİLO KARTLARINI ÇİZ
+                const fleet = Array.isArray(data.fleet) ? data.fleet : [];
+                const activeCount = fleet.filter(v => v.connected).length;
+                if (countTag) countTag.innerText = `[${activeCount}/${fleet.length} AKTİF]`;
+
+                const activeSelCode = window.userSelectedVehicleCode || data.selected_vehicle_code || (fleet[0] ? fleet[0].code : null);
+                const selVeh = fleet.find(v => v.code === activeSelCode) || fleet[0] || null;
+
+                // Harita işaretçilerini canlı telemetriyle güncelle
+                updateFleetMarkersOnMap(fleet, activeSelCode, selVeh || data);
+
+                if (cardsContainer) {
+                    if (fleet.length === 0) {
+                        cardsContainer.innerHTML = '<div style="padding: 16px 8px; color: var(--text-muted); font-size: 10px; text-align: center; border: 1px dashed var(--mono-border); border-radius: 4px;">📡 Henüz bağlı araç bulunmuyor.<br>(Unreal Engine UDP 7400 mesajları bekleniyor...)</div>';
+                    } else {
+                        cardsContainer.innerHTML = fleet.map(v => {
+                            const vCode = v.code || v.vehicle_code;
+                            const vName = v.name || v.vehicle_name || vCode;
+                            const isSel = (activeSelCode === vCode);
+                            const isOnline = Boolean(v.connected);
+                            const offlineSec = v.offline_sec !== undefined ? v.offline_sec : 5;
+                            const cardOpacity = isOnline ? '1.0' : '0.52';
+                            const cardFilter = isOnline ? 'none' : 'grayscale(45%)';
+                            const cardBorder = isSel 
+                                ? 'border-left: 4px solid var(--accent-color); background: rgba(0, 223, 182, 0.16); box-shadow: 0 0 12px rgba(0, 223, 182, 0.25);' 
+                                : (isOnline 
+                                    ? 'border-left: 3px solid rgba(0, 223, 182, 0.45); background: rgba(0, 0, 0, 0.35);' 
+                                    : 'border-left: 3px solid #ff4444; background: rgba(40, 10, 10, 0.35);');
+                            const badgeHtml = isOnline 
+                                ? '<span style="color: #00dfb6; font-weight: 800; font-size: 9px; background: rgba(0, 223, 182, 0.15); padding: 2px 5px; border-radius: 3px; border: 1px solid #00dfb6;">● CANLI (2Hz)</span>' 
+                                : `<span style="color: #ff5555; font-weight: 800; font-size: 9px; background: rgba(255, 68, 68, 0.15); padding: 2px 5px; border-radius: 3px; border: 1px solid #ff5555;">🔴 PASİF (${Math.round(offlineSec)}sn)</span>`;
+
+                            const px = Number(v.pos_x || 0).toFixed(1);
+                            const py = Number(v.pos_y || 0).toFixed(1);
+                            const pz = Number(v.pos_z || v.altitude || 0).toFixed(1);
+
+                            return `
+                                <div class="vehicle-card ${isSel ? 'active' : ''}" onmousedown="selectVehicle('${vCode}')" onclick="selectVehicle('${vCode}')" style="${cardBorder} opacity: ${cardOpacity}; filter: ${cardFilter}; padding: 8px; border-radius: 4px; cursor: pointer; margin-bottom: 6px; transition: all 0.15s ease;">
+                                    <div class="vehicle-card-header" style="display: flex; justify-content: space-between; align-items: center;">
+                                        <span class="vehicle-card-title" style="font-weight: 800; color: ${isSel ? 'var(--accent-color)' : (isOnline ? '#ffffff' : '#ff8888')}; font-size: 11px;">
+                                            ${isOnline ? '🟢' : '🔴'} ${vName}
+                                            <span style="font-size: 8.5px; opacity: 0.9; font-family: var(--font-mono); color: ${isOnline ? '#00e5ff' : '#ff7777'}; display: block;">EŞSİZ KOD: [${vCode}]</span>
+                                        </span>
+                                        ${badgeHtml}
+                                    </div>
+                                    <div class="vehicle-card-body" style="display: grid; grid-template-columns: auto 1fr; gap: 2px 8px; font-size: 9.5px; margin-top: 5px;">
+                                        <span style="color: var(--text-muted);">Durum:</span>
+                                        <span style="color: ${isOnline ? '#00dfb6' : '#ff5555'}; font-family: var(--font-mono); font-weight: 700;">${isSel ? (isOnline ? 'SEÇİLİ (CANLI)' : 'SEÇİLİ (BAĞLANTI KOPTU)') : (isOnline ? 'AKTİF (2Hz)' : 'BAĞLANTI KOPTU (5s+)')}</span>
+                                        <span style="color: var(--text-muted);">Konum:</span>
+                                        <span style="color: #00e5ff; font-family: var(--font-mono); font-weight: 700;">X:${px}m Y:${py}m Z:${pz}m</span>
+                                        <span style="color: var(--text-muted);">Hız / İrtifa:</span>
+                                        <span style="color: var(--accent-color); font-weight: 800;">${v.speed || 0} km/s | ${v.altitude || 0} m</span>
+                                        <span style="color: var(--text-muted);">Batarya / Mod:</span>
+                                        <span style="color: #ffaa00; font-weight: 700;">% ${v.battery !== undefined ? v.battery : 98} • ${v.flight_mode || 'AKTİF'}</span>
+                                    </div>
+                                </div>
+                            `;
+                        }).join('');
+                    }
+                }
+
+                // 6. SAĞ PANEL: SEÇİLİ ARAÇ DETAYLARI (Sol panelde tıklanan aracın tüm verilerini anında sağ panele bas)
+                if (selVeh) {
+                    const vCode = selVeh.code || selVeh.vehicle_code;
+                    const vName = selVeh.name || selVeh.vehicle_name || vCode;
+                    const isVehOnline = Boolean(selVeh.connected);
+                    const fullLabel = `${vName} [${vCode}]`;
+                    const rxMsg = selVeh.msg || (isVehOnline ? `HI FROM ${vName}` : `SON BİLİNEN DURUM (${vCode})`);
+
+                    if (headerGreeting) {
+                        headerGreeting.style.display = "inline-block";
+                        headerGreeting.innerText = rxMsg;
+                    }
+                    if (activeBadge) {
+                        activeBadge.innerText = isVehOnline ? "[CANLI YAYIN: 2Hz]" : `[BAĞLANTI KOPTU: ${Math.round(selVeh.offline_sec || 5)}sn]`;
+                        activeBadge.style.color = isVehOnline ? "var(--accent-color)" : "#ff5555";
+                    }
+                    if (detailGreeting) {
+                        detailGreeting.innerText = isVehOnline ? `● "${rxMsg}"` : `🔴 BAĞLANTI KOPTU (Son sinyal ${Math.round(selVeh.offline_sec || 5)}sn önce)`;
+                        detailGreeting.style.color = isVehOnline ? "#00e5ff" : "#ff5555";
+                    }
+                    if (nodeCenterMsg) {
+                        nodeCenterMsg.innerText = rxMsg;
+                    }
+
+                    const px = Number(selVeh.pos_x || 0).toFixed(2);
+                    const py = Number(selVeh.pos_y || 0).toFixed(2);
+                    const pz = Number(selVeh.pos_z || selVeh.altitude || 0).toFixed(2);
+                    const rDeg = Number(selVeh.roll || 0).toFixed(1);
+                    const pDeg = Number(selVeh.pitch || 0).toFixed(1);
+                    const yDeg = Number(selVeh.yaw || 0).toFixed(1);
+
+                    const titleEl = document.getElementById('detail-vehicle-title');
+                    if (titleEl) titleEl.innerText = fullLabel;
+                    const xyzEl = document.getElementById('detail-xyz-val');
+                    if (xyzEl) xyzEl.innerText = `X: ${px}m | Y: ${py}m | Z: ${pz}m`;
+                    const rpyEl = document.getElementById('detail-rpy-val');
+                    if (rpyEl) rpyEl.innerText = `R: ${rDeg}° | P: ${pDeg}° | Y: ${yDeg}°`;
+                    const speedEl = document.getElementById('detail-speed-val');
+                    if (speedEl) speedEl.innerText = `${selVeh.speed || 0} km/s`;
+                    const battEl = document.getElementById('detail-battery-val');
+                    if (battEl) battEl.innerText = `% ${selVeh.battery !== undefined ? selVeh.battery : 98}`;
+                    const missEl = document.getElementById('detail-mission-val');
+                    if (missEl) missEl.innerText = `${selVeh.flight_mode || 'AKTİF'}`;
+                    const sensEl = document.getElementById('detail-sensors-val');
+                    if (sensEl) sensEl.innerText = `${selVeh.altitude || 0} m`;
+                    const coordsEl = document.getElementById('detail-coords');
+                    if (coordsEl) coordsEl.innerText = `${selVeh.lat ? Number(selVeh.lat).toFixed(5) : '39.93340'}°N, ${selVeh.lon ? Number(selVeh.lon).toFixed(5) : '32.85970'}°E`;
+                    const altTagEl = document.getElementById('detail-alt-tag');
+                    if (altTagEl) altTagEl.innerText = `ALT: ${selVeh.altitude || 0} m`;
+                    const camOverlayEl = document.getElementById('cam-telemetry-overlay');
+                    if (camOverlayEl) camOverlayEl.innerText = `X:${px}m Y:${py}m • R:${rDeg}° P:${pDeg}° Y:${yDeg}°`;
+
+                    if (radarBlip) {
+                        radarBlip.style.display = "flex";
+                        const blipLabel = document.getElementById('live-blip-label');
+                        if (blipLabel) blipLabel.innerText = `${fullLabel} [${selVeh.speed || 0} km/s]`;
+                    }
+                    const targetLabel = document.getElementById('map-target-label');
+                    if (targetLabel) targetLabel.innerText = `${fullLabel} (X:${px}m, Y:${py}m)`;
+                    const gnssLabel = document.getElementById('gnss-fix-label');
+                    if (gnssLabel) gnssLabel.innerText = isVehOnline ? "3D FIX [RTK CANLI]" : "PASİF (SON KONUM)";
+
+                    const nowSec = Date.now() / 1000;
+                    if (isVehOnline && nowSec - lastLoggedSec >= 1.5) {
+                        lastLoggedSec = nowSec;
+                        addPacketLog(`RX ← UE5 (${data.ue5_ip || 'Unreal'}:7400) | <b style="color:#00e5ff;">[${vCode}]</b> X:${px}m Y:${py}m Z:${pz}m | R:${rDeg}° P:${pDeg}° | SPD:${selVeh.speed || 0}km/s`);
+                    }
+
+                    if (isVehOnline && !wasConnectedLogFired) {
+                        wasConnectedLogFired = true;
+                        addLog(`✅ [CANLI YAYIN AKTİF] ${fullLabel} telemetrisi alınıyor: Port 7400`);
+                    } else if (!isVehOnline) {
+                        wasConnectedLogFired = false;
+                    }
+                } else {
+                    document.getElementById('detail-vehicle-title').innerText = "[ARAÇ SEÇİNİZ]";
+                    const xyzEl = document.getElementById('detail-xyz-val');
+                    if (xyzEl) xyzEl.innerText = "X: -- | Y: -- | Z: --";
+                    const rpyEl = document.getElementById('detail-rpy-val');
+                    if (rpyEl) rpyEl.innerText = "R: --° | P: --° | Y: --°";
+                    document.getElementById('detail-speed-val').innerText = "-- km/s";
+                    document.getElementById('detail-battery-val').innerText = "-- %";
+                    document.getElementById('detail-mission-val').innerText = "BEKLİYOR";
+                    document.getElementById('detail-sensors-val').innerText = "-- m";
+                    document.getElementById('detail-coords').innerText = "--° N, --° E";
+                    document.getElementById('detail-alt-tag').innerText = "ALT: -- m";
+                    if (headerGreeting) headerGreeting.style.display = "none";
+                    if (activeBadge) {
+                        activeBadge.innerText = "[ARAÇ BEKLENİYOR]";
+                        activeBadge.style.color = "var(--text-muted)";
+                    }
+                    if (detailGreeting) {
+                        detailGreeting.innerText = "[SOL PANEL DEN ARAÇ SEÇİNİZ]";
+                        detailGreeting.style.color = "var(--text-muted)";
+                    }
+                    if (radarBlip) radarBlip.style.display = "none";
+                }
+
+                // 7. VİDEO YAYINI GÜNCELLEMESİ
+                const camImg = document.getElementById('camera-live-feed');
+                const btnVid = document.getElementById('btn-toggle-video');
+                const camPlaceholder = document.getElementById('camera-placeholder-center');
+                if (data.video_subscribed) {
+                    isVideoSubscribed = true;
+                    startVideoRefreshLoop();
+                    if (camImg) camImg.style.display = 'block';
+                    if (camPlaceholder) camPlaceholder.style.display = 'none';
+                    if (btnVid) {
+                        btnVid.innerHTML = '🔴 VİDEO YAYINDA (KAPATMAK İÇİN TIKLAYIN)';
+                        btnVid.style.borderColor = '#ff3366';
+                        btnVid.style.color = '#ff3366';
+                        btnVid.style.background = 'rgba(255, 51, 102, 0.15)';
+                    }
+                } else {
+                    isVideoSubscribed = false;
+                    if (camImg) camImg.style.display = 'none';
+                    if (camPlaceholder) camPlaceholder.style.display = 'flex';
+                    if (btnVid) {
+                        btnVid.innerHTML = '📹 CANLI VİDEO YAYININA ABONE OL';
+                        btnVid.style.borderColor = 'var(--accent-color)';
+                        btnVid.style.color = 'var(--accent-color)';
+                        btnVid.style.background = 'rgba(0, 223, 182, 0.12)';
+                    }
+                }
+            } catch (err) {
+                console.error("syncLiveTelemetry error:", err);
+            } finally {
+                isFetchingTelemetry = false;
+            }
+        }
+        // ==================== METRO DURAĞI CANLI SENKRONİZASYON ====================
+        let cachedMissionJson = "";
+
+        async function syncMissionMetroLine() {
+            try {
+                const res = await fetch('/api/mission');
+                if (!res.ok) return;
+                const data = await res.json();
+                if (!data || !data.mission) {
+                    renderEmptyMetroLine();
+                    return;
+                }
+                const m = data.mission;
+                const mJson = JSON.stringify(m);
+                if (mJson === cachedMissionJson) return;
+                cachedMissionJson = mJson;
+                renderMetroLine(m);
+            } catch (err) {}
+        }
+
+        let missionMapPolyline = null;
+        let missionMapMarkers = [];
+
+        function clearMissionFromMap() {
+            if (tacticalMap && typeof L !== 'undefined') {
+                if (missionMapPolyline) {
+                    try { tacticalMap.removeLayer(missionMapPolyline); } catch (e) {}
+                    missionMapPolyline = null;
+                }
+                missionMapMarkers.forEach(m => {
+                    try { tacticalMap.removeLayer(m); } catch (e) {}
+                });
+                missionMapMarkers = [];
+            }
+        }
+
+        function drawMissionOnMap(steps) {
+            if (!tacticalMap || typeof L === 'undefined') return;
+            clearMissionFromMap();
+            if (!steps || steps.length === 0) return;
+
+            const routePoints = [];
+            let wpIndex = 1;
+
+            steps.forEach((st) => {
+                if (st.lat && st.lon && (Math.abs(st.lat) > 0.001 || Math.abs(st.lon) > 0.001)) {
+                    const latlng = [Number(st.lat), Number(st.lon)];
+                    routePoints.push(latlng);
+
+                    const isPassed = (st.state === "PASSED");
+                    const isActive = (st.state === "ACTIVE");
+                    const color = isPassed ? "#00dfb6" : (isActive ? "#00e5ff" : "#ffaa00");
+                    const bgGlow = isActive ? "0 0 14px #00e5ff" : "0 0 6px rgba(0,0,0,0.85)";
+
+                    const customIcon = L.divIcon({
+                        className: 'tactical-mission-wp',
+                        html: `<div style="background:${color}; color:#000; font-weight:900; font-size:10px; font-family:var(--font-mono); width:24px; height:24px; border-radius:50%; display:flex; align-items:center; justify-content:center; border:2px solid #ffffff; box-shadow:${bgGlow}; transform:translate(-12px, -12px);">${wpIndex}</div>`,
+                        iconSize: [0, 0]
+                    });
+
+                    const marker = L.marker(latlng, { icon: customIcon }).addTo(tacticalMap);
+                    marker.bindPopup(`
+                        <div style="font-family:var(--font-mono); font-size:11px; color:#ffffff; background:#060b0f; padding:6px; border:1px solid ${color}; border-radius:4px;">
+                            <b style="color:${color};">📍 HEDEF ${wpIndex}: ${st.title}</b><br>
+                            <span style="color:#aaa;">Eylem:</span> <b>${st.action}</b><br>
+                            <span style="color:#aaa;">GPS:</span> ${Number(st.lat).toFixed(6)}, ${Number(st.lon).toFixed(6)}<br>
+                            <span style="color:#aaa;">Durum:</span> <b style="color:${color};">${st.state}</b>
+                        </div>
+                    `);
+                    missionMapMarkers.push(marker);
+                    wpIndex++;
+                }
+            });
+
+            if (routePoints.length > 1) {
+                missionMapPolyline = L.polyline(routePoints, {
+                    color: '#00e5ff',
+                    weight: 3,
+                    dashArray: '8, 8',
+                    opacity: 0.85
+                }).addTo(tacticalMap);
+            }
+        }
+
+        function renderEmptyMetroLine() {
+            clearMissionFromMap();
+            const container = document.getElementById('metro-stops-container');
+            const titleEl = document.getElementById('metro-mission-title');
+            const statusEl = document.getElementById('metro-mission-status');
+            if (titleEl) titleEl.innerText = "BOŞTA";
+            if (statusEl) {
+                statusEl.innerText = "BEKLEMEDE";
+                statusEl.style.borderColor = "var(--mono-border)";
+                statusEl.style.color = "var(--text-muted)";
+            }
+            if (container && container.innerHTML.indexOf("Henüz görev başlatılmadı") === -1) {
+                container.innerHTML = `<div style="font-size: 9.5px; color: var(--text-muted); font-style: italic; padding: 4px;">Henüz görev başlatılmadı. Görev başladığında duraklar burada akar.</div>`;
+            }
+        }
+
+        function renderMetroLine(m) {
+            const container = document.getElementById('metro-stops-container');
+            const titleEl = document.getElementById('metro-mission-title');
+            const statusEl = document.getElementById('metro-mission-status');
+            if (!container) return;
+
+            if (titleEl) titleEl.innerText = m.title || m.mission_id || "GÖREV";
+            if (statusEl) {
+                statusEl.innerText = m.status || "RUNNING";
+                if (m.status === "COMPLETED") {
+                    statusEl.style.borderColor = "#00dfb6";
+                    statusEl.style.color = "#00dfb6";
+                } else if (m.status === "ABORTED") {
+                    statusEl.style.borderColor = "#ff3b30";
+                    statusEl.style.color = "#ff3b30";
+                } else {
+                    statusEl.style.borderColor = "#00e5ff";
+                    statusEl.style.color = "#00e5ff";
+                }
+            }
+
+            const steps = m.steps || [];
+            let html = "";
+            steps.forEach((st, idx) => {
+                const isPassed = (st.state === "PASSED");
+                const isActive = (st.state === "ACTIVE");
+                const isWait = (st.action && st.action.startsWith("WAIT"));
+
+                let dotColor = isPassed ? "#00dfb6" : (isActive ? "#00e5ff" : (isWait ? "#ffaa00" : "var(--mono-border)"));
+                let dotIcon = isPassed ? "✓" : (isActive ? "◉" : (isWait ? "⏳" : `${idx+1}`));
+                let pulseClass = isActive ? "metro-dot-pulsing" : "";
+
+                let badgeText = st.action || "GOTO";
+                if (st.wait_target) badgeText = `BEKLE: ${st.wait_target}`;
+
+                html += `
+                <div class="metro-stop-item" style="display: flex; flex-direction: column; align-items: center; min-width: 85px; max-width: 105px; position: relative; padding: 2px 3px;">
+                    <div style="font-size: 8.5px; font-weight: 800; color: ${dotColor}; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 90px;" title="${st.title}">
+                        ${st.title || `Durak ${idx+1}`}
+                    </div>
+                    
+                    <div style="display: flex; align-items: center; width: 100%; margin: 3px 0;">
+                        <div style="flex: 1; height: 2px; background: ${idx === 0 ? 'transparent' : (isPassed || isActive ? '#00dfb6' : 'rgba(255,255,255,0.15)')};"></div>
+                        <div class="metro-dot ${pulseClass}" style="width: 18px; height: 18px; border-radius: 50%; border: 2px solid ${dotColor}; background: ${isPassed ? 'rgba(0,223,182,0.25)' : (isActive ? 'rgba(0,229,255,0.3)' : 'rgba(0,0,0,0.6)')}; display: flex; align-items: center; justify-content: center; font-size: 9px; font-weight: 900; color: ${dotColor}; flex-shrink: 0;">
+                            ${dotIcon}
+                        </div>
+                        <div style="flex: 1; height: 2px; background: ${idx === steps.length - 1 ? 'transparent' : (isPassed ? '#00dfb6' : 'rgba(255,255,255,0.15)')};"></div>
+                    </div>
+
+                    <div style="font-size: 8px; font-weight: 700; color: var(--text-muted); background: rgba(0,0,0,0.4); padding: 1px 4px; border-radius: 2px; border: 1px solid rgba(255,255,255,0.1); white-space: nowrap;">
+                        ${badgeText}
+                    </div>
+                </div>`;
+            });
+
+            container.innerHTML = html;
+
+            // Haritada rotayı ve numaralı hedefleri çiz
+            drawMissionOnMap(steps);
+        }
+
+        window.addEventListener('DOMContentLoaded', () => {
+            initTacticalMap();
+            syncLiveTelemetry();
+            setInterval(syncLiveTelemetry, 150);
+            syncMissionMetroLine();
+            setInterval(syncMissionMetroLine, 600);
+
+            // Metro konteynerinde fare tekerleğiyle yatay kaydırma
+            const metroContainer = document.getElementById('metro-stops-container');
+            if (metroContainer) {
+                metroContainer.addEventListener('wheel', (e) => {
+                    if (e.deltaY !== 0) {
+                        metroContainer.scrollLeft += e.deltaY;
+                        e.preventDefault();
+                    }
+                }, { passive: false });
+            }
+        });
+        if (document.readyState === 'complete' || document.readyState === 'interactive') {
+            initTacticalMap();
+            syncLiveTelemetry();
+            setInterval(syncLiveTelemetry, 150);
+        }
+
+        function applyManualTargetConnection() {
+            const ipInput = document.getElementById('input-manual-target-ip');
+            const portInput = document.getElementById('input-manual-target-port');
+            const ip = ipInput ? ipInput.value.trim() : '';
+            const port = portInput ? portInput.value.trim() : '7400';
+            if (!ip) {
+                addLog("⚠️ Lütfen hedef Unreal Engine IP adresini girin!");
+                return;
+            }
+            addLog(`[MANUEL BAĞLANTI] Hedef IP ayarlanıyor: ${ip}:${port}...`);
+            fetch(`/api/set_target?ip=${encodeURIComponent(ip)}&port=${encodeURIComponent(port)}`)
+                .then(r => r.json())
+                .then(res => {
+                    addLog(`✅ Hedef ayarlandı -> ${res.target_ip}:${res.target_port}. Keşif probu fırlatıldı!`);
+                })
+                .catch(err => {
+                    addLog(`❌ Hata: ${err}`);
+                });
+        }
+
+        function getTime() {
+            const now = new Date();
+            return now.toTimeString().split(' ')[0] + '.' + Math.floor(now.getMilliseconds() / 100);
+        }
+
+        // ==================== GERÇEK PAKET VE LOG FONKSİYONLARI ====================
+        function addPacketLog(line) {
+            const stream = document.getElementById('packet-stream-lines');
+            if (!stream) return;
+            const ph = document.getElementById('packet-placeholder');
+            if (ph) ph.remove();
+
+            const time = getTime();
+            const div = document.createElement('div');
+            div.style.padding = '2px 0';
+            div.style.borderBottom = '1px solid rgba(255,255,255,0.04)';
+
+            let tag = '<b style="color:var(--accent-color);">LOG</b>';
+            if (line.includes('SQL')) {
+                tag = '<b style="color:#ffaa00;">SQL</b>';
+            } else if (line.includes('ABONELİK') || line.includes('SUB_') || line.includes('ACK')) {
+                tag = '<b style="color:#00e5ff;">SUB</b>';
+            } else if (line.includes('RX')) {
+                tag = '<b style="color:#00dfb6;">RX</b>';
+            } else if (line.includes('TX') || line.includes('KOMUT')) {
+                tag = '<b style="color:#ff9900;">TX</b>';
+            } else if (line.includes('HATA') || line.includes('UYARI')) {
+                tag = '<b style="color:#ff4444;">ERR</b>';
+            }
+
+            let cleanLine = line;
+            if (/^\[\d{2}:\d{2}:\d{2}\]/.test(cleanLine)) {
+                cleanLine = cleanLine.replace(/^\[\d{2}:\d{2}:\d{2}\]\s*/, '');
+            }
+
+            div.innerHTML = `[${time}] ${tag} | ${cleanLine}`;
+            stream.appendChild(div);
+
+            if (stream.children.length > 60) {
+                stream.removeChild(stream.children[0]);
+            }
+            stream.scrollTop = stream.scrollHeight;
+        }
+
+        function clearPacketLogs() {
+            const stream = document.getElementById('packet-stream-lines');
+            if (stream) {
+                stream.innerHTML = '<div id="packet-placeholder" style="color:var(--text-dark); font-size:9.5px; padding:4px;">[TEMİZLENDİ] Paket bekleniyor...</div>';
+            }
+        }
+
+        function inspectChannel(chanId) {
+            document.querySelectorAll('.two-way-pipe-group').forEach(el => el.classList.remove('active-channel'));
+            const targetEl = document.getElementById('channel-' + chanId);
+            if (targetEl) targetEl.classList.add('active-channel');
+            const labelEl = document.getElementById('inspected-channel-name');
+            if (labelEl) {
+                labelEl.innerText = (chanId === 'sitl') ? 'Pi5 ⇄ UE5 (Telemetri RX)' : 'SITL ⇄ UE5 (MAVLink)';
+            }
+        }
+
+        async function triggerProbeFromDashboard() {
+            try {
+                addLog("📡 UDP Cihaz Keşfi Başlatıldı (Port 7499)...");
+                addPacketLog("TX → UE5 | PISIM_PROBE (target: Port 7499 Broadcast)");
+                const res = await fetch('/api/probe');
+                const data = await res.json();
+                addLog(`Keşif Probu Gönderildi: Yerel IP ${data.local_ip}`);
+            } catch (err) {
+                addLog("Keşif probu gönderilemedi.");
+            }
+        }
+
+        function toggleBridgeConnection() {
+            triggerProbeFromDashboard();
+        }
+
+        async function sendCommandToBackend(cmd) {
+            try {
+                addLog(`[KOMUT] Gönderiliyor: ${cmd.toUpperCase()}`);
+                addPacketLog(`TX → UE5 | CMD_${cmd.toUpperCase()}`);
+                const res = await fetch(`/api/command?cmd=${encodeURIComponent(cmd)}`);
+                const data = await res.json();
+                addLog(`[KOMUT ACK] ${cmd.toUpperCase()} -> ${data.target}`);
+            } catch (err) {
+                addLog(`[HATA] Komut iletilemedi: ${cmd}`);
+            }
+        }
+
+        function armCurrentVehicle() {
+            sendCommandToBackend('arm');
+        }
+
+        function sendWaypointMission() {
+            sendCommandToBackend('waypoint');
+        }
+
+        function emergencyStopCurrentVehicle() {
+            sendCommandToBackend('estop');
+        }
+
+        function createRoverIconHtml(vCode, vName, yawDeg, isSelected, isOnline) {
+            const yaw = Number(yawDeg || 0);
+            const activeClass = isSelected ? 'active' : (isOnline ? 'active' : 'passive');
+            const color = isSelected ? '#00dfb6' : (isOnline ? '#00e5ff' : '#8b949e');
+            return `
+                <div class="rover-marker-container">
+                    <div class="rover-marker-icon ${activeClass}" style="transform: rotate(${yaw}deg);">
+                        <svg viewBox="0 0 24 24" width="16" height="16" style="display:block;">
+                            <polygon points="12,2 22,22 12,17 2,22" fill="${color}" stroke="#06090c" stroke-width="1.5" />
+                        </svg>
+                    </div>
+                    <div class="rover-label-tag" style="border-color:${color}; color:${color};">${vName || vCode}</div>
+                </div>
+            `;
+        }
+
+        function updateFleetMarkersOnMap(fleet, selectedCode, liveData) {
+            if (!tacticalMap || typeof L === 'undefined') return;
+
+            // 1. Filodaki tüm araçları haritada güncelle veya oluştur
+            const activeCodes = new Set();
+            fleet.forEach(v => {
+                const code = v.code;
+                activeCodes.add(code);
+                const isSel = (code === selectedCode);
+                const rawLat = Number(isSel && liveData.lat ? liveData.lat : (v.lat || 0));
+                const rawLon = Number(isSel && liveData.lon ? liveData.lon : (v.lon || 0));
+                const vId = Number(v.id || 1);
+                const lat = (Math.abs(rawLat) > 0.001) ? rawLat : (39.9334 + (vId - 1) * 0.00018);
+                const lon = (Math.abs(rawLon) > 0.001) ? rawLon : (32.8597 + (vId - 1) * 0.00018);
+                const yaw = Number(isSel && liveData.yaw !== undefined ? liveData.yaw : (v.yaw || 0));
+                const isOnline = Boolean(v.connected);
+
+                if (isSel) {
+                    lastSelectedLat = lat;
+                    lastSelectedLon = lon;
+                }
+
+                const iconHtml = createRoverIconHtml(code, v.name, yaw, isSel, isOnline);
+                const customIcon = L.divIcon({
+                    html: iconHtml,
+                    className: 'custom-rover-div-icon',
+                    iconSize: [40, 48],
+                    iconAnchor: [20, 24]
+                });
+
+                if (fleetMarkers[code]) {
+                    fleetMarkers[code].setLatLng([lat, lon]);
+                    fleetMarkers[code].setIcon(customIcon);
+                } else {
+                    const marker = L.marker([lat, lon], { icon: customIcon }).addTo(tacticalMap);
+                    marker.on('click', () => { selectVehicle(code); });
+                    fleetMarkers[code] = marker;
+                }
+
+                // Popup içeriğini canlı tut
+                fleetMarkers[code].bindPopup(`
+                    <div style="font-family:var(--font-mono); font-size:10.5px;">
+                        <b style="color:${isSel ? '#00dfb6' : '#00e5ff'};">${v.name}</b> [${code}]<br>
+                        Hız: <b>${v.speed || 0} km/s</b> | İrtifa: <b>${v.altitude || 0} m</b><br>
+                        Batarya: <b>%${v.battery || '--'}</b> | Mod: <b>${v.flight_mode || 'AUTO'}</b><br>
+                        Konum: <b>${lat.toFixed(5)}°N, ${lon.toFixed(5)}°E</b>
+                    </div>
+                `);
+            });
+
+            // 1b. Seçili aracın Dönme Çemberi (Turn Radius Circle - Canlı Çizim)
+            if (selectedCode && liveData && tacticalMap) {
+                const sLat = Number(liveData.lat || lastSelectedLat);
+                const sLon = Number(liveData.lon || lastSelectedLon);
+                const sYaw = Number(liveData.yaw || 0);
+                const sSpeedMps = Number(liveData.speed_mps || (Number(liveData.speed || 0) / 3.6));
+                const sOmega = Number(liveData.yaw_rate_rad || 0);
+
+                if (Math.abs(sOmega) > 0.035 && sSpeedMps > 0.15) {
+                    const R = Math.max(1.5, Math.min(60.0, sSpeedMps / Math.abs(sOmega)));
+                    const perpAngleDeg = (sOmega > 0) ? (sYaw + 90.0) : (sYaw - 90.0);
+                    const perpRad = perpAngleDeg * Math.PI / 180.0;
+                    const dNorth = R * Math.cos(perpRad);
+                    const dEast = R * Math.sin(perpRad);
+                    const cLat = sLat + (dNorth / 111320.0);
+                    const cLon = sLon + (dEast / (111320.0 * Math.cos(sLat * Math.PI / 180.0)));
+
+                    if (window.turnCircleLayer) {
+                        window.turnCircleLayer.setLatLng([cLat, cLon]);
+                        window.turnCircleLayer.setRadius(R);
+                    } else {
+                        window.turnCircleLayer = L.circle([cLat, cLon], {
+                            radius: R,
+                            color: '#00e5ff',
+                            weight: 2,
+                            dashArray: '6, 6',
+                            fillColor: '#00e5ff',
+                            fillOpacity: 0.08
+                        }).addTo(tacticalMap);
+                        window.turnCircleLayer.bindTooltip(`🔄 Dönme Yarıçapı: R=${R.toFixed(1)}m | ω=${sOmega.toFixed(2)} rad/s`, { permanent: false });
+                    }
+                } else if (window.turnCircleLayer) {
+                    try { tacticalMap.removeLayer(window.turnCircleLayer); } catch(e) {}
+                    window.turnCircleLayer = null;
+                }
+            }
+
+            // 2. İlk araç tespit edildiğinde haritayı anında aracın koordinatına merkezle!
+            if (!lastInitialCenterDone && fleet.length > 0 && lastSelectedLat && lastSelectedLon) {
+                lastInitialCenterDone = true;
+                tacticalMap.setView([lastSelectedLat, lastSelectedLon], 18);
+            }
+
+            // 3. Takip modu açıksa ve konum anlamlı değiştiyse seçili araca odaklan
+            if (isFollowingVehicle && lastSelectedLat && lastSelectedLon) {
+                const c = tacticalMap.getCenter();
+                if (Math.abs(c.lat - lastSelectedLat) > 0.00001 || Math.abs(c.lng - lastSelectedLon) > 0.00001) {
+                    tacticalMap.panTo([lastSelectedLat, lastSelectedLon], { animate: false });
+                }
+            }
+        }
+
+        function openModal(type) {
+            if (type === 'ayarlar') addLog("Ayarlar: UDP 7400 RX, UDP 7499 Beacon & Prob");
+            else if (type === 'bilgi') addLog("PiSim Studio v2.0 - Raspberry Pi 5 Tactical GCS");
+        }
+
+        function addLog(msg) {
+            const term = document.getElementById('system-log-terminal');
+            if (!term) return;
+            const timeStr = getTime().split('.')[0];
+            const div = document.createElement('div');
+            div.innerText = `[${timeStr}] ${msg}`;
+            term.appendChild(div);
+            term.scrollTop = term.scrollHeight;
+        }
+
+        function clearLogs() {
+            const term = document.getElementById('system-log-terminal');
+            if (term) term.innerHTML = '<div style="color:var(--accent-color);">[LOG TEMİZLENDİ]</div>';
+        }
+
+        // ==================== ARAÇ SEÇİMİ VE VİDEO ABONELİK FONKSİYONLARI ====================
+        let lastSelectedActionTime = 0;
+        async function selectVehicle(code) {
+            const nowMs = Date.now();
+            if (window.userSelectedVehicleCode === code && (nowMs - lastSelectedActionTime) < 250) {
+                return;
+            }
+            lastSelectedActionTime = nowMs;
+            try {
+                window.userSelectedVehicleCode = code;
+                addLog(`🎯 Araç Seçildi: ${code} (Sağ panel detayları güncellendi)`);
+                syncLiveTelemetry();
+                const res = await fetch(`/api/select_vehicle?code=${encodeURIComponent(code)}`);
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data.selected) window.userSelectedVehicleCode = data.selected;
+                }
+                syncLiveTelemetry();
+            } catch (err) {
+                addLog(`[HATA] Araç seçilemedi: ${err}`);
+            }
+        }
+
+        let isVideoSubscribed = false;
+        let videoRefreshTimer = null;
+        let isLoadingVideoFrame = false;
+
+        function startVideoRefreshLoop() {
+            if (videoRefreshTimer) return;
+            const camImg = document.getElementById('camera-live-feed');
+            if (camImg) {
+                camImg.onload = () => { isLoadingVideoFrame = false; };
+                camImg.onerror = () => { isLoadingVideoFrame = false; };
+            }
+            videoRefreshTimer = setInterval(() => {
+                const imgEl = document.getElementById('camera-live-feed');
+                if (imgEl && isVideoSubscribed && !isLoadingVideoFrame) {
+                    isLoadingVideoFrame = true;
+                    imgEl.src = `/api/video_frame?t=${Date.now()}`;
+                }
+            }, 75);
+        }
+
+        function stopVideoRefreshLoop() {
+            if (videoRefreshTimer) {
+                clearInterval(videoRefreshTimer);
+                videoRefreshTimer = null;
+            }
+            isLoadingVideoFrame = false;
+            const camImg = document.getElementById('camera-live-feed');
+            if (camImg) camImg.src = '';
+        }
+
+        async function toggleVideoSubscription() {
+            try {
+                isVideoSubscribed = !isVideoSubscribed;
+                const activeCode = window.userSelectedVehicleCode || '';
+                addLog(`📹 Canlı Video [${activeCode || 'AKTİF ARAÇ'}]: ${isVideoSubscribed ? 'AÇILDI (Port 7401 On-Demand)' : 'KAPATILDI'}`);
+                addPacketLog(`TX → UE5 | SUB_VIDEO (${activeCode || 'AUTO'}): ${isVideoSubscribed ? 'ENABLE' : 'DISABLE'} (Port 7401)`);
+                await fetch(`/api/subscribe_video?subscribe=${isVideoSubscribed}&code=${encodeURIComponent(activeCode)}`);
+
+                if (isVideoSubscribed) {
+                    startVideoRefreshLoop();
+                } else {
+                    stopVideoRefreshLoop();
+                }
+                syncLiveTelemetry();
+            } catch (err) {
+                addLog(`[HATA] Video aboneliği güncellenemedi: ${err}`);
+            }
+        }
+
+        async function clearFleet() {
+            try {
+                addLog("🧹 Çevrimdışı eski araçlar temizleniyor...");
+                const res = await fetch('/api/clear_fleet');
+                const data = await res.json();
+                addLog(`✅ Temizlendi. Aktif kalan araç: ${data.preserved ? data.preserved.length : 0}`);
+                syncLiveTelemetry();
+            } catch (err) {
+                addLog(`[HATA] Filo temizlenemedi: ${err}`);
+            }
+        }
+
+        // ==================== SQL TABLOSU MODAL MOTORU ====================
+        let sqlRefreshInterval = null;
+        let sqlUniqueOnly = true; // Varsayılan olarak SADECE BENZERSİZ (UNIQUE) ARAÇLARI göster
+
+        function toggleSqlUniqueOnly() {
+            sqlUniqueOnly = !sqlUniqueOnly;
+            const btn = document.getElementById('btn-toggle-sql-unique');
+            if (btn) {
+                if (sqlUniqueOnly) {
+                    btn.innerText = '📋 TÜM KAYITLARI GÖSTER (50 Satır)';
+                    btn.style.color = '#ffaa00';
+                    btn.style.borderColor = '#ffaa00';
+                } else {
+                    btn.innerText = '🎯 SADECE BENZERSİZ ARAÇLAR';
+                    btn.style.color = '#00e5ff';
+                    btn.style.borderColor = '#00e5ff';
+                }
+            }
+            fetchSqlTable();
+        }
+
+        function openSqlModal() {
+            const modal = document.getElementById('modal-sql-table');
+            if (modal) modal.style.display = 'flex';
+            fetchSqlTable();
+            if (!sqlRefreshInterval) {
+                sqlRefreshInterval = setInterval(fetchSqlTable, 10000); // 10 saniyede bir otomatik yenile
+            }
+        }
+
+        function closeSqlModal() {
+            const modal = document.getElementById('modal-sql-table');
+            if (modal) modal.style.display = 'none';
+            if (sqlRefreshInterval) {
+                clearInterval(sqlRefreshInterval);
+                sqlRefreshInterval = null;
+            }
+        }
+
+        async function fetchSqlTable() {
+            try {
+                const url = sqlUniqueOnly ? '/api/sql_table?unique=1&max_rows=50' : '/api/sql_table?max_rows=50';
+                const res = await fetch(url);
+                if (!res.ok) return;
+                const data = await res.json();
+                const tbody = document.getElementById('sql-table-tbody');
+                const status = document.getElementById('sql-table-status-tag');
+                if (status) {
+                    const modeDesc = sqlUniqueOnly ? 'SADECE BENZERSİZ ARAÇLAR (Son Durum)' : 'TÜM KAYITLAR';
+                    status.innerText = `[${modeDesc} | Toplam: ${data.total_logged || 0} satır | SQLite]`;
+                }
+                if (!data.rows || data.rows.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="11" style="text-align:center; padding:20px; color:#ffaa00;">Henüz SQL satırı bulunamadı. Unreal Engine 10 saniyede bir batch yazar.</td></tr>';
+                    return;
+                }
+                tbody.innerHTML = data.rows.map(r => {
+                    const roll = (r.roll !== undefined && r.roll !== null) ? Number(r.roll).toFixed(1) : '0.0';
+                    const pitch = (r.pitch !== undefined && r.pitch !== null) ? Number(r.pitch).toFixed(1) : '0.0';
+                    const yaw = (r.yaw !== undefined && r.yaw !== null) ? Number(r.yaw).toFixed(1) : '0.0';
+                    const alt = (r.altitude !== undefined && r.altitude !== null) ? Number(r.altitude).toFixed(1) : '0.0';
+                    const spd = (r.speed !== undefined && r.speed !== null) ? Number(r.speed).toFixed(1) : '0.0';
+                    const batt = (r.battery !== undefined && r.battery !== null) ? Number(r.battery).toFixed(0) : '--';
+                    const t = (r.time !== undefined && r.time !== null) ? Number(r.time).toFixed(1) : '--';
+                    const dt = r.created_at || '--';
+                    const code = r.vehicle_code || ('RV0' + r.vehicle_id);
+                    const vName = r.vehicle_name || code;
+                    const px = (r.pos_x !== undefined && r.pos_x !== null) ? Number(r.pos_x).toFixed(1) : '0.0';
+                    const py = (r.pos_y !== undefined && r.pos_y !== null) ? Number(r.pos_y).toFixed(1) : '0.0';
+                    const pz = (r.pos_z !== undefined && r.pos_z !== null) ? Number(r.pos_z).toFixed(1) : alt;
+
+                    return `
+                        <tr style="border-bottom: 1px solid rgba(255,255,255,0.05); font-size:10px;">
+                            <td style="padding:4px 6px; color:var(--text-muted);">${r.id}</td>
+                            <td style="padding:4px 6px; color:#ffaa00; font-size:9px;">${dt}</td>
+                            <td style="padding:4px 6px; color:#00e5ff; font-weight:800;">${code}</td>
+                            <td style="padding:4px 6px; color:#ffffff; font-weight:700;">${vName}</td>
+                            <td style="padding:4px 6px; color:#00dfb6; font-weight:700;">X:${px} Y:${py} Z:${pz}m</td>
+                            <td style="padding:4px 6px;">${Number(roll) > 0 ? '+' : ''}${roll}°</td>
+                            <td style="padding:4px 6px;">${Number(pitch) > 0 ? '+' : ''}${pitch}°</td>
+                            <td style="padding:4px 6px;">${yaw}°</td>
+                            <td style="padding:4px 6px; color:#00dfb6;">${alt}m</td>
+                            <td style="padding:4px 6px;">${spd} km/s</td>
+                            <td style="padding:4px 6px; color:#ffaa00;">${batt}%</td>
+                            <td style="padding:4px 6px; color:var(--accent-color); font-weight:800;">${r.mode || 'AKTİF'}</td>
+                        </tr>
+                    `;
+                }).join('');
+            } catch (e) {
+                console.error("SQL tablo hatası:", e);
+            }
+        }
+    </script>
+
+    <!-- SQL TELEMETRİ TABLOSU MODALI -->
+    <div id="modal-sql-table" style="display:none; position:fixed; top:0; left:0; width:100vw; height:100vh; background:rgba(0,0,0,0.85); backdrop-filter:blur(4px); z-index:9999; justify-content:center; align-items:center;" onclick="if(event.target===this) closeSqlModal();">
+        <div style="background:#090d12; border:1px solid #00dfb6; box-shadow:0 0 25px rgba(0,223,182,0.25); max-width:1050px; width:94%; max-height:85vh; display:flex; flex-direction:column; clip-path:polygon(0 0, calc(100% - 10px) 0, 100% 10px, 100% 100%, 10px 100%, 0 calc(100% - 10px));">
+            <div style="display:flex; justify-content:space-between; align-items:center; padding:10px 14px; border-bottom:1px solid var(--mono-border); background:rgba(0,223,182,0.06);">
+                <div style="font-weight:800; color:#00dfb6; font-size:12px; letter-spacing:1px; font-family:var(--font-mono);">
+                    🛢️ PISIM RASPBERRY PI 5 - SQL TELEMETRİ VERİTABANI (pisim_telemetry.db)
+                </div>
+                <div style="display:flex; gap:8px; align-items:center;">
+                    <span id="sql-table-status-tag" style="font-size:9.5px; color:#00dfb6; font-family:var(--font-mono);">[10 sn'de bir otomatik yenilenir]</span>
+                    <button id="btn-toggle-sql-unique" class="cod-btn" onclick="toggleSqlUniqueOnly()" style="padding:3px 10px; font-size:9.5px; color:#00e5ff; border-color:#00e5ff;">🎯 SADECE BENZERSİZ ARAÇLAR</button>
+                    <button class="cod-btn" onclick="fetchSqlTable()" style="padding:3px 10px; font-size:9.5px;">🔄 YENİLE</button>
+                    <button class="cod-btn" onclick="closeSqlModal()" style="padding:3px 10px; font-size:9.5px;">✕ KAPAT</button>
+                </div>
+            </div>
+            <div style="padding:8px 14px; font-size:9.5px; color:var(--text-muted); background:#06090c; border-bottom:1px solid var(--mono-border); font-family:var(--font-mono);">
+                📡 Unreal Engine'den UDP 7400 ile akan telemetriler Pi 5 yerel SQLite veritabanına ve <span style="color:#00dfb6;">flight_telemetry.sql</span> dosyasına yazılmaktadır.
+            </div>
+            <div style="flex:1; overflow-y:auto; padding:12px;">
+                <table style="width:100%; border-collapse:collapse; font-family:var(--font-mono); font-size:10px;">
+                    <thead>
+                        <tr style="background:rgba(0,223,182,0.12); border-bottom:1px solid #00dfb6; color:#00dfb6; text-align:left;">
+                            <th style="padding:6px;">ID</th>
+                            <th style="padding:6px;">KAYIT SAATİ</th>
+                            <th style="padding:6px;">EŞSİZ KOD (UID)</th>
+                            <th style="padding:6px;">ARAÇ ADI</th>
+                            <th style="padding:6px;">KONUM (X, Y, Z)</th>
+                            <th style="padding:6px;">ROLL</th>
+                            <th style="padding:6px;">PITCH</th>
+                            <th style="padding:6px;">YAW</th>
+                            <th style="padding:6px;">İRTİFA</th>
+                            <th style="padding:6px;">HIZ</th>
+                            <th style="padding:6px;">PİL</th>
+                            <th style="padding:6px;">MOD</th>
+                        </tr>
+                    </thead>
+                    <tbody id="sql-table-tbody">
+                        <tr><td colspan="11" style="text-align:center; padding:20px; color:var(--text-dark);">Veriler yükleniyor...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==================== MANUEL SÜRÜŞ (WASD TELEOP) MODALI ==================== -->
+    <div id="modal-teleop" style="display:none; position:fixed; top:0; left:0; width:100vw; height:100vh; background:rgba(0,0,0,0.80); backdrop-filter:blur(5px); z-index:9999; justify-content:center; align-items:center;" onclick="if(event.target===this) toggleTeleopModal();">
+        <div style="background:#0a0e14; border:1px solid #ffaa00; box-shadow:0 0 35px rgba(255,170,0,0.30); width:420px; max-width:92vw; padding:18px; border-radius:6px; font-family:var(--font-mono); color:#ffffff; clip-path:polygon(0 0, calc(100% - 10px) 0, 100% 10px, 100% 100%, 10px 100%, 0 calc(100% - 10px));">
+            <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid rgba(255,170,0,0.3); padding-bottom:10px; margin-bottom:14px;">
+                <div style="font-weight:900; font-size:13px; color:#ffaa00; letter-spacing:1px; display:flex; align-items:center; gap:8px;">
+                    🎮 PI 5 MANUEL SÜRÜŞ (WASD)
+                </div>
+                <button class="cod-btn" onclick="toggleTeleopModal()" style="padding:2px 8px; font-size:10px; border-color:#ffaa00; color:#ffaa00;">✕ KAPAT</button>
+            </div>
+
+            <div style="display:flex; justify-content:space-between; align-items:center; background:rgba(255,170,0,0.08); padding:8px 12px; border:1px solid rgba(255,170,0,0.2); border-radius:4px; margin-bottom:14px; font-size:11px;">
+                <div>HEDEF: <b id="teleop-target-label" style="color:#00dfb6;">RV01</b></div>
+                <div id="teleop-status-badge" style="color:#00e5ff; font-weight:800;">HAZIR</div>
+            </div>
+
+            <!-- Canlı Göstergeler -->
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:16px;">
+                <div style="background:#06080b; border:1px solid var(--mono-border); padding:8px; border-radius:4px; text-align:center;">
+                    <div style="font-size:9.5px; color:var(--text-muted);">İLERİ HIZ</div>
+                    <div id="teleop-v-val" style="font-size:18px; font-weight:900; color:#00dfb6;">+0.0 m/s</div>
+                </div>
+                <div style="background:#06080b; border:1px solid var(--mono-border); padding:8px; border-radius:4px; text-align:center;">
+                    <div style="font-size:9.5px; color:var(--text-muted);">DİREKSİYON</div>
+                    <div id="teleop-w-val" style="font-size:18px; font-weight:900; color:#00e5ff;">0.0°</div>
+                </div>
+            </div>
+
+            <!-- Dokunmatik & Tıklanabilir D-PAD -->
+            <div style="display:flex; flex-direction:column; align-items:center; gap:6px; margin-bottom:16px;">
+                <button id="tbtn-w" class="cod-btn" style="width:110px; height:42px; font-size:12px; font-weight:900; border-color:#00dfb6; color:#00dfb6;" onmousedown="teleopSendKey('w')" onmouseup="teleopReleaseKey('w')">▲ İLERİ (W)</button>
+                <div style="display:flex; gap:8px;">
+                    <button id="tbtn-a" class="cod-btn" style="width:95px; height:42px; font-size:12px; font-weight:900; border-color:#00e5ff; color:#00e5ff;" onmousedown="teleopSendKey('a')" onmouseup="teleopReleaseKey('a')">◄ SOL (A)</button>
+                    <button id="tbtn-space" class="cod-btn" style="width:95px; height:42px; font-size:11px; font-weight:900; border-color:#ff4444; color:#ff4444;" onclick="teleopStop()">■ FREN</button>
+                    <button id="tbtn-d" class="cod-btn" style="width:95px; height:42px; font-size:12px; font-weight:900; border-color:#00e5ff; color:#00e5ff;" onmousedown="teleopSendKey('d')" onmouseup="teleopReleaseKey('d')">► SAĞ (D)</button>
+                </div>
+                <button id="tbtn-s" class="cod-btn" style="width:110px; height:42px; font-size:12px; font-weight:900; border-color:#00dfb6; color:#00dfb6;" onmousedown="teleopSendKey('s')" onmouseup="teleopReleaseKey('s')">▼ GERİ (S)</button>
+            </div>
+
+            <!-- Bilgilendirme -->
+            <div style="font-size:9px; color:var(--text-muted); text-align:center; border-top:1px solid var(--mono-border); padding-top:8px;">
+                💡 Klavye ile sürmek için pencere açıkken doğrudan <b>W / A / S / D</b> tuşlarına basın. Durmak için <b>SPACE</b>.
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let isTeleopOpen = false;
+        let teleopLinear = 0.0;
+        let teleopAngular = 0.0;
+        let teleopTxInterval = null;
+        const activeTeleopKeys = {};
+
+        function toggleTeleopModal() {
+            const m = document.getElementById('modal-teleop');
+            if (!m) return;
+            isTeleopOpen = (m.style.display !== 'flex');
+            m.style.display = isTeleopOpen ? 'flex' : 'none';
+
+            const tgtEl = document.getElementById('teleop-target-label');
+            if (tgtEl) tgtEl.innerText = window.userSelectedVehicleCode || (window.latestTelemetryData && window.latestTelemetryData.vehicle_code) || 'RV01';
+
+            if (isTeleopOpen) {
+                if (!teleopTxInterval) {
+                    teleopTxInterval = setInterval(teleopSendPeriodic, 80);
+                }
+            } else {
+                teleopStop();
+                if (teleopTxInterval) {
+                    clearInterval(teleopTxInterval);
+                    teleopTxInterval = null;
+                }
+            }
+        }
+
+        function teleopSendKey(k) {
+            activeTeleopKeys[k] = true;
+            updateTeleopControls();
+        }
+
+        function teleopReleaseKey(k) {
+            activeTeleopKeys[k] = false;
+            updateTeleopControls();
+        }
+
+        function teleopStop() {
+            teleopLinear = 0.0;
+            teleopAngular = 0.0;
+            for (let k in activeTeleopKeys) activeTeleopKeys[k] = false;
+            updateTeleopDisplay();
+            teleopSendToBackend(0.0, 0.0);
+        }
+
+        function updateTeleopControls() {
+            let v = 0.0;
+            let w = 0.0;
+            if (activeTeleopKeys['w']) v += 2.0;
+            if (activeTeleopKeys['s']) v -= 1.4;
+            if (activeTeleopKeys['a']) w -= 1.2;
+            if (activeTeleopKeys['d']) w += 1.2;
+
+            teleopLinear = v;
+            teleopAngular = w;
+            updateTeleopDisplay();
+        }
+
+        function updateTeleopDisplay() {
+            const vEl = document.getElementById('teleop-v-val');
+            const wEl = document.getElementById('teleop-w-val');
+            if (vEl) vEl.innerText = (teleopLinear >= 0 ? '+' : '') + teleopLinear.toFixed(1) + ' m/s';
+            if (wEl) {
+                const deg = teleopAngular * 28.0;
+                wEl.innerText = (deg >= 0 ? '+' : '') + deg.toFixed(0) + '° (' + (teleopAngular >= 0 ? '+' : '') + teleopAngular.toFixed(2) + ')';
+            }
+        }
+
+        function teleopSendPeriodic() {
+            if (!isTeleopOpen) return;
+            if (Math.abs(teleopLinear) > 0.01 || Math.abs(teleopAngular) > 0.01) {
+                teleopSendToBackend(teleopLinear, teleopAngular);
+            }
+        }
+
+        function teleopSendToBackend(v, w) {
+            const tgt = window.userSelectedVehicleCode || (window.latestTelemetryData && window.latestTelemetryData.vehicle_code) || 'RV01';
+            fetch(`/api/drive?linear_x=${v}&angular_z=${w}&target=${tgt}`).catch(() => {});
+        }
+
+        // Global klavye yakalama (Modal açıkken)
+        window.addEventListener('keydown', (e) => {
+            if (!isTeleopOpen) return;
+            const k = e.key.toLowerCase();
+            if (['w', 'a', 's', 'd', ' '].includes(k)) {
+                e.preventDefault();
+                if (k === ' ') {
+                    teleopStop();
+                } else {
+                    activeTeleopKeys[k] = true;
+                    updateTeleopControls();
+                    const btn = document.getElementById('tbtn-' + k);
+                    if (btn) btn.style.background = 'rgba(255,170,0,0.3)';
+                }
+            } else if (e.key === 'Escape') {
+                toggleTeleopModal();
+            }
+        });
+
+        window.addEventListener('keyup', (e) => {
+            if (!isTeleopOpen) return;
+            const k = e.key.toLowerCase();
+            if (['w', 'a', 's', 'd'].includes(k)) {
+                e.preventDefault();
+                activeTeleopKeys[k] = false;
+                updateTeleopControls();
+                const btn = document.getElementById('tbtn-' + k);
+                if (btn) btn.style.background = '';
+            }
+        });
+    </script>
+
+</body>
+</html>

@@ -34,7 +34,7 @@ try:
 except ImportError:
     HAS_ZENOH = False
 
-from topic_monitor import auto_discover_zenoh_endpoint, normalize_zenoh_endpoint
+from agent_supervisor import auto_discover_zenoh_endpoint, normalize_zenoh_endpoint
 
 
 def main():
@@ -184,3 +184,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
