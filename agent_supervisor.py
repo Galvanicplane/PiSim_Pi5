@@ -81,6 +81,44 @@ def normalize_zenoh_endpoint(ep: Optional[str], default_port: int = 7447) -> Opt
     return ep
 
 
+def auto_discover_zenoh_endpoint(timeout_sec: float = 0.5) -> Optional[str]:
+    """Ağdaki Zenoh router veya yayın noktasını hiçbir IP girmeden otomatik keşfeder."""
+    # 1. Yerel bilgisayardaki 7447 portunu kontrol et
+    try:
+        import socket
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.settimeout(0.2)
+        if s.connect_ex(('127.0.0.1', 7447)) == 0:
+            s.close()
+            return "tcp/127.0.0.1:7447"
+        s.close()
+    except Exception:
+        pass
+
+    # 2. Yerel ağdaki (LAN) UDP broadcast beacon dinle (Port 7447)
+    try:
+        import socket
+        rx_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        rx_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        if hasattr(socket, "SO_REUSEPORT"):
+            try:
+                rx_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
+            except Exception:
+                pass
+        rx_sock.bind(("", 7447))
+        rx_sock.settimeout(timeout_sec)
+        data, addr = rx_sock.recvfrom(2048)
+        rx_sock.close()
+        text = data.decode("utf-8", errors="ignore").strip()
+        if "pisim_zenoh" in text:
+            pkt = json.loads(text)
+            return pkt.get("endpoint") or f"tcp/{addr[0]}:7447"
+    except Exception:
+        pass
+
+    return None
+
+
 def scan_active_vehicles(router_endpoint: Optional[str], scan_duration: float = 2.0) -> List[str]:
     """Zenoh ağını tarayarak Unreal'da aktif olan araç kodlarını listeler."""
     if not HAS_ZENOH:
@@ -249,6 +287,10 @@ class AgentSupervisor:
         if not HAS_ZENOH:
             print("❌ 'eclipse-zenoh' modülü bulunamadı! 'pip install eclipse-zenoh' kurun.")
             return False
+
+        # Router belirtilmemişse otomatik keşfet
+        if not self.router_endpoint and not self.listen_endpoint:
+            self.router_endpoint = auto_discover_zenoh_endpoint()
 
         conf = zenoh.Config()
 

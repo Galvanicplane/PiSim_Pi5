@@ -126,7 +126,32 @@ class ZenohMeshBridge:
         # Unreal Engine Dinleyici İş Parçacığını Başlat
         rx_thread = threading.Thread(target=self._unreal_rx_loop, daemon=True)
         rx_thread.start()
+
+        # Otomatik Keşif Beacon İş Parçacığını Başlat (Sıfır IP Girişi / Zero-Config)
+        beacon_thread = threading.Thread(target=self._beacon_loop, daemon=True)
+        beacon_thread.start()
         logger.info(f"🚀 PiSim Zenoh Mesh Köprüsü Aktif! (Unreal RX Port: {UNREAL_TOPIC_RX_PORT})")
+
+    def _beacon_loop(self):
+        """Yerel ağa (LAN) 'Ben buradayım' diyen UDP broadcast basar (Zero-Config)."""
+        b_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        b_sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+        while self.running:
+            try:
+                s_ip = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                s_ip.connect(("8.8.8.8", 80))
+                my_ip = s_ip.getsockname()[0]
+                s_ip.close()
+            except Exception:
+                my_ip = "127.0.0.1"
+
+            beacon = json.dumps({"pisim_zenoh": True, "endpoint": f"tcp/{my_ip}:7447"}).encode("utf-8")
+            try:
+                b_sock.sendto(beacon, ("255.255.255.255", 7447))
+            except Exception:
+                pass
+            time.sleep(1.5)
+        b_sock.close()
 
     def stop(self):
         """Köprüyü güvenli bir şekilde durdurur."""
