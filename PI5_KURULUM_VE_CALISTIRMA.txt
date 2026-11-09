@@ -7,48 +7,62 @@ dağıtık Zenoh ağı bileşenlerinin kullanımını içerir.
 --------------------------------------------------------------------------------
 1. MİMARİ DOSYALARI
 --------------------------------------------------------------------------------
-1) mission_planner.py   : Parametrik rastgele görev ve 4 hedef üreteci (100m kuralı)
-2) agent_supervisor.py  : Bağlantı kontrolcüsü, görev koordinatörü ve sabit HUD
-3) autopilot_driver.py  : ArduPilot AP_L1_Control otopilot navigasyon motoru
-4) vehicle_hardware.py  : Ackermann direksiyon ve aktüatör fizik katmanı
-5) zenoh_mesh.py        : Zenoh router ve yönlendirici omurga
-6) video_stream_tester.py: Video/kamera yayıncısı ve web izleyicisi
+1) topic_monitor.py     : Ağdaki tüm topic'leri, araçları ve frekansları canlı izleme
+2) mission_planner.py   : Parametrik rastgele görev ve 4 hedef üreteci (100m kuralı)
+3) agent_supervisor.py  : Bağlantı kontrolcüsü, görev koordinatörü ve sabit HUD
+4) autopilot_driver.py  : ArduPilot AP_L1_Control otopilot navigasyon motoru
+5) vehicle_hardware.py  : Ackermann direksiyon ve aktüatör fizik katmanı
+6) zenoh_mesh.py        : Zenoh router ve yönlendirici omurga
+7) video_stream_tester.py: Video/kamera yayıncısı ve web izleyicisi
 
 --------------------------------------------------------------------------------
-2. PI 5 DOCKER KONTEYNERLERİNİ ÇALIŞTIRMA (Rover 04, 05, 06)
+2. CANLI TOPIC'LERİ AYRI BİR TERMİNALDEN İZLEME (Topic Monitor)
 --------------------------------------------------------------------------------
-1. Kodları güncelleyin:
+Unreal Engine veya ağdaki tüm topic'leri canlı görmek için ayrı bir terminalde:
+   python3 topic_monitor.py
+   (Veya Router IP ile: python3 topic_monitor.py --router tcp/192.168.1.3:7447)
+
+Hızlı liste görmek için (`ros2 topic list` gibi):
+   python3 topic_monitor.py --list
+
+Belirli bir topic'in içini canlı dinlemek için (`ros2 topic echo` gibi):
+   python3 topic_monitor.py --echo pisim/rover_01/gps
+
+--------------------------------------------------------------------------------
+3. DOCKER'A HANGİ ARACA BAĞLANACAĞINI BELİRTME (3 YÖNTEM)
+--------------------------------------------------------------------------------
+
+A) YÖNTEM 1: OTOMATİK KEŞİF (Varsayılan - Hiçbir ayar yapmanıza gerek yok)
+   Docker ayağa kalktığında otomatik olarak `TARGET_VEHICLE=auto` modundadır.
+   Unreal'da hangi aracı başlatırsanız (örneğin rover_01), Docker bunu otomatik
+   keşfeder ve o araca bağlanıp göreve başlar!
+
+B) YÖNTEM 2: ÇALIŞIRKEN ANINDA ARAÇ ATAMA (Konteyneri Kapatmadan!)
+   Ayrı bir terminalden istediğiniz konteynere yeni araç atayın:
+   python3 agent_supervisor.py --agent rover_04 --assign rover_01
+   Konteyner hiç durmadan anında rover_01'e kilitlenir!
+
+C) YÖNTEM 3: İNTERAKTİF SEÇİM VEYA ELLE BELİRTME
+   Konteyner içinde seçim yapmak için:
+   docker exec -it pisim_agent_rover_04 python agent_supervisor.py --select
+   (Ekrana ağdaki araçların listesi gelir, klavyeden 1 veya rover_01 seçersiniz).
+
+   Veya doğrudan elle başlatmak için:
+   docker exec -it pisim_agent_rover_04 python agent_supervisor.py --vehicle rover_01
+
+--------------------------------------------------------------------------------
+4. PI 5 DOCKER KONTEYNERLERİNİ BAŞLATMA
+--------------------------------------------------------------------------------
+1. Kodları çekin:
    cd ~/PiSim_Pi5
    git pull origin main
 
-2. Konteynerleri ayağa kaldırın (Windows Wi-Fi IP'niz ile):
+2. Konteynerleri başlatın:
    cd ~/PiSim_Pi5/docker
    docker compose -f docker-compose.pi5.yml down
    WINDOWS_IP=192.168.1.3 docker compose -f docker-compose.pi5.yml up -d --build
 
---------------------------------------------------------------------------------
-3. SABİT (AŞAĞI KAYMAYAN) CANLI AJAN EKRANINI İZLEME
---------------------------------------------------------------------------------
-Herhangi bir konteynerin otonom karar beynini ve canlı HUD gösterge panelini
-izlemek için (Şelale gibi akmaz, sabit gösterge kutusu olarak güncellenir):
-
-   # Rover 04'ü izlemek için:
+3. Konteyner ekranını izlemek için:
    docker attach pisim_agent_rover_04
-   # (Veya terminalden ayrılmak için Ctrl+P ardından Ctrl+Q tuşlayın)
-
-   # Ya da doğrudan exec ile:
-   docker exec -it pisim_agent_rover_06 python agent_supervisor.py --vehicle rover_06 --distance 100
-
---------------------------------------------------------------------------------
-4. GÖREV PLANLAYICIYI BAĞIMSIZ TEST ETME (Dosya 1)
---------------------------------------------------------------------------------
-Kendi parametrelerinizle 100m aralıklı 4 hedef üretmek için:
-   python3 mission_planner.py --distance 100 --count 4 --save gorev.json
-
---------------------------------------------------------------------------------
-5. CANLI VİDEO AKIŞINI TARAYICIDAN İZLEME
---------------------------------------------------------------------------------
-İzole Rover 06 konteyneri içinde web yayıncısını başlatıp Firefox'tan izleyin:
-   docker exec -it pisim_agent_rover_06 python video_stream_tester.py --view --web 8088
-   Tarayıcıdan: http://localhost:8088 veya http://<PI5_IP>:8088
+   (Ayrılmak için: Ctrl+P ardından Ctrl+Q)
 ================================================================================
