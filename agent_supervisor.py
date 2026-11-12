@@ -63,6 +63,7 @@ except ImportError:
 
 from autopilot_driver import ArduPilotDriver, DriveCommand
 from mission_planner import MissionPlan, Waypoint, generate_random_mission
+import ros2_cdr
 
 
 def normalize_zenoh_endpoint(ep: Optional[str], default_port: int = 7447) -> Optional[str]:
@@ -296,6 +297,8 @@ class AgentSupervisor:
         self.connection_timeout_sec: float = 2.5
         self.connection_search_start: float = time.time()
         self.discovered_vehicles: set = set()
+        self.topic_ack_statuses: Dict[str, int] = {}
+        self.last_ack_pub_time: float = 0.0
 
         # Otopilot Sürücüsü (Dosya 3)
         self.driver = ArduPilotDriver(
@@ -457,19 +460,25 @@ class AgentSupervisor:
 
     def _on_gps_direct(self, sample):
         try:
-            payload = json.loads(sample.payload.to_string())
-            self.last_gps = payload
-            self.last_sensor_time = time.time()
+            key = str(sample.key_expr)
+            payload, ack_code = ros2_cdr.deserialize_from_topic(key, sample.payload.to_bytes())
+            self.topic_ack_statuses[f"/{self.target_vehicle}/gps"] = ack_code
+            if ack_code == ros2_cdr.ACK_HEALTHY_OK and isinstance(payload, dict):
+                self.last_gps = payload
+                self.last_sensor_time = time.time()
         except Exception:
-            pass
+            self.topic_ack_statuses[f"/{self.target_vehicle}/gps"] = ros2_cdr.ACK_INVALID_SCHEMA
 
     def _on_imu_direct(self, sample):
         try:
-            payload = json.loads(sample.payload.to_string())
-            self.last_imu = payload
-            self.last_sensor_time = time.time()
+            key = str(sample.key_expr)
+            payload, ack_code = ros2_cdr.deserialize_from_topic(key, sample.payload.to_bytes())
+            self.topic_ack_statuses[f"/{self.target_vehicle}/imu"] = ack_code
+            if ack_code == ros2_cdr.ACK_HEALTHY_OK and isinstance(payload, dict):
+                self.last_imu = payload
+                self.last_sensor_time = time.time()
         except Exception:
-            pass
+            self.topic_ack_statuses[f"/{self.target_vehicle}/imu"] = ros2_cdr.ACK_INVALID_SCHEMA
 
     def _on_ping(self, sample):
         try:
@@ -503,14 +512,33 @@ class AgentSupervisor:
         if not self.session or self.target_vehicle in ("auto", "waiting"):
             return
         try:
-            # 1. Eyleyici Motor Değerleri (Unreal doğrudan sürüş)
-            self.session.put(f"pisim/{self.target_vehicle}/actuators", json.dumps(cmd.motors))
+            # 1. ArduPilot Kanal Portları (Binary CDR):
+            #    Channel 1 -> Sürüş Tekerlekleri (İleri/Geri)
+            #    Channel 2 -> Direksiyon Servoları (Sağ/Sol)
+            cdr_channels = ros2_cdr.serialize_channels_cdr(cmd.channels)
+            self.session.put(f"pisim/{self.target_vehicle}/channels", cdr_channels)
 
-            # 2. ROS 2 Twist cmd_vel
-            self.session.put(f"pisim/{self.target_vehicle}/cmd_vel", json.dumps(cmd.twist))
+            # 2. Eyleyici Motor Değerleri (Binary CDR)
+            cdr_actuators = ros2_cdr.serialize_actuators_cdr(cmd.motors)
+            self.session.put(f"pisim/{self.target_vehicle}/actuators", cdr_actuators)
 
-            # 3. Filo Durumu
+            # 3. ROS 2 Twist cmd_vel (Binary CDR)
+            cdr_twist = ros2_cdr.serialize_twist_cdr(cmd.twist)
+            self.session.put(f"pisim/{self.target_vehicle}/cmd_vel", cdr_twist)
+
+            # 4. Periyodik ACK Sağlık Raporu (Binary CDR - 2 Hz)
             now = time.time()
+            if (now - self.last_ack_pub_time) >= 0.50:
+                self.last_ack_pub_time = now
+                ack_map = {
+                    f"/{self.target_vehicle}/gps": self.topic_ack_statuses.get(f"/{self.target_vehicle}/gps", 0),
+                    f"/{self.target_vehicle}/imu": self.topic_ack_statuses.get(f"/{self.target_vehicle}/imu", 0),
+                    f"/{self.target_vehicle}/channels": ros2_cdr.ACK_HEALTHY_OK,
+                }
+                cdr_ack = ros2_cdr.serialize_ack_cdr(self.target_vehicle, ack_map, source=self.agent_id)
+                self.session.put(f"pisim/{self.target_vehicle}/ack", cdr_ack)
+
+            # 5. Filo Durumu
             cur_lat = float(self.last_gps.get("latitude", 0.0)) if self.last_gps else 0.0
             cur_lon = float(self.last_gps.get("longitude", 0.0)) if self.last_gps else 0.0
             state = {
@@ -524,6 +552,7 @@ class AgentSupervisor:
                 "dist_m": cmd.dist_to_target_m,
                 "steer_deg": cmd.steer_deg,
                 "throttle": cmd.throttle,
+                "channels": cmd.channels,
                 "timestamp": now,
             }
             self.session.put(f"fleet/{self.agent_id}/state", json.dumps(state))

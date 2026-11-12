@@ -48,6 +48,16 @@ class VehicleHardware:
         self.rear_wheels_left: List[str] = ["M_Wheel_RL"]
         self.rear_wheels_right: List[str] = ["M_Wheel_RR"]
 
+        # ArduPilot RC / Joystick Kanal Atama Tablosu:
+        #   Channel 1 -> Sürüş Tekerlekleri (İleri / Geri Gaz)
+        #   Channel 2 -> Direksiyon Servoları (Sağ / Sol Steer)
+        #   Channel 3 -> Pervane / İtki Motorları (Propeller)
+        #   Channel 4 -> Rudder / Ek Eyleyiciler
+        self.CHANNEL_DRIVE_WHEELS: int = 1
+        self.CHANNEL_STEER_SERVOS: int = 2
+        self.CHANNEL_PROPELLER: int = 3
+        self.CHANNEL_RUDDER_AUX: int = 4
+
     def set_drive_mode(self, mode: str):
         """Sürüş tipini değiştirir: 'ACKERMANN' veya 'DIFFERENTIAL'."""
         mode_upper = mode.upper()
@@ -215,3 +225,66 @@ class VehicleHardware:
         return self.compute_actuators(
             throttle=speed, steering=steer_sign, turn_radius_m=radius_m
         )
+
+    def map_commands_to_channels(self, named_commands: Dict[str, float]) -> Dict[int, float]:
+        """
+        İsimlendirilmiş motor/eyleyici komutlarını (örn: {"M_Wheel_FR": 0.7, "M_Steer_FL": -0.35}
+        veya {"wheel_fr": 0.7, "steer_fl": -0.35, "throttle": 0.7, "steering": -0.35})
+        ArduPilot Kumanda / Port Kanal numaralarına çevirir:
+          - Channel 1: Sürüş Tekerlekleri (İleri / Geri)
+          - Channel 2: Direksiyon Servoları (Sağ / Sol)
+          - Channel 3: Pervane / Thruster
+          - Channel 4: Rudder / Aux
+        """
+        wheel_vals: List[float] = []
+        steer_vals: List[float] = []
+        prop_vals: List[float] = []
+        aux_vals: List[float] = []
+        explicit_channels: Dict[int, float] = {}
+
+        for key, raw_val in (named_commands or {}).items():
+            val = max(-1.0, min(1.0, float(raw_val)))
+            k_low = str(key).strip().lower()
+
+            if k_low.isdigit() or k_low.startswith("ch"):
+                try:
+                    ch_idx = int(k_low.replace("channel", "").replace("ch", "").strip("_ "))
+                    explicit_channels[ch_idx] = round(val, 4)
+                    continue
+                except Exception:
+                    pass
+
+            if any(w in k_low for w in ("wheel", "teker", "throttle", "drive", "speed")):
+                wheel_vals.append(val)
+            elif any(s in k_low for s in ("steer", "servo", "yon", "turn")):
+                steer_vals.append(val)
+            elif any(p in k_low for p in ("prop", "thrust", "pervane", "rotor")):
+                prop_vals.append(val)
+            elif any(r in k_low for r in ("rudder", "elevon", "aileron", "elevator", "arm")):
+                aux_vals.append(val)
+
+        channels: Dict[int, float] = {
+            self.CHANNEL_DRIVE_WHEELS: round(sum(wheel_vals) / len(wheel_vals), 4) if wheel_vals else 0.0,
+            self.CHANNEL_STEER_SERVOS: round(sum(steer_vals) / len(steer_vals), 4) if steer_vals else 0.0,
+        }
+        if prop_vals:
+            channels[self.CHANNEL_PROPELLER] = round(sum(prop_vals) / len(prop_vals), 4)
+        if aux_vals:
+            channels[self.CHANNEL_RUDDER_AUX] = round(sum(aux_vals) / len(aux_vals), 4)
+
+        channels.update(explicit_channels)
+        return channels
+
+    def compute_channels(
+        self,
+        throttle: float,
+        steering: float,
+        turn_radius_m: Optional[float] = None,
+    ) -> Dict[int, float]:
+        """
+        Üst seviye gaz ve direksiyon komutlarını doğrudan ArduPilot Kanal Portlarına
+        ({1: Tekerlek Gazı, 2: Direksiyon Servosu}) dönüştürür.
+        """
+        motors = self.compute_actuators(throttle=throttle, steering=steering, turn_radius_m=turn_radius_m)
+        return self.map_commands_to_channels(motors)
+

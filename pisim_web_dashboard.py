@@ -35,6 +35,7 @@ except ImportError:
     HAS_ZENOH = False
 
 from agent_supervisor import auto_discover_zenoh_endpoint, normalize_zenoh_endpoint
+import ros2_cdr
 
 # Import discovery service from beacon_sender
 from beacon_sender import PiSimDiscoveryService, get_local_ip, get_all_local_ips, get_broadcast_targets, send_probe_burst, DISCOVERY_PORT
@@ -91,10 +92,41 @@ discovered_ue5_ip = None
 last_ue5_contact_time = 0.0
 discovery_service_ref = None
 
-# Canlı Video Çerçevesi Belleği (Port 7401)
-latest_jpeg_frame = None
+# Canlı Video Çerçevesi Belleği (Port 7401 / Zenoh H.264)
+latest_jpeg_frame = ros2_cdr.get_standby_blue_screen_bytes()
+latest_camera_mode = "STANDBY_BLUE (4)"
 video_lock = threading.Lock()
 is_video_subscribed = False
+zenoh_session_ref = None
+
+
+def send_camera_ack_trigger(vehicle_code: str, ack_code: int):
+    """
+    Seçili aracın kamerasına Binary CDR ACK mesajı gönderir:
+      ack_code = 3 -> Canlı H.264 akışını başlat (Trigger Wake-up)
+      ack_code = 4 -> Kamerayı Mavi Ekran (Standby) moduna geri al
+    """
+    if not vehicle_code:
+        return
+    ack_map = {
+        f"/{vehicle_code}/camera/h264": int(ack_code),
+        f"/{vehicle_code}/imu": 2,
+        f"/{vehicle_code}/gps": 2,
+    }
+    cdr_bytes = ros2_cdr.serialize_ack_cdr(vehicle_code, ack_map, source="web_dashboard")
+    if zenoh_session_ref is not None:
+        try:
+            zenoh_session_ref.put(f"pisim/{vehicle_code}/ack", cdr_bytes)
+        except Exception:
+            pass
+    # Ayrıca doğrudan Unreal Tekil Komut Portuna (7402) UDP yedeklemesi gönder
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        pkt = {"topic": f"/{vehicle_code}/ack", "cmd": "ack", "target": vehicle_code, "topics": ack_map}
+        s.sendto(json.dumps(pkt).encode("utf-8"), (discovered_ue5_ip or "127.0.0.1", SWARM_COMMAND_PORT))
+        s.close()
+    except Exception:
+        pass
 
 # Sistem ve Terminal Log Kuyruğu (Dashboard alt log panelinde ve terminalde gösterilir)
 system_log_queue = []
@@ -248,6 +280,8 @@ class PiSimRequestHandler(http.server.SimpleHTTPRequestHandler):
                     latest_telemetry["pitch"] = sel_item.get("pitch", 0.0)
                     latest_telemetry["yaw"] = sel_item.get("yaw", 0.0)
                     latest_telemetry["altitude"] = sel_item.get("altitude", 0.0)
+                    latest_telemetry["ack_table"] = sel_item.get("ack_table", {})
+                    latest_telemetry["camera_mode"] = sel_item.get("camera_mode", latest_camera_mode)
                     latest_telemetry["speed"] = sel_item.get("speed", 0.0)
                     latest_telemetry["battery"] = sel_item.get("battery", 98.0)
                     latest_telemetry["lat"] = sel_item.get("lat", 39.9334)
@@ -430,9 +464,12 @@ class PiSimRequestHandler(http.server.SimpleHTTPRequestHandler):
             subscribe_str = qs.get('subscribe', ['true'])[0].strip().lower()
             b_sub = (subscribe_str in ('true', '1', 'yes'))
             is_video_subscribed = b_sub
-            if not b_sub:
+            if b_sub:
+                send_camera_ack_trigger(code, ros2_cdr.ACK_TRIGGER_STREAM)
+            else:
+                send_camera_ack_trigger(code, ros2_cdr.ACK_STANDBY_SLEEP)
                 with video_lock:
-                    latest_jpeg_frame = None
+                    latest_jpeg_frame = ros2_cdr.get_standby_blue_screen_bytes()
 
             target_host = discovered_ue5_ip or "127.0.0.1"
             sub_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -877,10 +914,12 @@ def run_zenoh_telemetry_worker(router_endpoint: Optional[str] = None):
         conf.insert_json5("mode", json.dumps("peer"))
         print("[Zenoh Telemetri] 🌐 P2P modda başlatılıyor.")
 
+    global zenoh_session_ref
     try:
         session = zenoh.open(conf)
-        print("[Zenoh Telemetri] ✅ Zenoh telemetri oturumu başarıyla açıldı.")
-        add_system_log(f"📡 [ZENOH KÖPRÜSÜ] Zenoh ağına bağlanıldı ({norm_ep or 'P2P'}). Canlı topic dinleniyor.")
+        zenoh_session_ref = session
+        print("[Zenoh Telemetri] ✅ Zenoh Binary CDR telemetri oturumu başarıyla açıldı.")
+        add_system_log(f"📡 [ZENOH CDR KÖPRÜSÜ] Zenoh ağına bağlanıldı ({norm_ep or 'P2P'}). Canlı Binary CDR topic dinleniyor.")
     except Exception as e:
         print(f"[Zenoh Telemetri] ⚠️ Zenoh oturumu açılamadı: {e}")
         return
@@ -889,28 +928,40 @@ def run_zenoh_telemetry_worker(router_endpoint: Optional[str] = None):
 
     def on_sample(sample):
         nonlocal prev_gps_tracker
-        global selected_vehicle_code, latest_jpeg_frame, last_ue5_contact_time, discovered_ue5_ip
+        global selected_vehicle_code, latest_jpeg_frame, latest_camera_mode, last_ue5_contact_time, discovered_ue5_ip
         key = str(sample.key_expr)
         parts = key.split("/")
         now_ts = time.time()
+        raw_bytes = sample.payload.to_bytes()
 
         # 1. PISIM Sensör Topic'leri (pisim/<v_code>/...)
         if key.startswith("pisim/") and len(parts) >= 3:
             v_code = parts[1]
             sub_type = parts[2]
 
-            # A. Kamera karesi (pisim/<v_code>/camera/compressed)
+            # A. Kamera karesi (pisim/<v_code>/camera/h264 veya camera/compressed - Binary CDR / JPEG)
             if sub_type == "camera":
-                raw_bytes = sample.payload.to_bytes()
-                if raw_bytes and (selected_vehicle_code is None or selected_vehicle_code == v_code):
+                cam_dict, cam_ack = ros2_cdr.deserialize_from_topic(key, raw_bytes)
+                img_bytes = cam_dict.get("image_bytes", raw_bytes) if isinstance(cam_dict, dict) else raw_bytes
+                cam_mode = cam_dict.get("mode", "standby_blue") if isinstance(cam_dict, dict) else "standby_blue"
+                mode_label = "LIVE_H264 (ACK=3)" if cam_mode == "live_h264" else "MAVİ_EKRAN_STANDBY (ACK=4)"
+
+                with telemetry_lock:
+                    if v_code in fleet_telemetry:
+                        fleet_telemetry[v_code]["camera_mode"] = mode_label
+                        if "ack_table" not in fleet_telemetry[v_code]:
+                            fleet_telemetry[v_code]["ack_table"] = {}
+                        fleet_telemetry[v_code]["ack_table"][f"/{v_code}/camera/h264"] = 3 if cam_mode == "live_h264" else 4
+
+                if img_bytes and (selected_vehicle_code is None or selected_vehicle_code == v_code):
+                    latest_camera_mode = mode_label
                     with video_lock:
-                        latest_jpeg_frame = raw_bytes
+                        latest_jpeg_frame = img_bytes
                 return
 
-            # Diğer sensörler JSON formatında
-            try:
-                data = json.loads(sample.payload.to_string())
-            except Exception:
+            # Diğer sensörler: Binary CDR veya JSON Çözümleme
+            data, ack_status = ros2_cdr.deserialize_from_topic(key, raw_bytes)
+            if not isinstance(data, dict):
                 return
 
             # Görev Planı Topic'i (pisim/<v_code>/mission)
@@ -1027,11 +1078,28 @@ def run_zenoh_telemetry_worker(router_endpoint: Optional[str] = None):
                     entry["yaw"] = round(yaw, 1)
                     entry["yaw_rate_rad"] = round(yaw_rate, 3)
 
-                # Eyleyici Durumu
+                # Eyleyici & Kanal Durumu (CH1: Tekerlek, CH2: Steer Servo)
+                elif sub_type == "channels":
+                    ch_norm = data.get("channels_normalized", data.get("channels", {}))
+                    ch1 = ch_norm.get("1", ch_norm.get(1, 0.0))
+                    ch2 = ch_norm.get("2", ch_norm.get(2, 0.0))
+                    entry["msg"] = f"CH1(Teker): {float(ch1):+.2f} | CH2(Steer): {float(ch2):+.2f}"
                 elif sub_type == "actuators":
                     st = data.get("M_Steer_FL", 0.0)
                     th = data.get("M_Wheel_FL", 0.0)
                     entry["msg"] = f"Direksiyon: {st:+.2f} | Gaz: {th:+.2f}"
+                elif sub_type == "ack":
+                    t_map = data.get("topics", {})
+                    if isinstance(t_map, dict):
+                        if "ack_table" not in entry:
+                            entry["ack_table"] = {}
+                        entry["ack_table"].update(t_map)
+
+                # Topic bazlı ACK kodunu kaydet (0=Yok, 1=Bozuk, 2=Sağlıklı, 3=Trigger, 4=Standby)
+                if "ack_table" not in entry:
+                    entry["ack_table"] = {}
+                if sub_type in ("imu", "gps", "channels", "actuators"):
+                    entry["ack_table"][f"/{v_code}/{sub_type}"] = ack_status
 
                 # Her 5 pakette bir SQLite veritabanına kaydet
                 if entry["rx_count"] % 5 == 0:
@@ -1084,6 +1152,10 @@ def run_zenoh_telemetry_worker(router_endpoint: Optional[str] = None):
     try:
         while True:
             time.sleep(1.0)
+            # Eğer kullanıcı Web Dashboard'dan canlı videoyu açtıysa, her 1 saniyede bir
+            # ACK=3 (Canlı H.264 Trigger) göndererek 4 saniyelik watchdog'u canlı tut!
+            if is_video_subscribed and selected_vehicle_code:
+                send_camera_ack_trigger(selected_vehicle_code, ros2_cdr.ACK_TRIGGER_STREAM)
     except Exception:
         pass
     finally:

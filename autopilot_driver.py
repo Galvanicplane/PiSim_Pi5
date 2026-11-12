@@ -79,6 +79,7 @@ class DriveCommand:
     is_arrived: bool                   # Hedef yarıçapına ulaşıldı mı?
     motors: Dict[str, float]           # Unreal IPiSimActuatorInterface aktüatör haritası
     twist: Dict[str, Any]              # ROS 2 geometry_msgs/msg/Twist
+    channels: Dict[int, float] = field(default_factory=dict)  # ArduPilot Kanal Portları (1: Tekerlek, 2: Steer Servo)
 
 
 class ArduPilotDriver:
@@ -231,8 +232,9 @@ class ArduPilotDriver:
         self.current_throttle += throt_diff
         throttle_norm = self.current_throttle
 
-        # 10. Eyleyici Motor Değerleri (VehicleHardware üzerinden)
+        # 10. Eyleyici Motor Değerleri ve ArduPilot Kanal Portları (1: Tekerlekler, 2: Steer Servolar)
         motors = self.hardware.compute_actuators(throttle=throttle_norm, steering=steer_norm)
+        channels = self.hardware.map_commands_to_channels(motors)
 
         # 11. ROS 2 Twist Mesajı
         twist = {
@@ -252,6 +254,7 @@ class ArduPilotDriver:
             is_arrived=False,
             motors=motors,
             twist=twist,
+            channels=channels,
         )
 
     def emergency_stop(self, hold_current: bool = False) -> DriveCommand:
@@ -261,6 +264,7 @@ class ArduPilotDriver:
             self.current_steer = 0.0
 
         motors = self.hardware.compute_actuators(throttle=self.current_throttle, steering=self.current_steer)
+        channels = self.hardware.map_commands_to_channels(motors)
         twist = {
             "linear": {"x": round(self.current_throttle * self.cruise_speed_mps, 3), "y": 0.0, "z": 0.0},
             "angular": {"x": 0.0, "y": 0.0, "z": 0.0},
@@ -277,5 +281,6 @@ class ArduPilotDriver:
             is_arrived=False,
             motors=motors,
             twist=twist,
+            channels=channels,
         )
 
