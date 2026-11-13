@@ -584,7 +584,7 @@ def serialize_for_topic(topic: str, payload: Any) -> bytes:
         raw_img = base64.b64decode(b64_data) if isinstance(b64_data, str) and b64_data else get_standby_blue_screen_bytes()
         mode = payload.get("mode", "standby_blue" if len(raw_img) <= 350 else "live_h264")
         return serialize_camera_cdr(raw_img, mode=mode, codec=payload.get("format", "h264"))
-    elif t_low.endswith("/channels") or t_low == "channels":
+    elif t_low.endswith("/channels") or t_low == "channels" or t_low.endswith("/ardupilot/pwm") or t_low.endswith("/pwm"):
         ch_map = payload.get("channels", payload)
         return serialize_channels_cdr(ch_map)
     elif t_low.endswith("/actuators") or t_low == "actuators":
@@ -624,7 +624,7 @@ def deserialize_from_topic(topic: str, raw_bytes: Union[bytes, str]) -> Tuple[Di
                 return deserialize_gps_cdr(raw_bytes), ACK_HEALTHY_OK
             elif "camera" in t_low or "h264" in t_low:
                 return deserialize_camera_cdr(raw_bytes), ACK_HEALTHY_OK
-            elif t_low.endswith("/channels") or t_low == "channels":
+            elif t_low.endswith("/channels") or t_low == "channels" or t_low.endswith("/ardupilot/pwm") or t_low.endswith("/pwm"):
                 return deserialize_channels_cdr(raw_bytes), ACK_HEALTHY_OK
             elif t_low.endswith("/actuators") or t_low == "actuators":
                 return deserialize_actuators_cdr(raw_bytes), ACK_HEALTHY_OK

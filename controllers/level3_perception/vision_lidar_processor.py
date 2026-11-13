@@ -9,8 +9,18 @@ Handles active sensor ingestion from Zenoh topics:
 
 from __future__ import annotations
 
+import argparse
+import json
+import os
+import sys
 from dataclasses import dataclass
 from typing import Dict, List
+
+_ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+if _ROOT_DIR not in sys.path:
+    sys.path.insert(0, _ROOT_DIR)
+
+from controllers.level1_atomic.atomic_motion import publish_channels_topic
 
 
 @dataclass
@@ -76,3 +86,23 @@ class LidarObstacleProcessor:
             obstacle_blocked=blocked,
             summary=f"F={min_front:.1f}m L={min_left:.1f}m R={min_right:.1f}m steer={avoid_steer:+.2f}",
         )
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="PiSim Level 3 Perception ROS/Zenoh Publisher")
+    parser.add_argument("--vehicle", default="RV01")
+    parser.add_argument("--front-dist", type=float, default=1.2, help="Simulated front clearance (m)")
+    parser.add_argument("--host", default="127.0.0.1")
+    parser.add_argument("--port", type=int, default=7402)
+    args = parser.parse_args()
+
+    proc = LidarObstacleProcessor()
+    rays = [args.front_dist if (i < 4 or i > 31) else 12.0 for i in range(36)]
+    rep = proc.evaluate_scan(rays)
+    ch1 = 0.0 if rep.obstacle_blocked else 0.4
+    pkt = publish_channels_topic(args.vehicle, {"1": ch1, "2": rep.avoidance_steer_norm}, source="level3_perception", host=args.host, port=args.port)
+    print(json.dumps({"summary": rep.summary, "blocked": rep.obstacle_blocked, "packet": pkt}))
+
+
+if __name__ == "__main__":
+    main()

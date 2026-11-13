@@ -7,10 +7,18 @@ for single-vehicle missions and multi-vehicle Zenoh swarm formations.
 
 from __future__ import annotations
 
+import argparse
+import json
+import os
+import sys
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 
-from controllers.level1_atomic.atomic_motion import ChannelOutput
+_ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+if _ROOT_DIR not in sys.path:
+    sys.path.insert(0, _ROOT_DIR)
+
+from controllers.level1_atomic.atomic_motion import ChannelOutput, publish_channels_topic
 from controllers.level2_navigation.waypoint_and_follow import GeoPose, WaypointAndFollowController
 from controllers.level3_perception.vision_lidar_processor import LidarObstacleProcessor
 
@@ -79,4 +87,30 @@ class SwarmMissionPlanner:
             return out
 
         return ChannelOutput(0.0, 0.0, done=True, summary="Mission complete")
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="PiSim Level 4 Mission & Swarm ROS/Zenoh Publisher")
+    parser.add_argument("--vehicle", default="RV01")
+    parser.add_argument("--target-lat", type=float, default=39.9260)
+    parser.add_argument("--target-lon", type=float, default=32.8668)
+    parser.add_argument("--host", default="127.0.0.1")
+    parser.add_argument("--port", type=int, default=7402)
+    args = parser.parse_args()
+
+    planner = SwarmMissionPlanner()
+    planner.assign_mission(MissionTask(
+        vehicle_code=args.vehicle,
+        mission_type="patrol",
+        waypoints=[GeoPose(lat=args.target_lat, lon=args.target_lon)],
+        active=True,
+    ))
+    poses = {args.vehicle: GeoPose(lat=39.9255, lon=32.8663, yaw_deg=0.0)}
+    out = planner.step_vehicle(args.vehicle, poses)
+    pkt = publish_channels_topic(args.vehicle, out.to_channels_dict(), source="level4_mission_swarm", host=args.host, port=args.port)
+    print(json.dumps({"summary": out.summary, "packet": pkt}))
+
+
+if __name__ == "__main__":
+    main()
 

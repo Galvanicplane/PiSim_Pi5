@@ -24,10 +24,13 @@ import argparse
 import json
 import math
 import os
+import socket
 import sys
 import threading
 import time
 from typing import Dict, Optional
+
+import ros2_cdr
 
 # Windows terminal Türkçe kod sayfası desteği
 if sys.stdout and hasattr(sys.stdout, "reconfigure"):
@@ -194,20 +197,40 @@ class ManualTeleopController:
             pass
 
     def _publish_current_state(self):
-        if not self.session:
-            return
-
-        # 1. Doğrudan Motor ve Direksiyon Komutları (VehicleHardware)
-        motors = self.hardware.compute_actuators(throttle=self.throttle, steering=self.steering)
-        # 2. Standart ROS 2 Twist
+        ch1_pwm = ros2_cdr.normalize_to_pwm(self.throttle)   # CH1: Sürüş Tekerlekleri (1000..1500..2000)
+        ch2_pwm = ros2_cdr.normalize_to_pwm(self.steering)   # CH2: Direksiyon Servoları (1000..1500..2000)
+        channels_pwm = {
+            "1": ch1_pwm,
+            "2": ch2_pwm,
+        }
         twist = {
             "linear": {"x": round(self.throttle * 3.0, 2), "y": 0.0, "z": 0.0},
-            "angular": {"x": 0.0, "y": 0.0, "z": round(self.steering * 1.5, 2)}
+            "angular": {"x": 0.0, "y": 0.0, "z": round(self.steering * 1.5, 2)},
         }
 
+        if self.session:
+            try:
+                cdr_ch = ros2_cdr.serialize_channels_cdr(channels_pwm)
+                cdr_tw = ros2_cdr.serialize_twist_cdr(twist)
+                self.session.put(f"pisim/{self.vehicle_code}/channels", cdr_ch)
+                self.session.put(f"pisim/{self.vehicle_code}/cmd_vel", cdr_tw)
+                return
+            except Exception:
+                pass
+
+        # Zenoh yoksa tekil UDP komut portu (7402) üzerinden gerçek ROS topic JSON'ı yayınla
         try:
-            self.session.put(f"pisim/{self.vehicle_code}/actuators", json.dumps(motors))
-            self.session.put(f"pisim/{self.vehicle_code}/cmd_vel", json.dumps(twist))
+            pkt = json.dumps({
+                "topic": f"/{self.vehicle_code}/channels",
+                "cmd": "channels",
+                "target": self.vehicle_code,
+                "channels": channels_pwm,
+                "source": "manual_teleop",
+                "timestamp": time.time(),
+            }).encode("utf-8")
+            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            sock.sendto(pkt, ("127.0.0.1", 7402))
+            sock.close()
         except Exception:
             pass
 

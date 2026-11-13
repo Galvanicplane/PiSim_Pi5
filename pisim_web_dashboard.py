@@ -402,7 +402,7 @@ class PiSimRequestHandler(http.server.SimpleHTTPRequestHandler):
                 }
                 if zenoh_session_ref is not None:
                     try:
-                        cdr = ros2_cdr.serialize_channels_cdr(v_code, channels_dict)
+                        cdr = ros2_cdr.serialize_channels_cdr(channels_dict)
                         zenoh_session_ref.put(f"pisim/{v_code}/channels", cdr)
                     except Exception:
                         pass
@@ -411,11 +411,10 @@ class PiSimRequestHandler(http.server.SimpleHTTPRequestHandler):
                 tx_sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
                 raw_bytes = (json.dumps(ch_pkt) + "\n").encode("utf-8")
                 for tgt_ip in {target_host, "127.0.0.1", "255.255.255.255"}:
-                    for tgt_port in (SWARM_COMMAND_PORT, 7410):
-                        try:
-                            tx_sock.sendto(raw_bytes, (tgt_ip, tgt_port))
-                        except Exception:
-                            pass
+                    try:
+                        tx_sock.sendto(raw_bytes, (tgt_ip, SWARM_COMMAND_PORT))
+                    except Exception:
+                        pass
                 tx_sock.close()
                 add_system_log(f"🧠 {summary} -> {v_code} ({channels_dict})")
 
@@ -789,23 +788,25 @@ class PiSimRequestHandler(http.server.SimpleHTTPRequestHandler):
                     "timestamp": time.time()
                 }
                 drive_payload = (json.dumps(payload_data) + "\n").encode('utf-8')
+                ch1_pwm = ros2_cdr.normalize_to_pwm(throttle)
+                ch2_pwm = ros2_cdr.normalize_to_pwm(steering)
+                channels_dict = {"1": ch1_pwm, "2": ch2_pwm, "3": 1000, "4": 1500}
                 ch_payload = (json.dumps({
                     "topic": f"/{target_code}/channels",
                     "cmd": "channels",
                     "target": target_code,
-                    "channels": {"1": throttle, "2": steering, "3": 0.0, "4": 0.0},
+                    "channels": channels_dict,
                     "timestamp": time.time()
                 }) + "\n").encode('utf-8')
                 for tgt_ip in ("255.255.255.255", target_host, "127.0.0.1"):
-                    for tgt_port in (SWARM_COMMAND_PORT, 7410):
-                        try:
-                            sock.sendto(drive_payload, (tgt_ip, tgt_port))
-                            sock.sendto(ch_payload, (tgt_ip, tgt_port))
-                        except Exception:
-                            pass
+                    try:
+                        sock.sendto(drive_payload, (tgt_ip, SWARM_COMMAND_PORT))
+                        sock.sendto(ch_payload, (tgt_ip, SWARM_COMMAND_PORT))
+                    except Exception:
+                        pass
                 if zenoh_session_ref is not None:
                     try:
-                        cdr = ros2_cdr.serialize_channels_cdr(target_code, {"1": throttle, "2": steering, "3": 0.0, "4": 0.0})
+                        cdr = ros2_cdr.serialize_channels_cdr(channels_dict)
                         zenoh_session_ref.put(f"pisim/{target_code}/channels", cdr)
                     except Exception:
                         pass

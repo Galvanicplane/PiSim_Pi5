@@ -147,7 +147,6 @@
             </span>
             <span class="vscode-menu-item" onclick="triggerProbeFromDashboard()">[📡 CİHAZ KEŞFİ]</span>
             <span class="vscode-menu-item" style="color: #ffaa00; font-weight: 800;" onclick="toggleTeleopModal()">[🎮 MANUEL SÜRÜŞ (WASD)]</span>
-            <span class="vscode-menu-item" style="color: var(--accent-color); font-weight: 800;" onclick="openHierarchyModal()">[🧠 KONTROL KODLARI: SEVİYE 1-4]</span>
             <span class="vscode-menu-item" style="color: #00dfb6; font-weight: 800;" onclick="openSqlModal()">[🛢️ SQL TABLOSU]</span>
             <a href="/sql.html" target="_blank" class="vscode-menu-item" style="color: #00e5ff; font-weight: 800; text-decoration: none;">[🛢️ CANLI SQL ↗]</a>
             <span class="vscode-menu-item" onclick="openModal('ayarlar')">⚙️ Ayarlar</span>
@@ -1232,86 +1231,6 @@
 
         function inspectChannel(chanId) {}
 
-        let cachedHierarchyLevels = [];
-        let activeHierarchyIdx = 0;
-
-        async function openHierarchyModal() {
-            const modal = document.getElementById('modal-hierarchy');
-            if (modal) modal.style.display = 'flex';
-            const codeBox = document.getElementById('hierarchy-code-viewer');
-            const tabsBox = document.getElementById('hierarchy-tabs-bar');
-            const runRes = document.getElementById('hierarchy-run-result');
-            if (runRes) runRes.innerText = '';
-            if (codeBox) codeBox.textContent = "Yükleniyor...";
-            try {
-                const res = await fetch('/api/controllers/hierarchy');
-                const data = await res.json();
-                cachedHierarchyLevels = Array.isArray(data.levels) ? data.levels : [];
-                if (tabsBox && cachedHierarchyLevels.length > 0) {
-                    tabsBox.innerHTML = cachedHierarchyLevels.map((lvl, idx) =>
-                        `<button class="cod-btn" onclick="selectHierarchyLevel(${idx})" id="htab-${idx}" style="padding:4px 10px; font-size:10px; border-color:${idx===0 ? 'var(--accent-color)' : 'var(--mono-border)'}; color:${idx===0 ? 'var(--accent-color)' : '#ffffff'};">${lvl.title}</button>`
-                    ).join('');
-                    selectHierarchyLevel(0);
-                } else if (codeBox) {
-                    codeBox.textContent = "Hiyerarşi kontrolcü dosyası bulunamadı.";
-                }
-            } catch (err) {
-                if (codeBox) codeBox.textContent = "Hata: /api/controllers/hierarchy okunamadı -> " + err;
-            }
-        }
-
-        function selectHierarchyLevel(idx) {
-            activeHierarchyIdx = idx;
-            const lvl = cachedHierarchyLevels[idx];
-            if (!lvl) return;
-            cachedHierarchyLevels.forEach((_, i) => {
-                const b = document.getElementById(`htab-${i}`);
-                if (b) {
-                    b.style.borderColor = (i === idx) ? 'var(--accent-color)' : 'var(--mono-border)';
-                    b.style.color = (i === idx) ? 'var(--accent-color)' : '#ffffff';
-                }
-            });
-            const fileEl = document.getElementById('hierarchy-file-label');
-            const codeEl = document.getElementById('hierarchy-code-viewer');
-            if (fileEl) fileEl.innerText = lvl.file || '';
-            if (codeEl) codeEl.textContent = lvl.code || '';
-        }
-
-        async function runCurrentHierarchyLevel() {
-            const lvl = cachedHierarchyLevels[activeHierarchyIdx];
-            const outEl = document.getElementById('hierarchy-run-result');
-            if (!lvl) return;
-            const targetCode = (typeof selectedVehicleCode !== 'undefined' && selectedVehicleCode) ? selectedVehicleCode : 'RV01';
-            if (outEl) {
-                outEl.style.color = '#ffaa00';
-                outEl.innerText = `⏳ ${lvl.title} çalıştırılıyor...`;
-            }
-            try {
-                const res = await fetch(`/api/controllers/run?level=${encodeURIComponent(lvl.id)}&code=${encodeURIComponent(targetCode)}`);
-                const data = await res.json();
-                if (data.status === 'OK') {
-                    if (outEl) {
-                        outEl.style.color = '#00dfb6';
-                        outEl.innerText = `✅ [${data.vehicle}] ${data.summary} | Kanallar: ${JSON.stringify(data.channels)}`;
-                    }
-                    if (typeof addLog === 'function') addLog(`🧠 ${data.summary}`);
-                } else if (outEl) {
-                    outEl.style.color = '#ff3b30';
-                    outEl.innerText = `❌ Hata: ${data.error || 'Bilinmeyen hata'}`;
-                }
-            } catch (err) {
-                if (outEl) {
-                    outEl.style.color = '#ff3b30';
-                    outEl.innerText = `❌ İstek hatası: ${err}`;
-                }
-            }
-        }
-
-        function closeHierarchyModal() {
-            const modal = document.getElementById('modal-hierarchy');
-            if (modal) modal.style.display = 'none';
-        }
-
         async function triggerProbeFromDashboard() {
             try {
                 addLog("📡 UDP Cihaz Keşfi Başlatıldı (Port 7499)...");
@@ -1876,23 +1795,6 @@
             }
         });
     </script>
-
-    <!-- ==================== KONTROL KODLARI HİYERARŞİSİ (SEVİYE 1-4) MODALI ==================== -->
-    <div id="modal-hierarchy" style="display:none; position:fixed; top:0; left:0; width:100vw; height:100vh; background:rgba(0,0,0,0.85); backdrop-filter:blur(5px); z-index:9999; justify-content:center; align-items:center;" onclick="if(event.target===this) closeHierarchyModal();">
-        <div style="background:#090d12; border:1px solid var(--accent-color); box-shadow:0 0 28px var(--accent-glow); max-width:960px; width:92%; max-height:85vh; display:flex; flex-direction:column; padding:14px; font-family:var(--font-mono);">
-            <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--mono-border); padding-bottom:8px; margin-bottom:10px;">
-                <div style="font-weight:900; color:var(--accent-color); font-size:13px;">🧠 KONTROL KODLARI HİYERARŞİSİ (SEVİYE 1–4)</div>
-                <button class="cod-btn" onclick="closeHierarchyModal()" style="padding:2px 8px; font-size:10px;">✕ KAPAT</button>
-            </div>
-            <div id="hierarchy-tabs-bar" style="display:flex; gap:6px; flex-wrap:wrap; margin-bottom:8px;"></div>
-            <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:6px; flex-wrap:wrap;">
-                <div id="hierarchy-file-label" style="font-size:10px; color:#00e5ff;"></div>
-                <button class="cod-btn cod-btn-accent" onclick="runCurrentHierarchyLevel()" style="padding:4px 10px; font-size:10px; font-weight:800;">▶️ BU SEVİYEYİ CANLI ÇALIŞTIR (UNREAL'A GÖNDER)</button>
-            </div>
-            <div id="hierarchy-run-result" style="font-size:10px; margin-bottom:6px; min-height:14px;"></div>
-            <pre id="hierarchy-code-viewer" style="flex:1; overflow:auto; background:#05070a; border:1px solid var(--mono-border); padding:10px; font-size:10.5px; color:#e6edf3; line-height:1.45; margin:0;"></pre>
-        </div>
-    </div>
 
     <!-- ==================== AYARLAR MODALI ==================== -->
     <div id="modal-settings" style="display:none; position:fixed; top:0; left:0; width:100vw; height:100vh; background:rgba(0,0,0,0.82); backdrop-filter:blur(4px); z-index:9999; justify-content:center; align-items:center;" onclick="if(event.target===this) closeSettingsModal();">

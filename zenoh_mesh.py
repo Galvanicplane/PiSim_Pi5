@@ -62,7 +62,6 @@ except ImportError:
 
 UNREAL_SENSOR_RX_PORT = 7500   # Unreal'daki tüm sensör modüllerinin veri bastığı tekil UDP portu
 UNREAL_SINGLE_TX_PORT = 7402   # Zenoh'tan gelen tüm komut/ACK verilerinin Unreal'a basıldığı tekil UDP portu
-UNREAL_BASE_TX_PORT = 7410     # Geriye dönük TopicBridge portu (7410 + VehicleId)
 CAMERA_TRIGGER_TIMEOUT_SEC = 4.0  # 4.0 sn boyunca ACK=3 gelmezse kamera Mavi Ekran'a (Standby) döner
 
 
@@ -135,12 +134,14 @@ class ZenohMeshBridge:
 
                 # Pi 5 veya Docker'dan gelen Binary CDR Topic'lerine Abone Ol
                 sub_channels = self.session.declare_subscriber("pisim/*/channels", self._on_zenoh_channels)
+                sub_ardupilot = self.session.declare_subscriber("pisim/*/ardupilot/pwm", self._on_zenoh_ardupilot_pwm)
+                sub_pwm = self.session.declare_subscriber("pisim/*/pwm", self._on_zenoh_ardupilot_pwm)
                 sub_ack = self.session.declare_subscriber("pisim/*/ack", self._on_zenoh_ack)
                 sub_actuators = self.session.declare_subscriber("pisim/*/actuators", self._on_zenoh_actuators)
                 sub_cmdvel = self.session.declare_subscriber("pisim/*/cmd_vel", self._on_zenoh_cmd_vel)
                 sub_ping = self.session.declare_subscriber("pisim/*/ping", self._on_zenoh_ping)
                 sub_fleet = self.session.declare_subscriber("fleet/*/state", self._on_zenoh_fleet_state)
-                self.zenoh_subs.extend([sub_channels, sub_ack, sub_actuators, sub_cmdvel, sub_ping, sub_fleet])
+                self.zenoh_subs.extend([sub_channels, sub_ardupilot, sub_pwm, sub_ack, sub_actuators, sub_cmdvel, sub_ping, sub_fleet])
 
             except Exception as e:
                 logger.error(f"Zenoh başlatma hatası: {e}. Yerel köprü modunda devam ediliyor.")
@@ -451,27 +452,50 @@ class ZenohMeshBridge:
 
     def _send_to_unreal_single_port(self, v_code: str, packet: Dict[str, Any]):
         """
-        Gelen komutu/ACK paketini Unreal Engine'in tekil dinleme portuna (UDP 7402)
-        ve yedek TopicBridge portuna iletir. Unreal içindeki her modül kendi aracını
-        ve kendi kanalını (CH1: Tekerlek, CH2: Steer Servo) buradan ayıklar.
+        Gelen komutu/ACK paketini Unreal Engine'in tekil dinleme portuna (UDP 7402) iletir.
+        Unreal içindeki her modül kendi aracını ve kendi kanalını (CH1: Tekerlek, CH2: Steer Servo)
+        bu tekil porttan dinlediği topic ile ayıklar.
         """
-        v_id = self._extract_vehicle_id(v_code)
-        target_port = UNREAL_BASE_TX_PORT + v_id
-        dedicated_port = 7402 + v_id
-        if not (1024 <= target_port <= 65535):
-            target_port = UNREAL_BASE_TX_PORT + 1
-        if not (1024 <= dedicated_port <= 65535):
-            dedicated_port = 7403
-
         raw = json.dumps(packet).encode("utf-8")
         try:
-            # 1. Ana Tekil Port (7402) - Tüm araçlar ve modüller burayı dinler
             self.udp_tx_sock.sendto(raw, (self.ue5_ip, UNREAL_SINGLE_TX_PORT))
-            # 2. TopicBridge ve Dedicated Port yedeklemesi
-            self.udp_tx_sock.sendto(raw, (self.ue5_ip, target_port))
-            self.udp_tx_sock.sendto(raw, (self.ue5_ip, dedicated_port))
         except Exception as ex:
             logger.debug(f"Unreal UDP iletim hatası ({v_code}): {ex}")
+
+    def _on_zenoh_ardupilot_pwm(self, sample):
+        """
+        ArduPilot SITL veya MAVLink/RC kaynağından gelen ham 1000..1500..2000 us PWM
+        değerlerini ölçeklemeden/değiştirmeden doğrudan Unreal Engine'in tekil portuna (7402)
+        `/{v_code}/ardupilot/pwm` topiği ile aktarır.
+        """
+        key = str(sample.key_expr)
+        raw_bytes = sample.payload.to_bytes()
+        parts = key.split("/")
+        if len(parts) < 2:
+            return
+
+        v_code = parts[1]
+        decoded, ack_status = ros2_cdr.deserialize_from_topic(key, raw_bytes)
+        self._update_ack_status(v_code, "ardupilot_pwm", ack_status)
+        self._record_and_maybe_inspect(key, raw_bytes, "RX_ARDUPILOT_PWM")
+
+        if ack_status == ros2_cdr.ACK_INVALID_SCHEMA or not isinstance(decoded, dict):
+            return
+
+        raw_pwm_map = decoded.get("channels", decoded)
+        if not isinstance(raw_pwm_map, dict):
+            raw_pwm_map = {}
+
+        packet = {
+            "topic": f"/{v_code}/ardupilot/pwm",
+            "cmd": "ardupilot_pwm",
+            "target": v_code,
+            "channels": raw_pwm_map,
+            "pwm": decoded.get("pwm", []),
+            "source": "ardupilot_sitl",
+            "timeout_ms": 600,
+        }
+        self._send_to_unreal_single_port(v_code, packet)
 
     def _on_zenoh_channels(self, sample):
         """

@@ -9,11 +9,19 @@ Combines Level 1 atomic primitives into geometric navigation behaviors:
 
 from __future__ import annotations
 
+import argparse
+import json
 import math
+import os
+import sys
 from dataclasses import dataclass
 from typing import Tuple
 
-from controllers.level1_atomic.atomic_motion import AtomicMotionController, ChannelOutput
+_ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+if _ROOT_DIR not in sys.path:
+    sys.path.insert(0, _ROOT_DIR)
+
+from controllers.level1_atomic.atomic_motion import AtomicMotionController, ChannelOutput, publish_channels_topic
 
 
 @dataclass
@@ -118,4 +126,29 @@ class WaypointAndFollowController:
             target_angle_deg=target,
             speed_mps=1.1,
         )
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="PiSim Level 2 Navigation ROS/Zenoh Publisher")
+    parser.add_argument("--vehicle", default="RV01")
+    parser.add_argument("--lat", type=float, default=39.9255)
+    parser.add_argument("--lon", type=float, default=32.8663)
+    parser.add_argument("--target-lat", type=float, default=39.9260)
+    parser.add_argument("--target-lon", type=float, default=32.8668)
+    parser.add_argument("--yaw", type=float, default=0.0)
+    parser.add_argument("--host", default="127.0.0.1")
+    parser.add_argument("--port", type=int, default=7402)
+    args = parser.parse_args()
+
+    nav = WaypointAndFollowController()
+    out = nav.navigate_to_coordinate(
+        GeoPose(lat=args.lat, lon=args.lon, yaw_deg=args.yaw),
+        GeoPose(lat=args.target_lat, lon=args.target_lon),
+    )
+    pkt = publish_channels_topic(args.vehicle, out.to_channels_dict(), source="level2_navigation", host=args.host, port=args.port)
+    print(json.dumps({"summary": out.summary, "packet": pkt}))
+
+
+if __name__ == "__main__":
+    main()
 

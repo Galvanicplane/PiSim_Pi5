@@ -12,9 +12,21 @@ Generates normalized ArduPilot channel commands (CH1..CH4 in [-1.0 .. +1.0]):
 
 from __future__ import annotations
 
+import argparse
+import json
 import math
+import os
+import socket
+import sys
+import time
 from dataclasses import dataclass
-from typing import Dict
+from typing import Any, Dict, List, Optional, Union
+
+_ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+if _ROOT_DIR not in sys.path:
+    sys.path.insert(0, _ROOT_DIR)
+
+import ros2_cdr
 
 
 @dataclass
@@ -125,4 +137,152 @@ class AtomicMotionController:
             done=False,
             summary=f"Climb target={target_alt_m:.1f}m err={alt_err:+.1f}m pitch={pitch_cmd:+.2f} thr={throttle:.2f}",
         )
+
+
+def publish_channels_topic(
+    vehicle_code: str,
+    channels: Dict[Union[int, str], float],
+    source: str = "level1_atomic",
+    host: str = "127.0.0.1",
+    port: int = 7402,
+    zenoh_session: Any = None,
+) -> Dict[str, Any]:
+    """Convert normalized [-1..+1] or raw PWM channel values to PWM and publish over Zenoh Binary CDR + UDP 7402."""
+    pwm_channels: Dict[str, int] = {}
+    for ch_key, val in (channels or {}).items():
+        key_str = str(ch_key).strip()
+        f_val = float(val)
+        if abs(f_val) <= 2.5:
+            pwm_channels[key_str] = ros2_cdr.normalize_to_pwm(f_val)
+        else:
+            pwm_channels[key_str] = max(800, min(2200, int(round(f_val))))
+
+    if zenoh_session is not None:
+        try:
+            cdr_bytes = ros2_cdr.serialize_channels_cdr(pwm_channels)
+            zenoh_session.put(f"pisim/{vehicle_code}/channels", cdr_bytes)
+        except Exception:
+            pass
+
+    pkt = {
+        "topic": f"/{vehicle_code}/channels",
+        "cmd": "channels",
+        "target": vehicle_code,
+        "channels": pwm_channels,
+        "source": source,
+        "timestamp": time.time(),
+    }
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock.sendto((json.dumps(pkt) + "\n").encode("utf-8"), (host, int(port)))
+        sock.close()
+    except Exception:
+        pass
+    return pkt
+
+
+def _open_optional_zenoh(use_zenoh: bool) -> Any:
+    if not use_zenoh:
+        return None
+    try:
+        import zenoh  # type: ignore
+        return zenoh.open(zenoh.Config())
+    except Exception:
+        return None
+
+
+def execute_move_distance(
+    vehicle_code: str,
+    target_distance_m: float = 50.0,
+    target_speed_mps: float = 2.0,
+    dt: float = 0.1,
+    max_steps: int = 0,
+    host: str = "127.0.0.1",
+    port: int = 7402,
+    use_zenoh: bool = False,
+    sleep_step: bool = True,
+) -> List[Dict[str, Any]]:
+    """Run closed/open-loop straight-distance motion and publish real /{vehicle}/channels topic frames."""
+    ctrl = AtomicMotionController(max_speed_mps=max(0.5, abs(target_speed_mps)))
+    z_sess = _open_optional_zenoh(use_zenoh)
+    emitted: List[Dict[str, Any]] = []
+    traveled = 0.0
+    direction = 1.0 if target_distance_m >= 0.0 else -1.0
+    step_idx = 0
+    total_limit = max_steps if max_steps > 0 else max(1, int(abs(target_distance_m) / max(0.2, abs(target_speed_mps) * dt)) + 5)
+
+    try:
+        while step_idx < total_limit:
+            out = ctrl.drive_straight_distance(traveled, abs(target_distance_m), abs(target_speed_mps))
+            ch_dict = out.to_channels_dict()
+            if direction < 0.0:
+                ch_dict["1"] = -abs(ch_dict["1"])
+            pkt = publish_channels_topic(
+                vehicle_code=vehicle_code,
+                channels=ch_dict,
+                source="level1_atomic",
+                host=host,
+                port=port,
+                zenoh_session=z_sess,
+            )
+            emitted.append(pkt)
+            if out.done:
+                break
+            traveled += abs(target_speed_mps) * dt
+            step_idx += 1
+            if sleep_step:
+                time.sleep(dt)
+
+        stop_pkt = publish_channels_topic(
+            vehicle_code=vehicle_code,
+            channels={"1": 1500, "2": 1500, "3": 1000, "4": 1500},
+            source="level1_atomic",
+            host=host,
+            port=port,
+            zenoh_session=z_sess,
+        )
+        emitted.append(stop_pkt)
+    finally:
+        if z_sess is not None:
+            try:
+                z_sess.close()
+            except Exception:
+                pass
+    return emitted
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="PiSim Level 1 Atomic Motion ROS/Zenoh Publisher")
+    parser.add_argument("--vehicle", default="RV01", help="Target vehicle code (e.g. RV01)")
+    parser.add_argument("--distance", type=float, default=50.0, help="Straight drive distance in meters")
+    parser.add_argument("--speed", type=float, default=2.0, help="Target speed (m/s)")
+    parser.add_argument("--turn-deg", type=float, default=0.0, help="Optional constant-radius turn angle (deg)")
+    parser.add_argument("--steps", type=int, default=0, help="Max loop iterations (0 = until target)")
+    parser.add_argument("--host", default="127.0.0.1")
+    parser.add_argument("--port", type=int, default=7402)
+    parser.add_argument("--zenoh", action="store_true", help="Publish Binary CDR directly to Zenoh")
+    parser.add_argument("--no-sleep", action="store_true", help="Emit frames without sleeping dt")
+    args = parser.parse_args()
+
+    if abs(args.turn_deg) > 1e-3:
+        ctrl = AtomicMotionController(max_speed_mps=max(0.5, args.speed))
+        out = ctrl.turn_constant_radius(radius_m=2.0, turned_angle_deg=0.0, target_angle_deg=args.turn_deg, speed_mps=args.speed)
+        pkt = publish_channels_topic(args.vehicle, out.to_channels_dict(), source="level1_atomic", host=args.host, port=args.port)
+        print(json.dumps({"mode": "turn", "summary": out.summary, "packet": pkt}))
+    else:
+        pkts = execute_move_distance(
+            vehicle_code=args.vehicle,
+            target_distance_m=args.distance,
+            target_speed_mps=args.speed,
+            max_steps=args.steps,
+            host=args.host,
+            port=args.port,
+            use_zenoh=args.zenoh,
+            sleep_step=not args.no_sleep,
+        )
+        print(json.dumps({"mode": "distance", "frames": len(pkts), "first_packet": pkts[0] if pkts else None, "last_packet": pkts[-1] if pkts else None}))
+
+
+if __name__ == "__main__":
+    main()
 

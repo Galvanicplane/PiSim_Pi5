@@ -213,19 +213,20 @@ class ArduPilotSitlBridge:
             return False
 
     def dispatch_sitl_servo_outputs(self, vehicle_code: str, pwm_list: List[int]) -> Dict[str, Any]:
-        """Convert ArduPilot SITL 16-ch PWM outputs to PiSim channels -> Unreal (7402) & Zenoh."""
+        """Forward raw ArduPilot SITL 1000..2000 us PWM outputs untouched -> Unreal (7402) & Zenoh."""
         v = self.get_or_create_vehicle(vehicle_code)
         with self.lock:
             for i in range(min(16, len(pwm_list))):
                 v.pwm_channels[i] = int(pwm_list[i])
-            ch_norm = v.pwm_to_normalized_channels()
+            raw_pwm_map = {str(idx + 1): int(v.pwm_channels[idx]) for idx in range(min(8, len(v.pwm_channels)))}
+            raw_pwm_list = [int(x) for x in v.pwm_channels[:8]]
 
         ue_pkt = {
-            "cmd": "channels",
+            "cmd": "ardupilot_pwm",
             "target": vehicle_code,
-            "topic": f"/{vehicle_code}/channels",
-            "channels": ch_norm,
-            "pwm": v.pwm_channels[:8],
+            "topic": f"/{vehicle_code}/ardupilot/pwm",
+            "channels": raw_pwm_map,
+            "pwm": raw_pwm_list,
             "source": "ardupilot_sitl",
         }
         raw_json = json.dumps(ue_pkt).encode("utf-8")
@@ -236,8 +237,8 @@ class ArduPilotSitlBridge:
 
         if self.zenoh_session is not None:
             try:
-                cdr_bytes = serialize_channels_cdr(ch_norm)
-                self.zenoh_session.put(f"pisim/{vehicle_code}/channels", cdr_bytes)
+                cdr_bytes = serialize_channels_cdr(raw_pwm_map)
+                self.zenoh_session.put(f"pisim/{vehicle_code}/ardupilot/pwm", cdr_bytes)
             except Exception:
                 pass
         return ue_pkt
