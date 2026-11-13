@@ -100,33 +100,76 @@
         .metro-dot-pulsing {
             animation: metroPulse 1.6s infinite;
         }
+        /* Noktalı Arka Plan (Taktik Grid Modu - Lat/Lon ~(0,0)) */
+        #tactical-dotted-grid-overlay {
+            position: absolute;
+            inset: 0;
+            z-index: 2;
+            display: none;
+            background-color: var(--bg-dark, #07090b);
+            background-image:
+                radial-gradient(var(--accent-color, #00dfb6) 1.3px, transparent 1.3px),
+                linear-gradient(to right, rgba(255,255,255,0.04) 1px, transparent 1px),
+                linear-gradient(to bottom, rgba(255,255,255,0.04) 1px, transparent 1px);
+            background-size: 24px 24px, 120px 120px, 120px 120px;
+            pointer-events: none;
+        }
+        /* Tema Renkli Vektör Harita Filtresi */
+        .leaflet-tile-pane.theme-vector-tint {
+            filter: grayscale(85%) sepia(35%) contrast(1.15) brightness(0.78);
+        }
+        #tactical-vector-tint-scrim {
+            position: absolute;
+            inset: 0;
+            z-index: 2;
+            pointer-events: none;
+            display: none;
+            background: var(--accent-color, #00dfb6);
+            mix-blend-mode: color;
+            opacity: 0.42;
+        }
+        .dotted-vehicle-dot {
+            position: absolute;
+            transform: translate(-50%, -50%);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            pointer-events: none;
+        }
     </style>
 </head>
 <body>
-    <!-- 0. VS CODE TARZI ÜST MENÜ ÇUBUĞU -->
+    <!-- 1. ÖĞE: ÜST MENÜ ÇUBUĞU (AYARLAR, CANLI RENK TEMA DEĞİŞTİRİCİ, KONTROL KODLARI SEVİYE 1-4) -->
     <header class="vscode-menu-bar">
         <div class="vscode-menu-group">
             <span style="font-weight: 900; color: var(--accent-color); margin-right: 8px; letter-spacing: 1px;">
                 // PISIM STUDIO (GCS)
             </span>
-            <span class="vscode-menu-item" onclick="triggerProbeFromDashboard()">[📡 CİHAZ KEŞFİ YAP]</span>
+            <span class="vscode-menu-item" onclick="triggerProbeFromDashboard()">[📡 CİHAZ KEŞFİ]</span>
             <span class="vscode-menu-item" style="color: #ffaa00; font-weight: 800;" onclick="toggleTeleopModal()">[🎮 MANUEL SÜRÜŞ (WASD)]</span>
+            <span class="vscode-menu-item" style="color: var(--accent-color); font-weight: 800;" onclick="openHierarchyModal()">[🧠 KONTROL KODLARI: SEVİYE 1-4]</span>
             <span class="vscode-menu-item" style="color: #00dfb6; font-weight: 800;" onclick="openSqlModal()">[🛢️ SQL TABLOSU]</span>
-            <a href="/sql.html" target="_blank" class="vscode-menu-item" style="color: #00e5ff; font-weight: 800; text-decoration: none;">[🛢️ CANLI SQL SAYFASI ↗]</a>
-            <span class="vscode-menu-item" onclick="openModal('ayarlar')">Ayarlar</span>
+            <a href="/sql.html" target="_blank" class="vscode-menu-item" style="color: #00e5ff; font-weight: 800; text-decoration: none;">[🛢️ CANLI SQL ↗]</a>
+            <span class="vscode-menu-item" onclick="openModal('ayarlar')">⚙️ Ayarlar</span>
             <span class="vscode-menu-item" onclick="openModal('bilgi')">Bilgi</span>
         </div>
 
-        <div class="vscode-menu-group" style="font-size: 10px; gap: 8px;">
-            <span style="color: var(--text-dark);">UDP 7400 RX</span>
+        <div class="vscode-menu-group" style="font-size: 10px; gap: 8px; align-items: center;">
             <span id="header-status-badge" style="background: rgba(255, 170, 0, 0.15); color: #ffaa00; padding: 1px 6px; border: 1px solid #ffaa00; font-weight: 800;">
                 BEKLİYOR
             </span>
             <span id="header-greeting-badge" style="background: rgba(0, 229, 255, 0.12); color: #00e5ff; padding: 1px 8px; border: 1px solid rgba(0, 229, 255, 0.35); font-weight: 800; font-family: var(--font-mono); display: none;">
                 HI FROM ...
             </span>
-            
-            <!-- 5'Lİ TEMA DEĞİŞTİRME BUTONU -->
+            <!-- CANLI UI RENK & TEMA DEĞİŞTİRİCİ (UI + VEKTÖR HARİTA RENKLENDİRME) -->
+            <div style="display:flex; align-items:center; gap:4px; background:rgba(255,255,255,0.04); border:1px solid var(--mono-border); padding:2px 6px; border-radius:3px;">
+                <span style="font-size:9px; color:var(--text-muted);">RENK:</span>
+                <input type="color" id="live-theme-color-picker" value="#00dfb6" title="UI ve Harita Vektör Rengini Canlı Değiştir" oninput="setLiveAccentColor(this.value)" style="width:20px; height:18px; border:none; background:transparent; cursor:pointer; padding:0;" />
+                <button class="cod-btn" onclick="setLiveAccentColor('#00dfb6')" title="Petronas Turkuaz" style="padding:1px 5px; font-size:8.5px; color:#00dfb6; border-color:#00dfb6;">●</button>
+                <button class="cod-btn" onclick="setLiveAccentColor('#7aa2f7')" title="Tokyo Mavi" style="padding:1px 5px; font-size:8.5px; color:#7aa2f7; border-color:#7aa2f7;">●</button>
+                <button class="cod-btn" onclick="setLiveAccentColor('#fe8019')" title="Amber" style="padding:1px 5px; font-size:8.5px; color:#fe8019; border-color:#fe8019;">●</button>
+                <button class="cod-btn" onclick="setLiveAccentColor('#ff79c6')" title="Neon Pembe" style="padding:1px 5px; font-size:8.5px; color:#ff79c6; border-color:#ff79c6;">●</button>
+            </div>
             <button id="btn-theme-switcher" class="cod-btn cod-btn-accent" style="padding: 3px 10px; font-size: 10px;" onclick="cycleTheme()">
                 TEMA: 1/5 PETRONAS F1
             </button>
@@ -169,18 +212,27 @@
             </div>
         </aside>
 
-        <!-- 2. ORTA SÜTUN: HARİTA (DOTS DESENİ) + YÜKSEK VE IŞIK DÖNEN KÖPRÜ PANELİ -->
-        <section class="fleet-center-area">
-            
-            <!-- ORTA ÜST: TAKTİK DÜNYA HARİTASI (LEAFLET.JS İNTERAKTİF VEKTÖR & TAKİP) -->
-            <div class="tactical-map-viewport cod-panel" style="position: relative; overflow: hidden; padding: 10px;">
-                <!-- LEAFLET HARİTA KANVASI (GOOGLE MAPS TARZI SÜRÜKLE, TEKERLEKLE ZOOM) -->
+        <!-- 4. ÖĞE (ORTA SÜTUN): TAM YÜKSEKLİK TAKTİK HARİTA (UYDU / TEMA RENKLİ / NOKTALI ARKA PLAN) -->
+        <section class="fleet-center-area" style="height: 100%; display: flex; flex-direction: column;">
+            <div class="tactical-map-viewport cod-panel" style="position: relative; overflow: hidden; padding: 10px; flex: 1; height: 100%; display: flex; flex-direction: column;">
+                <!-- LEAFLET HARİTA KANVASI (UYDU & TEMA RENKLİ VEKTÖR) -->
                 <div id="tactical-leaflet-map" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 1;"></div>
+                <!-- TEMA RENKLİ HARİTA RENK KAPLAMASI -->
+                <div id="tactical-vector-tint-scrim"></div>
+                <!-- NOKTALI ARKA PLAN (COĞRAFİ KONUM 0,0 İKEN OTOMATİK AKTİF) -->
+                <div id="tactical-dotted-grid-overlay">
+                    <div style="position:absolute; top:50%; left:0; right:0; height:1px; background:rgba(255,255,255,0.08);"></div>
+                    <div style="position:absolute; left:50%; top:0; bottom:0; width:1px; background:rgba(255,255,255,0.08);"></div>
+                    <div id="dotted-grid-vehicles-layer" style="position:absolute; inset:0;"></div>
+                    <div style="position:absolute; bottom:46px; left:14px; font-size:9.5px; color:var(--accent-color); font-family:var(--font-mono); opacity:0.8;">
+                        [NOKTALI ARKA PLAN • YEREL KOORDİNAT EKSENİ (LAT/LON ≈ 0,0)]
+                    </div>
+                </div>
 
                 <!-- ÜST BİLGİ ŞERİDİ (Z-INDEX 20) -->
                 <div style="display: flex; justify-content: space-between; align-items: center; z-index: 20; position: relative; pointer-events: none;">
                     <div style="font-size: 11px; font-weight: 800; color: #ffffff; letter-spacing: 1px; background: rgba(6, 9, 12, 0.85); padding: 4px 10px; border-radius: 4px; border: 1px solid var(--mono-border); pointer-events: auto; backdrop-filter: blur(4px);">
-                        // TAKTİK HARİTA (CANLI GNSS)
+                        // TAKTİK HARİTA (<span id="map-mode-badge">UYDU</span>)
                     </div>
                     <div style="display: flex; gap: 6px; align-items: center; background: rgba(6, 9, 12, 0.85); padding: 4px 10px; border-radius: 4px; border: 1px solid var(--mono-border); pointer-events: auto; backdrop-filter: blur(4px);">
                         <span style="font-size: 9px; color: var(--text-muted);">GNSS:</span>
@@ -193,119 +245,27 @@
                     <div style="font-size: 10px; color: var(--text-muted); background: rgba(6, 9, 12, 0.85); padding: 4px 10px; border-radius: 4px; border: 1px solid var(--mono-border); pointer-events: auto; backdrop-filter: blur(4px);">
                         HEDEF: <b id="map-target-label" style="color: var(--accent-color);">Simülasyon Bekleniyor</b>
                     </div>
-                    <div style="display: flex; gap: 5px; pointer-events: auto;">
-                        <button id="btn-map-layer" class="cod-btn" style="padding: 4px 10px; font-size: 10px; font-weight: 800; border-color: #00dfb6; color: #00dfb6; background: rgba(0, 223, 182, 0.18);" onclick="cycleMapLayer()">🛰️ UYDU: GOOGLE (CANLI)</button>
+                    <div style="display: flex; gap: 5px; pointer-events: auto; flex-wrap: wrap;">
+                        <button id="btn-map-layer" class="cod-btn" style="padding: 4px 10px; font-size: 10px; font-weight: 800; border-color: var(--accent-color); color: var(--accent-color); background: var(--accent-dim);" onclick="cycleMapLayer()">🛰️ UYDU HARİTASI</button>
                         <button id="btn-toggle-teleop" class="cod-btn" style="padding: 4px 10px; font-size: 10px; font-weight: 800; border-color: #ffaa00; color: #ffaa00; background: rgba(255, 170, 0, 0.15);" onclick="toggleTeleopModal()">🎮 MANUEL (WASD)</button>
-                        <button id="btn-toggle-follow" class="cod-btn" style="padding: 4px 10px; font-size: 10px; font-weight: 800; border-color: var(--accent-color); color: var(--accent-color); background: rgba(0, 223, 182, 0.18);" onclick="toggleFollowVehicle()">🎯 TAKİP: AÇIK</button>
+                        <button id="btn-toggle-follow" class="cod-btn" style="padding: 4px 10px; font-size: 10px; font-weight: 800; border-color: var(--accent-color); color: var(--accent-color); background: var(--accent-dim);" onclick="toggleFollowVehicle()">🎯 TAKİP: AÇIK</button>
                         <button class="cod-btn" style="padding: 4px 10px; font-size: 10px;" onclick="zoomMapIn()">[+]</button>
                         <button class="cod-btn" style="padding: 4px 10px; font-size: 10px;" onclick="zoomMapOut()">[-]</button>
                         <button class="cod-btn" style="padding: 4px 10px; font-size: 10px;" onclick="centerMap()">MERKEZLE</button>
                     </div>
                 </div>
             </div>
-
-            <!-- ORTA ALT: SİMÜLASYON KÖPRÜSÜ -->
-            <div class="conn-bridge-card">
-                <div class="conn-bridge-blob"></div>
-
-                <div class="conn-bridge-bg">
-                    <div class="conn-bridge-header">
-                        <div style="display: flex; align-items: center; gap: 6px;">
-                            <span style="font-size: 11px; font-weight: 800; color: #ffffff; letter-spacing: 0.5px;">
-                                // SİMÜLASYON VERİ VE PROTOKOL KÖPRÜSÜ
-                            </span>
-                            <span id="bridge-status-tag" class="bridge-status-badge" style="background: rgba(255, 170, 0, 0.15); color: #ffaa00; border-color: #ffaa00;">
-                                DİNLENİYOR [UDP 7499 / 7400]
-                            </span>
-                        </div>
-                        <div style="display: flex; align-items: center; gap: 6px;">
-                            <span style="font-size: 9.5px; color: var(--accent-color); font-weight: 700;">
-                                ● PASİF DİNLEME AKTİF
-                            </span>
-                        </div>
-                    </div>
-
-                    <!-- İKİ YÖNLÜ VERİ BORULARI (Sadece gerçek veri aktığında animasyonlu yanar, bağlı değilken gri/sönüktür) -->
-                    <div class="data-flow-container">
-                        <div class="data-node-endpoint" id="node-pi5">
-                            <div class="node-title">RASPBERRY PI 5</div>
-                            <div class="node-sub" id="node-pi5-sub">PORT: 7400 RX</div>
-                        </div>
-
-                        <div class="data-flow-center-branches">
-                            <div class="branch-tier" id="tier-sitl">
-                                <div class="two-way-pipe-group" id="channel-sitl" onclick="inspectChannel('sitl')">
-                                    <div class="pipe-lane">
-                                        <span class="pipe-dir-tag" style="color:var(--accent-color);">TX→</span>
-                                        <div class="data-pipe tx"><div class="data-pipe-packet"></div></div>
-                                    </div>
-                                    <div class="pipe-lane">
-                                        <span class="pipe-dir-tag" style="color:#00e5ff;">RX←</span>
-                                        <div class="data-pipe rx"><div class="data-pipe-packet"></div></div>
-                                    </div>
-                                </div>
-
-                                <div class="data-node" id="node-center-telemetry" onclick="inspectChannel('sitl')" style="cursor: pointer; min-width: 120px;">
-                                    <div class="node-title">UDP 7400 TELEMETRİ</div>
-                                    <div class="node-sub" id="node-center-msg">JSON / SITL</div>
-                                </div>
-
-                                <div class="two-way-pipe-group" id="channel-ue5" onclick="inspectChannel('ue5')">
-                                    <div class="pipe-lane">
-                                        <span class="pipe-dir-tag" style="color:var(--accent-color);">TX→</span>
-                                        <div class="data-pipe tx"><div class="data-pipe-packet"></div></div>
-                                    </div>
-                                    <div class="pipe-lane">
-                                        <span class="pipe-dir-tag" style="color:#00e5ff;">RX←</span>
-                                        <div class="data-pipe rx"><div class="data-pipe-packet"></div></div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div class="data-node-endpoint" id="node-ue5">
-                            <div class="node-title">UNREAL ENGINE 5</div>
-                            <div class="node-sub" id="node-ue5-sub">CHAOS FİZİK</div>
-                        </div>
-                    </div>
-
-                    <!-- KENDİ IP BİLGİSİ VE HEDEF UNREAL IP BİLGİSİ (ALT PANEL) -->
-                    <div class="manual-connection-bar" style="display: flex; justify-content: space-between; align-items: center; background: rgba(0, 0, 0, 0.45); border: 1px solid var(--mono-border); padding: 5px 10px; margin-bottom: 4px; font-family: var(--font-mono); font-size: 10px; clip-path: polygon(0 0, calc(100% - 6px) 0, 100% 6px, 100% 100%, 6px 100%, 0 calc(100% - 6px));">
-                        <div style="display: flex; align-items: center; gap: 8px;">
-                            <span style="color: var(--text-muted); font-weight: 700;">📡 BU CİHAZ (PI 5) IP:</span>
-                            <span id="label-local-ip" style="color: #00e5ff; font-weight: 800; background: rgba(0, 229, 255, 0.1); padding: 1px 6px; border: 1px solid rgba(0, 229, 255, 0.3);">YÜKLENİYOR...</span>
-                        </div>
-                        
-                        <div style="display: flex; align-items: center; gap: 8px;">
-                            <span style="color: var(--text-muted); font-weight: 700;">HEDEF (UNREAL ENGINE) IP:</span>
-                            <span id="label-target-ue5-ip" style="color: var(--accent-color); font-weight: 800; background: rgba(0, 223, 182, 0.1); padding: 1px 8px; border: 1px solid rgba(0, 223, 182, 0.3);">DİNLENİYOR (PROBE BEKLENİYOR)...</span>
-                        </div>
-                    </div>
-
-                    <!-- GERÇEK PAKET AKIŞI BİLGİ PENCERESİ (GENİŞLETİLMİŞ LOG ALANI) -->
-                    <div class="channel-stream-log" id="channel-packet-log" style="height: 180px; min-height: 180px; background: rgba(0, 0, 0, 0.65); border: 1px solid var(--mono-border); padding: 6px 10px; font-family: var(--font-mono); clip-path: polygon(0 0, calc(100% - 6px) 0, 100% 6px, 100% 100%, 6px 100%, 0 calc(100% - 6px));">
-                        <div style="color: var(--accent-color); font-weight: 800; margin-bottom: 4px; border-bottom: 1px solid var(--mono-border); padding-bottom: 3px; display: flex; justify-content: space-between;">
-                            <span>// CANLI PAKET AKIŞI: <span id="inspected-channel-name">Pi5 ⇄ UE5 (Port 7400 / 7499)</span></span>
-                            <span style="font-size: 9px; color: var(--text-muted); cursor: pointer;" onclick="clearPacketLogs()">TEMİZLE</span>
-                        </div>
-                        <div id="packet-stream-lines" class="packet-lines-box" style="height: calc(100% - 24px); overflow-y: auto;">
-                            <div id="packet-placeholder" style="color: var(--text-dark); font-size: 9.5px; padding: 4px;">
-                                [DİNLENİYOR] Port 7499 & 7400 dinleniyor (Unreal Engine probe bekleniyor)...
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
         </section>
 
-        <!-- 3. SAĞ PANEL: CANLI ARAÇ DETAYLARI & KONTROL -->
-        <aside class="fleet-sidebar cod-panel">
+        <!-- 3. ÖĞE (SAĞ PANEL): HETEROJEN DİNAMİK ARAÇ KARTLARI & KONTROL -->
+        <aside class="fleet-sidebar cod-panel" style="overflow-y: auto;">
             <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--mono-border); padding-bottom: 6px;">
                 <div style="font-size: 12px; font-weight: 800; color: #ffffff; letter-spacing: 1px;">
                     // ARAÇ DETAYLARI
                 </div>
-                <div id="active-status-badge" style="font-size: 10px; color: var(--text-muted); font-weight: 700;">
-                    [BEKLEMEDE]
+                <div style="display:flex; gap:6px; align-items:center;">
+                    <span id="detail-vehicle-type-badge" style="font-size: 9px; padding: 1px 6px; border-radius: 3px; font-weight: 800; background: var(--accent-dim); color: var(--accent-color); border: 1px solid var(--accent-color);">KARA / GENEL</span>
+                    <div id="active-status-badge" style="font-size: 10px; color: var(--text-muted); font-weight: 700;">[BEKLEMEDE]</div>
                 </div>
             </div>
 
@@ -316,14 +276,14 @@
                 [SELAMLAMA BEKLENİYOR]
             </div>
 
-            <!-- KAMERA VE SENSÖR ÖNİZLEME PENCERESİ -->
-            <button id="btn-toggle-video" onclick="toggleVideoSubscription()" style="width: 100%; padding: 5px 8px; font-family: var(--font-mono); font-size: 10px; font-weight: 700; background: rgba(0, 223, 182, 0.12); border: 1px solid var(--accent-color); color: var(--accent-color); cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px; margin-top: 6px; margin-bottom: 4px; transition: all 0.2s; clip-path: polygon(0 0, calc(100% - 5px) 0, 100% 5px, 100% 100%, 5px 100%, 0 calc(100% - 5px));">
-                📹 CANLI VİDEO YAYININA ABONE OL
+            <!-- KART 1: KAMERA VE CANLI H.264 YAYINI -->
+            <button id="btn-toggle-video" onclick="toggleVideoSubscription()" style="width: 100%; padding: 5px 8px; font-family: var(--font-mono); font-size: 10px; font-weight: 700; background: var(--accent-dim); border: 1px solid var(--accent-color); color: var(--accent-color); cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px; margin-top: 6px; margin-bottom: 4px; transition: all 0.2s; clip-path: polygon(0 0, calc(100% - 5px) 0, 100% 5px, 100% 100%, 5px 100%, 0 calc(100% - 5px));">
+                📹 CANLI VİDEO YAYININA ABONE OL (ACK=3)
             </button>
             <div class="camera-preview-frame" style="position: relative; overflow: hidden;">
                 <img id="camera-live-feed" src="" alt="Canlı Kamera" style="display: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; z-index: 1;" />
                 <div style="position: relative; z-index: 2; display: flex; justify-content: space-between; font-size: 9px; color: var(--accent-color); font-weight: 800;">
-                    <span>[FPV KAMERA / SENSÖR]</span>
+                    <span>[FPV KAMERA / H.264]</span>
                     <span id="cam-telemetry-overlay">FOV: 85° • EO/IR</span>
                 </div>
 
@@ -337,10 +297,36 @@
                 </div>
             </div>
 
-            <!-- ==================== ACK & BINARY CDR TOPIC TEŞHİS PANELİ ==================== -->
+            <!-- KART 2: DINAMİK HAVA ARACI KARTI (SADECE HAVA / UÇAN ARAÇLARDA GÖSTERİLİR) -->
+            <div id="card-aerial-telemetry" style="display: none; background: rgba(0, 180, 255, 0.06); border: 1px solid rgba(0, 229, 255, 0.35); padding: 7px 8px; margin-bottom: 6px; border-radius: 3px; font-family: var(--font-mono);">
+                <div style="font-size: 9.5px; font-weight: 800; color: #00e5ff; margin-bottom: 4px; border-bottom: 1px solid rgba(0,229,255,0.2); padding-bottom: 2px;">
+                    ✈️ HAVA ARACI / AERODİNAMİK TELEMETRİ
+                </div>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 4px; font-size: 9.5px;">
+                    <div><span style="color:var(--text-muted);">İRTİFA (BARO):</span> <b id="aerial-alt-val" style="color:#00e5ff;">-- m</b></div>
+                    <div><span style="color:var(--text-muted);">HAVA HIZI:</span> <b id="aerial-airspeed-val" style="color:#00dfb6;">-- m/s</b></div>
+                    <div><span style="color:var(--text-muted);">TIRMANMA (V/S):</span> <b id="aerial-climb-val" style="color:#ffaa00;">-- m/s</b></div>
+                    <div><span style="color:var(--text-muted);">UÇUŞ YÖNELİMİ:</span> <b id="aerial-att-val" style="color:#ffffff;">--°</b></div>
+                </div>
+            </div>
+
+            <!-- KART 3: DİNAMİK KARA ARACI / ARDUPILOT CH1-CH2 KARTI (KARA ARAÇLARINDA GÖSTERİLİR) -->
+            <div id="card-ground-telemetry" style="display: block; background: rgba(0, 223, 182, 0.05); border: 1px solid rgba(0, 223, 182, 0.3); padding: 7px 8px; margin-bottom: 6px; border-radius: 3px; font-family: var(--font-mono);">
+                <div style="font-size: 9.5px; font-weight: 800; color: var(--accent-color); margin-bottom: 4px; border-bottom: 1px solid rgba(0,223,182,0.2); padding-bottom: 2px;">
+                    🚙 KARA ARACI • ARDUPILOT KANAL & SÜRÜŞ
+                </div>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 4px; font-size: 9.5px;">
+                    <div><span style="color:var(--text-muted);">CH1 (GAZ/TEKER):</span> <b id="ground-ch1-val" style="color:var(--accent-color);">0.00</b></div>
+                    <div><span style="color:var(--text-muted);">CH2 (DİREKSİYON):</span> <b id="ground-ch2-val" style="color:#00e5ff;">0.00</b></div>
+                    <div><span style="color:var(--text-muted);">ZEMİN HIZI:</span> <b id="ground-speed-val" style="color:#ffffff;">0.0 m/s</b></div>
+                    <div><span style="color:var(--text-muted);">MOD:</span> <b id="ground-mode-val" style="color:#ffaa00;">MANUEL</b></div>
+                </div>
+            </div>
+
+            <!-- KART 4: TOPIC & ACK (0-4) INSPECTOR -->
             <div style="background: rgba(0, 0, 0, 0.50); border: 1px solid var(--mono-border); padding: 6px 8px; margin-bottom: 6px; border-radius: 3px; font-family: var(--font-mono);">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 3px;">
-                    <span style="font-size: 9px; font-weight: 800; color: #00e5ff;">📡 TOPIC ACK & CDR DURUMU</span>
+                    <span style="font-size: 9px; font-weight: 800; color: #00e5ff;">📡 TOPIC & ACK (0-4) DENETİCİ</span>
                     <span id="ack-camera-mode-tag" style="font-size: 8.5px; font-weight: 800; padding: 1px 5px; border-radius: 2px; background: rgba(10, 65, 235, 0.28); color: #5599ff; border: 1px solid #3377ff;">MAVİ EKRAN (ACK=4)</span>
                 </div>
                 <div id="ack-topics-list" style="display: grid; grid-template-columns: 1fr auto; gap: 2px 6px; font-size: 8.5px; color: var(--text-muted);">
@@ -351,8 +337,8 @@
                 </div>
             </div>
 
-            <!-- ==================== SAĞA-SOLA KAYDIRILABİLİR METRO DURAĞI GÖREV HATTI ==================== -->
-            <div class="metro-mission-box" style="margin-top: 6px; margin-bottom: 6px; padding: 6px 8px; background: rgba(6, 11, 15, 0.95); border: 1px solid var(--mono-border); clip-path: polygon(0 0, calc(100% - 6px) 0, 100% 6px, 100% 100%, 6px 100%, 0 calc(100% - 6px));">
+            <!-- KART 5: GÖREV PLANI (SADECE mission_active == true İKEN GÖSTERİLİR, YOKSA GİZLENİR) -->
+            <div id="card-mission-metro" class="metro-mission-box" style="display: none; margin-top: 4px; margin-bottom: 6px; padding: 6px 8px; background: rgba(6, 11, 15, 0.95); border: 1px solid var(--mono-border); clip-path: polygon(0 0, calc(100% - 6px) 0, 100% 6px, 100% 100%, 6px 100%, 0 calc(100% - 6px));">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
                     <div style="font-size: 10px; font-weight: 800; color: #00e5ff; letter-spacing: 0.5px;">
                         🚇 GÖREV PLANI: <span id="metro-mission-title" style="color: #ffffff;">BOŞTA</span>
@@ -361,11 +347,7 @@
                         BEKLEMEDE
                     </div>
                 </div>
-
-                <!-- Sağa Sola Kaydırılabilir Metro Hattı Konteyneri -->
-                <div id="metro-stops-container" class="metro-stops-track" style="display: flex; align-items: center; overflow-x: auto; padding: 8px 4px; scrollbar-width: thin; scroll-behavior: smooth; gap: 2px;">
-                    <div style="font-size: 9.5px; color: var(--text-muted); font-style: italic; padding: 4px;">Henüz görev başlatılmadı. Görev başladığında duraklar burada akar.</div>
-                </div>
+                <div id="metro-stops-container" class="metro-stops-track" style="display: flex; align-items: center; overflow-x: auto; padding: 8px 4px; scrollbar-width: thin; scroll-behavior: smooth; gap: 2px;"></div>
             </div>
 
             <!-- MODÜL TELEMETRİ VERİLERİ (GERÇEK VERİLER) -->
@@ -438,15 +420,41 @@
 
     <!-- ETKİLEŞİM, TEMA DEĞİŞTİRİCİ VE GERÇEK VERİ SCRİPTİ -->
     <script>
-        // 5 FARKLI TEMA
+        // 5 FARKLI TEMA + CANLI RENK DEĞİŞTİRİCİ
         const themes = [
-            { id: "petronas", name: "1/5 PETRONAS F1" },
-            { id: "tokyonight", name: "2/5 TOKYO NIGHT" },
-            { id: "gruvbox", name: "3/5 GRUVBOX AMBER" },
-            { id: "dracula", name: "4/5 DRACULA NEON" },
-            { id: "light-tactical", name: "5/5 LIGHT OPS (AÇIK)" }
+            { id: "petronas", name: "1/5 PETRONAS F1", accent: "#00dfb6" },
+            { id: "tokyonight", name: "2/5 TOKYO NIGHT", accent: "#7aa2f7" },
+            { id: "gruvbox", name: "3/5 GRUVBOX AMBER", accent: "#fe8019" },
+            { id: "dracula", name: "4/5 DRACULA NEON", accent: "#ff79c6" },
+            { id: "light-tactical", name: "5/5 LIGHT OPS (AÇIK)", accent: "#009688" }
         ];
         let currentThemeIndex = 0;
+
+        function hexToRgba(hex, alpha) {
+            const clean = (hex || '#00dfb6').replace('#', '');
+            const bigint = parseInt(clean.length === 3 ? clean.split('').map(c => c + c).join('') : clean, 16);
+            const r = (bigint >> 16) & 255;
+            const g = (bigint >> 8) & 255;
+            const b = bigint & 255;
+            return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+        }
+
+        function setLiveAccentColor(hexColor, save = true) {
+            if (!hexColor) return;
+            const root = document.documentElement;
+            root.style.setProperty('--accent-color', hexColor);
+            root.style.setProperty('--accent-glow', hexToRgba(hexColor, 0.45));
+            root.style.setProperty('--accent-dim', hexToRgba(hexColor, 0.16));
+            root.style.setProperty('--border-green', hexColor);
+            root.style.setProperty('--border-cyan', hexColor);
+            const picker = document.getElementById('live-theme-color-picker');
+            if (picker && picker.value.toLowerCase() !== hexColor.toLowerCase()) {
+                picker.value = hexColor;
+            }
+            const scrim = document.getElementById('tactical-vector-tint-scrim');
+            if (scrim) scrim.style.background = hexColor;
+            if (save) localStorage.setItem('pisim-custom-accent', hexColor);
+        }
 
         function cycleTheme() {
             currentThemeIndex = (currentThemeIndex + 1) % themes.length;
@@ -457,6 +465,7 @@
             document.documentElement.setAttribute('data-theme', theme.id);
             document.getElementById('btn-theme-switcher').innerText = `TEMA: ${theme.name}`;
             localStorage.setItem('pisim-theme', theme.id);
+            setLiveAccentColor(theme.accent, false);
         }
 
         const savedThemeId = localStorage.getItem('pisim-theme');
@@ -467,89 +476,133 @@
                 applyTheme(themes[idx]);
             }
         }
+        const savedAccent = localStorage.getItem('pisim-custom-accent');
+        if (savedAccent) {
+            setLiveAccentColor(savedAccent, false);
+        }
 
-                // ==================== İNTERAKTİF TAKTİK HARİTA (LEAFLET.JS) ====================
+        // ==================== 4. ÖĞE: İNTERAKTİF TAKTİK HARİTA (UYDU / TEMA VEKTÖR / NOKTALI ARKA PLAN) ====================
         let tacticalMap = null;
         let isFollowingVehicle = false;
         const fleetMarkers = {};
         let lastSelectedLat = 39.9334;
         let lastSelectedLon = 32.8597;
         let lastInitialCenterDone = false;
-        let currentTileKey = 'google_hybrid';
+        let currentMapMode = 'satellite'; // 'satellite' | 'theme_vector' | 'dotted_grid'
+        let lastNonDottedMapMode = 'satellite';
+        let userManualMapModeOverride = false;
         let currentTileLayer = null;
 
-        function getTileLayer(key) {
-            if (key === 'google_streets') {
-                return L.tileLayer('https://mt{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}', {
-                    maxZoom: 20,
-                    subdomains: ['0', '1', '2', '3'],
-                    attribution: '&copy; Google Maps Streets'
-                });
-            } else if (key === 'esri_satellite') {
-                return L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
-                    maxZoom: 19,
-                    attribution: '&copy; Esri World Imagery'
-                });
-            } else if (key === 'google_hybrid') {
-                return L.tileLayer('https://mt{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', {
-                    maxZoom: 20,
-                    subdomains: ['0', '1', '2', '3'],
-                    attribution: '&copy; Google Maps Satellite'
-                });
-            } else if (key === 'dark_matter') {
+        function getTileLayer(mode) {
+            if (mode === 'theme_vector') {
                 return L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
                     maxZoom: 20,
                     subdomains: 'abcd',
                     attribution: '&copy; CartoDB &copy; OpenStreetMap'
                 });
-            } else {
-                return L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-                    maxZoom: 19,
-                    attribution: '&copy; OpenStreetMap'
-                });
             }
+            return L.tileLayer('https://mt{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', {
+                maxZoom: 20,
+                subdomains: ['0', '1', '2', '3'],
+                attribution: '&copy; Google Maps Satellite'
+            });
         }
 
-        function setTileLayer(key) {
-            if (!tacticalMap || typeof L === 'undefined') return;
-            if (currentTileLayer) {
-                try { tacticalMap.removeLayer(currentTileLayer); } catch(e){}
-            }
-            currentTileKey = key;
-            currentTileLayer = getTileLayer(key);
-            currentTileLayer.addTo(tacticalMap);
-
+        function applyMapVisualMode(mode) {
+            currentMapMode = mode;
+            const dottedEl = document.getElementById('tactical-dotted-grid-overlay');
+            const scrimEl = document.getElementById('tactical-vector-tint-scrim');
+            const leafletEl = document.getElementById('tactical-leaflet-map');
+            const modeBadge = document.getElementById('map-mode-badge');
             const btn = document.getElementById('btn-map-layer');
+
+            if (mode === 'dotted_grid') {
+                if (dottedEl) dottedEl.style.display = 'block';
+                if (scrimEl) scrimEl.style.display = 'none';
+                if (leafletEl) leafletEl.style.opacity = '0.0';
+                if (modeBadge) modeBadge.innerText = 'NOKTALI ARKA PLAN';
+                if (btn) {
+                    btn.innerText = "📐 NOKTALI ARKA PLAN";
+                    btn.style.color = "var(--accent-color)";
+                    btn.style.borderColor = "var(--accent-color)";
+                }
+                return;
+            }
+
+            lastNonDottedMapMode = mode;
+            if (dottedEl) dottedEl.style.display = 'none';
+            if (leafletEl) leafletEl.style.opacity = '1.0';
+
+            if (tacticalMap && typeof L !== 'undefined') {
+                if (currentTileLayer) {
+                    try { tacticalMap.removeLayer(currentTileLayer); } catch(e){}
+                }
+                currentTileLayer = getTileLayer(mode);
+                currentTileLayer.addTo(tacticalMap);
+                const tilePane = tacticalMap.getPane('tilePane');
+                if (tilePane) {
+                    tilePane.classList.toggle('theme-vector-tint', mode === 'theme_vector');
+                }
+            }
+
+            if (scrimEl) scrimEl.style.display = (mode === 'theme_vector') ? 'block' : 'none';
+            if (modeBadge) modeBadge.innerText = (mode === 'theme_vector') ? 'TEMA RENKLİ VEKTÖR' : 'UYDU HARİTASI';
             if (btn) {
-                if (key === 'google_hybrid') {
-                    btn.innerText = "🛰️ UYDU: GOOGLE (CANLI)";
-                    btn.style.color = "#00dfb6";
-                    btn.style.borderColor = "#00dfb6";
-                } else if (key === 'esri_satellite') {
-                    btn.innerText = "🛰️ UYDU: ESRI ARCGIS";
+                if (mode === 'theme_vector') {
+                    btn.innerText = "🗺️ TEMA RENKLİ VEKTÖR";
                     btn.style.color = "#00e5ff";
                     btn.style.borderColor = "#00e5ff";
-                } else if (key === 'google_streets') {
-                    btn.innerText = "🗺️ MOD: GOOGLE SOKAK";
-                    btn.style.color = "#ffaa00";
-                    btn.style.borderColor = "#ffaa00";
-                } else if (key === 'dark_matter') {
-                    btn.innerText = "🌑 MOD: KARANLIK";
-                    btn.style.color = "#8b949e";
-                    btn.style.borderColor = "#8b949e";
                 } else {
-                    btn.innerText = "🌍 MOD: OSM";
-                    btn.style.color = "#ffffff";
-                    btn.style.borderColor = "#ffffff";
+                    btn.innerText = "🛰️ UYDU HARİTASI";
+                    btn.style.color = "var(--accent-color)";
+                    btn.style.borderColor = "var(--accent-color)";
                 }
             }
         }
 
+        function setTileLayer(mode) {
+            applyMapVisualMode(mode);
+        }
+
         function cycleMapLayer() {
-            const keys = ['google_hybrid', 'esri_satellite', 'google_streets', 'dark_matter', 'osm'];
-            const nextIdx = (keys.indexOf(currentTileKey) + 1) % keys.length;
-            setTileLayer(keys[nextIdx]);
-            addLog(`Harita Katmanı Değiştirildi: ${keys[nextIdx].toUpperCase()}`);
+            userManualMapModeOverride = true;
+            const modes = ['satellite', 'theme_vector', 'dotted_grid'];
+            const nextIdx = (modes.indexOf(currentMapMode) + 1) % modes.length;
+            applyMapVisualMode(modes[nextIdx]);
+            addLog(`Harita Modu Değiştirildi: ${modes[nextIdx].toUpperCase()}`);
+        }
+
+        function applyCoordinateMapRule(rawLat, rawLon) {
+            if (userManualMapModeOverride) return;
+            const isOriginZero = (Math.abs(Number(rawLat || 0)) < 0.05 && Math.abs(Number(rawLon || 0)) < 0.05);
+            if (isOriginZero && currentMapMode !== 'dotted_grid') {
+                applyMapVisualMode('dotted_grid');
+            } else if (!isOriginZero && currentMapMode === 'dotted_grid') {
+                applyMapVisualMode(lastNonDottedMapMode || 'satellite');
+            }
+        }
+
+        function renderDottedGridVehicles(fleet, selectedCode) {
+            const container = document.getElementById('dotted-grid-vehicles-layer');
+            if (!container || currentMapMode !== 'dotted_grid') return;
+            container.innerHTML = fleet.map(v => {
+                const px = Number(v.pos_x || 0);
+                const py = Number(v.pos_y || 0);
+                const yaw = Number(v.yaw || 0);
+                const isSel = (v.code === selectedCode);
+                // 100m alan içinde merkeze ölçekle (1m = 3.5px)
+                const leftPct = Math.max(8, Math.min(92, 50 + px * 0.45));
+                const topPct = Math.max(12, Math.min(88, 50 - py * 0.45));
+                const color = isSel ? 'var(--accent-color)' : '#00e5ff';
+                return `
+                    <div class="dotted-vehicle-dot" style="left:${leftPct}%; top:${topPct}%;">
+                        <div style="transform:rotate(${yaw}deg); width:22px; height:22px; border:2px solid ${color}; border-radius:50%; background:rgba(0,0,0,0.65); display:flex; align-items:center; justify-content:center; box-shadow:0 0 10px ${color};">
+                            <svg viewBox="0 0 24 24" width="13" height="13"><polygon points="12,2 22,22 12,17 2,22" fill="${color}"/></svg>
+                        </div>
+                        <span style="margin-top:2px; font-size:9px; font-weight:800; color:${color}; background:rgba(0,0,0,0.8); padding:1px 4px; border:1px solid ${color};">${v.name || v.code} (${px.toFixed(1)},${py.toFixed(1)})</span>
+                    </div>
+                `;
+            }).join('');
         }
 
         function initTacticalMap() {
@@ -562,7 +615,6 @@
                 const mapContainer = document.getElementById('tactical-leaflet-map');
                 if (!mapContainer || tacticalMap) return;
 
-                // Varsayılan merkez: Ankara ODTÜ / Simülasyon Koordinatları
                 tacticalMap = L.map('tactical-leaflet-map', {
                     center: [39.9334, 32.8597],
                     zoom: 17,
@@ -570,8 +622,7 @@
                     attributionControl: false
                 });
 
-                // Varsayılan olarak Google Uydu (Hybrid) katmanını yükle
-                setTileLayer('google_hybrid');
+                applyMapVisualMode('satellite');
                 updateFollowButton();
 
                 // Kullanıcı haritayı elle kaydırdığında takibi serbest bırak
@@ -671,94 +722,25 @@
                     if (lblLocalIp) lblLocalIp.innerText = data.local_ip;
                 }
                 const targetIpEl = document.getElementById('label-target-ue5-ip');
-                if (targetIpEl) {
-                    if (data.ue5_ip) {
-                        targetIpEl.innerText = `${data.ue5_ip}:7400 [BAĞLI]`;
-                        targetIpEl.style.color = "#00e5ff";
-                    } else {
-                        targetIpEl.innerText = "DİNLENİYOR (PROBE BEKLENİYOR)...";
-                        targetIpEl.style.color = "var(--text-muted)";
-                    }
-                }
-                if (data.ue5_ip) {
-                    const inpTarget = document.getElementById('input-manual-target-ip');
-                    if (inpTarget && !inpTarget.value) inpTarget.placeholder = data.ue5_ip;
-                }
-
                 // 2. KÖPRÜ DURUMU: UE5'ten keşif paketi / heartbeat / SQL verisi geliyorsa köprü bağlıdır
                 const isUeConnected = Boolean(data.connected === true);
-                const isStreaming = Boolean(data.streaming === true);
                 isConnected = isUeConnected;
 
-                const statusTag = document.getElementById('bridge-status-tag');
                 const headerBadge = document.getElementById('header-status-badge');
                 const headerGreeting = document.getElementById('header-greeting-badge');
                 const activeBadge = document.getElementById('active-status-badge');
-                const pipes = document.querySelectorAll('.two-way-pipe-group');
                 const cardsContainer = document.getElementById('vehicle-cards-container');
                 const countTag = document.getElementById('vehicle-count-tag');
-                const radarBlip = document.getElementById('live-radar-blip');
                 const detailGreeting = document.getElementById('detail-vehicle-greeting');
-                const nodeCenterMsg = document.getElementById('node-center-msg');
 
-                // 3. Sistem loglarını aktar (SQL çekimi, RX mesajları vb.) - HEM ALT PANELE HEM SAĞ SİSTEM LOGUNA
-                if (Array.isArray(data.recent_logs)) {
-                    data.recent_logs.forEach(msg => {
-                        if (!loggedHistory.has(msg)) {
-                            loggedHistory.add(msg);
-                            addLog(msg);
-                            addPacketLog(msg); // Alt paneldeki büyük canlı log akışına anında ekle!
-                            if (loggedHistory.size > 200) loggedHistory.clear();
-                        }
-                    });
+                if (headerBadge) {
+                    headerBadge.innerText = isUeConnected ? `ONLINE [${data.ue5_ip || 'AĞ'}]` : "BEKLEMEDE";
+                    headerBadge.style.background = isUeConnected ? "var(--accent-dim)" : "rgba(255, 170, 0, 0.15)";
+                    headerBadge.style.color = isUeConnected ? "var(--accent-color)" : "#ffaa00";
+                    headerBadge.style.borderColor = isUeConnected ? "var(--accent-color)" : "#ffaa00";
                 }
 
-                // 4. Veri Kanalları ve Düğüm Parlamaları
-                if (isUeConnected) {
-                    pipes.forEach(p => p.classList.add('connected'));
-                    const nPi5 = document.getElementById('node-pi5');
-                    const nUe5 = document.getElementById('node-ue5');
-                    const nCenter = document.getElementById('node-center-telemetry');
-                    if (nPi5) nPi5.classList.add('active-node');
-                    if (nUe5) nUe5.classList.add('active-node');
-                    if (nCenter) nCenter.classList.add('active-node');
-
-                    if (statusTag) {
-                        statusTag.innerText = `UE5 BAĞLI [${data.ue5_ip || 'AĞ'}]`;
-                        statusTag.style.background = "var(--accent-dim)";
-                        statusTag.style.color = "var(--accent-color)";
-                        statusTag.style.borderColor = "var(--accent-color)";
-                    }
-                    if (headerBadge) {
-                        headerBadge.innerText = "ONLINE";
-                        headerBadge.style.background = "var(--accent-dim)";
-                        headerBadge.style.color = "var(--accent-color)";
-                        headerBadge.style.borderColor = "var(--accent-color)";
-                    }
-                } else {
-                    pipes.forEach(p => p.classList.remove('connected'));
-                    const nPi5 = document.getElementById('node-pi5');
-                    const nUe5 = document.getElementById('node-ue5');
-                    const nCenter = document.getElementById('node-center-telemetry');
-                    if (nPi5) nPi5.classList.remove('active-node');
-                    if (nUe5) nUe5.classList.remove('active-node');
-                    if (nCenter) nCenter.classList.remove('active-node');
-
-                    if (statusTag) {
-                        statusTag.innerText = "UE5 BEKLENİYOR [UDP 7499]";
-                        statusTag.style.background = "rgba(255, 170, 0, 0.15)";
-                        statusTag.style.color = "#ffaa00";
-                        statusTag.style.borderColor = "#ffaa00";
-                    }
-                    if (headerBadge) {
-                        headerBadge.innerText = "BEKLEMEDE";
-                        headerBadge.style.background = "rgba(255, 170, 0, 0.15)";
-                        headerBadge.style.color = "#ffaa00";
-                        headerBadge.style.borderColor = "#ffaa00";
-                    }
-                }
-
-                // 5. SOL PANEL: DOĞRUDAN GELEN CANLI MESAJLARDAN FİLO KARTLARINI ÇİZ
+                // 3. SOL PANEL: FİLO KARTLARI
                 const fleet = Array.isArray(data.fleet) ? data.fleet : [];
                 const activeCount = fleet.filter(v => v.connected).length;
                 if (countTag) countTag.innerText = `[${activeCount}/${fleet.length} AKTİF]`;
@@ -766,8 +748,12 @@
                 const activeSelCode = window.userSelectedVehicleCode || data.selected_vehicle_code || (fleet[0] ? fleet[0].code : null);
                 const selVeh = fleet.find(v => v.code === activeSelCode) || fleet[0] || null;
 
-                // Harita işaretçilerini canlı telemetriyle güncelle
+                // Otomatik (0,0) koordinat kuralı & Harita güncellemesi
+                const checkLat = selVeh ? (selVeh.lat !== undefined ? selVeh.lat : data.lat) : data.lat;
+                const checkLon = selVeh ? (selVeh.lon !== undefined ? selVeh.lon : data.lon) : data.lon;
+                applyCoordinateMapRule(checkLat, checkLon);
                 updateFleetMarkersOnMap(fleet, activeSelCode, selVeh || data);
+                renderDottedGridVehicles(fleet, activeSelCode);
 
                 if (cardsContainer) {
                     if (fleet.length === 0) {
@@ -782,12 +768,12 @@
                             const cardOpacity = isOnline ? '1.0' : '0.52';
                             const cardFilter = isOnline ? 'none' : 'grayscale(45%)';
                             const cardBorder = isSel 
-                                ? 'border-left: 4px solid var(--accent-color); background: rgba(0, 223, 182, 0.16); box-shadow: 0 0 12px rgba(0, 223, 182, 0.25);' 
+                                ? 'border-left: 4px solid var(--accent-color); background: var(--accent-dim); box-shadow: 0 0 12px var(--accent-glow);' 
                                 : (isOnline 
-                                    ? 'border-left: 3px solid rgba(0, 223, 182, 0.45); background: rgba(0, 0, 0, 0.35);' 
+                                    ? 'border-left: 3px solid var(--accent-color); background: rgba(0, 0, 0, 0.35);' 
                                     : 'border-left: 3px solid #ff4444; background: rgba(40, 10, 10, 0.35);');
                             const badgeHtml = isOnline 
-                                ? '<span style="color: #00dfb6; font-weight: 800; font-size: 9px; background: rgba(0, 223, 182, 0.15); padding: 2px 5px; border-radius: 3px; border: 1px solid #00dfb6;">● CANLI (2Hz)</span>' 
+                                ? '<span style="color: var(--accent-color); font-weight: 800; font-size: 9px; background: var(--accent-dim); padding: 2px 5px; border-radius: 3px; border: 1px solid var(--accent-color);">● CANLI</span>' 
                                 : `<span style="color: #ff5555; font-weight: 800; font-size: 9px; background: rgba(255, 68, 68, 0.15); padding: 2px 5px; border-radius: 3px; border: 1px solid #ff5555;">🔴 PASİF (${Math.round(offlineSec)}sn)</span>`;
 
                             const px = Number(v.pos_x || 0).toFixed(1);
@@ -799,13 +785,11 @@
                                     <div class="vehicle-card-header" style="display: flex; justify-content: space-between; align-items: center;">
                                         <span class="vehicle-card-title" style="font-weight: 800; color: ${isSel ? 'var(--accent-color)' : (isOnline ? '#ffffff' : '#ff8888')}; font-size: 11px;">
                                             ${isOnline ? '🟢' : '🔴'} ${vName}
-                                            <span style="font-size: 8.5px; opacity: 0.9; font-family: var(--font-mono); color: ${isOnline ? '#00e5ff' : '#ff7777'}; display: block;">EŞSİZ KOD: [${vCode}]</span>
+                                            <span style="font-size: 8.5px; opacity: 0.9; font-family: var(--font-mono); color: #00e5ff; display: block;">[${vCode}]</span>
                                         </span>
                                         ${badgeHtml}
                                     </div>
                                     <div class="vehicle-card-body" style="display: grid; grid-template-columns: auto 1fr; gap: 2px 8px; font-size: 9.5px; margin-top: 5px;">
-                                        <span style="color: var(--text-muted);">Durum:</span>
-                                        <span style="color: ${isOnline ? '#00dfb6' : '#ff5555'}; font-family: var(--font-mono); font-weight: 700;">${isSel ? (isOnline ? 'SEÇİLİ (CANLI)' : 'SEÇİLİ (BAĞLANTI KOPTU)') : (isOnline ? 'AKTİF (2Hz)' : 'BAĞLANTI KOPTU (5s+)')}</span>
                                         <span style="color: var(--text-muted);">Konum:</span>
                                         <span style="color: #00e5ff; font-family: var(--font-mono); font-weight: 700;">X:${px}m Y:${py}m Z:${pz}m</span>
                                         <span style="color: var(--text-muted);">Hız / İrtifa:</span>
@@ -819,7 +803,32 @@
                     }
                 }
 
-                // 6. SAĞ PANEL: SEÇİLİ ARAÇ DETAYLARI (Sol panelde tıklanan aracın tüm verilerini anında sağ panele bas)
+                // 4. SAĞ PANEL: HETEROJEN DİNAMİK KARTLAR
+                const aerialCard = document.getElementById('card-aerial-telemetry');
+                const groundCard = document.getElementById('card-ground-telemetry');
+                const missionCard = document.getElementById('card-mission-metro');
+                const typeBadge = document.getElementById('detail-vehicle-type-badge');
+
+                const topicsList = Array.isArray((selVeh && selVeh.topics) || data.topics) ? ((selVeh && selVeh.topics) || data.topics) : [];
+                const topicsJoined = topicsList.join(' ').toLowerCase();
+                const rawVType = ((selVeh && selVeh.vehicle_type) || data.vehicle_type || '').toLowerCase();
+                const isAerial = (rawVType === 'aerial' || rawVType === 'aircraft' || rawVType === 'drone' || rawVType === 'uav' ||
+                    topicsJoined.includes('aerial') || topicsJoined.includes('lift') || topicsJoined.includes('airspeed') || topicsJoined.includes('propeller'));
+
+                if (aerialCard) aerialCard.style.display = isAerial ? 'block' : 'none';
+                if (groundCard) groundCard.style.display = isAerial ? 'none' : 'block';
+                if (typeBadge) {
+                    typeBadge.innerText = isAerial ? '✈️ HAVA ARACI' : '🚙 KARA ARACI';
+                    typeBadge.style.color = isAerial ? '#00e5ff' : 'var(--accent-color)';
+                    typeBadge.style.borderColor = isAerial ? '#00e5ff' : 'var(--accent-color)';
+                }
+
+                // Görev kartını sadece mission_active true ise göster
+                const isMissionActive = Boolean((selVeh && selVeh.mission_active) || data.mission_active);
+                if (missionCard) {
+                    missionCard.style.display = isMissionActive ? 'block' : 'none';
+                }
+
                 if (selVeh) {
                     const vCode = selVeh.code || selVeh.vehicle_code;
                     const vName = selVeh.name || selVeh.vehicle_name || vCode;
@@ -832,15 +841,12 @@
                         headerGreeting.innerText = rxMsg;
                     }
                     if (activeBadge) {
-                        activeBadge.innerText = isVehOnline ? "[CANLI YAYIN: 2Hz]" : `[BAĞLANTI KOPTU: ${Math.round(selVeh.offline_sec || 5)}sn]`;
+                        activeBadge.innerText = isVehOnline ? "[CANLI: 2Hz]" : `[PASİF: ${Math.round(selVeh.offline_sec || 5)}sn]`;
                         activeBadge.style.color = isVehOnline ? "var(--accent-color)" : "#ff5555";
                     }
                     if (detailGreeting) {
-                        detailGreeting.innerText = isVehOnline ? `● "${rxMsg}"` : `🔴 BAĞLANTI KOPTU (Son sinyal ${Math.round(selVeh.offline_sec || 5)}sn önce)`;
+                        detailGreeting.innerText = isVehOnline ? `● "${rxMsg}"` : `🔴 BAĞLANTI KOPTU`;
                         detailGreeting.style.color = isVehOnline ? "#00e5ff" : "#ff5555";
-                    }
-                    if (nodeCenterMsg) {
-                        nodeCenterMsg.innerText = rxMsg;
                     }
 
                     const px = Number(selVeh.pos_x || 0).toFixed(2);
@@ -849,6 +855,28 @@
                     const rDeg = Number(selVeh.roll || 0).toFixed(1);
                     const pDeg = Number(selVeh.pitch || 0).toFixed(1);
                     const yDeg = Number(selVeh.yaw || 0).toFixed(1);
+                    const spdMps = Number(selVeh.speed_mps || (Number(selVeh.speed || 0) / 3.6)).toFixed(1);
+
+                    // Dinamik Hava / Kara kartı değerleri
+                    if (isAerial) {
+                        const aAlt = document.getElementById('aerial-alt-val');
+                        const aAir = document.getElementById('aerial-airspeed-val');
+                        const aClm = document.getElementById('aerial-climb-val');
+                        const aAtt = document.getElementById('aerial-att-val');
+                        if (aAlt) aAlt.innerText = `${selVeh.altitude || pz} m`;
+                        if (aAir) aAir.innerText = `${spdMps} m/s`;
+                        if (aClm) aClm.innerText = `${Number(selVeh.climb_rate || 0).toFixed(1)} m/s`;
+                        if (aAtt) aAtt.innerText = `R:${rDeg}° P:${pDeg}°`;
+                    } else {
+                        const gCh1 = document.getElementById('ground-ch1-val');
+                        const gCh2 = document.getElementById('ground-ch2-val');
+                        const gSpd = document.getElementById('ground-speed-val');
+                        const gMod = document.getElementById('ground-mode-val');
+                        if (gCh1) gCh1.innerText = Number(selVeh.ch1 !== undefined ? selVeh.ch1 : teleopLinear).toFixed(2);
+                        if (gCh2) gCh2.innerText = Number(selVeh.ch2 !== undefined ? selVeh.ch2 : teleopAngular).toFixed(2);
+                        if (gSpd) gSpd.innerText = `${spdMps} m/s`;
+                        if (gMod) gMod.innerText = `${selVeh.flight_mode || 'AKTİF'}`;
+                    }
 
                     const titleEl = document.getElementById('detail-vehicle-title');
                     if (titleEl) titleEl.innerText = fullLabel;
@@ -865,11 +893,11 @@
                     const sensEl = document.getElementById('detail-sensors-val');
                     if (sensEl) sensEl.innerText = `${selVeh.altitude || 0} m`;
                     const coordsEl = document.getElementById('detail-coords');
-                    if (coordsEl) coordsEl.innerText = `${selVeh.lat ? Number(selVeh.lat).toFixed(5) : '39.93340'}°N, ${selVeh.lon ? Number(selVeh.lon).toFixed(5) : '32.85970'}°E`;
+                    if (coordsEl) coordsEl.innerText = `${Number(checkLat || 0).toFixed(5)}°N, ${Number(checkLon || 0).toFixed(5)}°E`;
                     const altTagEl = document.getElementById('detail-alt-tag');
                     if (altTagEl) altTagEl.innerText = `ALT: ${selVeh.altitude || 0} m`;
                     const camOverlayEl = document.getElementById('cam-telemetry-overlay');
-                    if (camOverlayEl) camOverlayEl.innerText = `X:${px}m Y:${py}m • R:${rDeg}° P:${pDeg}° Y:${yDeg}°`;
+                    if (camOverlayEl) camOverlayEl.innerText = `X:${px}m Y:${py}m • R:${rDeg}° P:${pDeg}°`;
 
                     // ACK & Binary CDR Topic Durum Tablosunu Güncelle
                     const ackCamTag = document.getElementById('ack-camera-mode-tag');
@@ -899,21 +927,10 @@
                         }).join('');
                     }
 
-                    if (radarBlip) {
-                        radarBlip.style.display = "flex";
-                        const blipLabel = document.getElementById('live-blip-label');
-                        if (blipLabel) blipLabel.innerText = `${fullLabel} [${selVeh.speed || 0} km/s]`;
-                    }
                     const targetLabel = document.getElementById('map-target-label');
                     if (targetLabel) targetLabel.innerText = `${fullLabel} (X:${px}m, Y:${py}m)`;
                     const gnssLabel = document.getElementById('gnss-fix-label');
-                    if (gnssLabel) gnssLabel.innerText = isVehOnline ? "3D FIX [RTK CANLI]" : "PASİF (SON KONUM)";
-
-                    const nowSec = Date.now() / 1000;
-                    if (isVehOnline && nowSec - lastLoggedSec >= 1.5) {
-                        lastLoggedSec = nowSec;
-                        addPacketLog(`RX ← UE5 (${data.ue5_ip || 'Unreal'}:7400) | <b style="color:#00e5ff;">[${vCode}]</b> X:${px}m Y:${py}m Z:${pz}m | R:${rDeg}° P:${pDeg}° | SPD:${selVeh.speed || 0}km/s`);
-                    }
+                    if (gnssLabel) gnssLabel.innerText = (currentMapMode === 'dotted_grid') ? "YEREL EKSEN (0,0)" : (isVehOnline ? "3D FIX [RTK CANLI]" : "PASİF");
 
                     if (isVehOnline && !wasConnectedLogFired) {
                         wasConnectedLogFired = true;
@@ -942,10 +959,9 @@
                         detailGreeting.innerText = "[SOL PANEL DEN ARAÇ SEÇİNİZ]";
                         detailGreeting.style.color = "var(--text-muted)";
                     }
-                    if (radarBlip) radarBlip.style.display = "none";
                 }
 
-                // 7. VİDEO YAYINI GÜNCELLEMESİ
+                // 5. VİDEO YAYINI GÜNCELLEMESİ
                 const camImg = document.getElementById('camera-live-feed');
                 const btnVid = document.getElementById('btn-toggle-video');
                 const camPlaceholder = document.getElementById('camera-placeholder-center');
@@ -955,7 +971,7 @@
                     if (camImg) camImg.style.display = 'block';
                     if (camPlaceholder) camPlaceholder.style.display = 'none';
                     if (btnVid) {
-                        btnVid.innerHTML = '🔴 VİDEO YAYINDA (KAPATMAK İÇİN TIKLAYIN)';
+                        btnVid.innerHTML = '🔴 VİDEO YAYINDA (ACK=4 STANDBY İÇİN TIKLA)';
                         btnVid.style.borderColor = '#ff3366';
                         btnVid.style.color = '#ff3366';
                         btnVid.style.background = 'rgba(255, 51, 102, 0.15)';
@@ -965,10 +981,10 @@
                     if (camImg) camImg.style.display = 'none';
                     if (camPlaceholder) camPlaceholder.style.display = 'flex';
                     if (btnVid) {
-                        btnVid.innerHTML = '📹 CANLI VİDEO YAYININA ABONE OL';
+                        btnVid.innerHTML = '📹 CANLI VİDEO YAYININA ABONE OL (ACK=3)';
                         btnVid.style.borderColor = 'var(--accent-color)';
                         btnVid.style.color = 'var(--accent-color)';
-                        btnVid.style.background = 'rgba(0, 223, 182, 0.12)';
+                        btnVid.style.background = 'var(--accent-dim)';
                     }
                 }
             } catch (err) {
@@ -987,7 +1003,7 @@
                 if (!res.ok) return;
                 const data = await res.json();
 
-                // 1. Haritada tüm aktif araçların rotalarını aynı anda çiz (Çoklu Araç Harita Görünümü)
+                // 1. Haritada tüm aktif araçların rotalarını aynı anda çiz
                 if (data && data.all_missions && data.all_missions.length > 0) {
                     drawAllMissionsOnMap(data.all_missions);
                 } else if (data && data.mission && data.mission.steps) {
@@ -996,11 +1012,13 @@
                     clearMissionFromMap();
                 }
 
-                // 2. Metro çubuğunda seçili aracın görev duraklarını göster
-                if (!data || !data.mission) {
-                    renderEmptyMetroLine();
+                // 2. Metro çubuğunu sadece aktif görev varken göster
+                const missionCard = document.getElementById('card-mission-metro');
+                if (!data || !data.mission || !data.mission.steps || data.mission.steps.length === 0) {
+                    if (missionCard) missionCard.style.display = 'none';
                     return;
                 }
+                if (missionCard) missionCard.style.display = 'block';
                 const m = data.mission;
                 const mJson = JSON.stringify(m);
                 if (mJson === cachedMissionJson) return;
@@ -1204,60 +1222,60 @@
             return now.toTimeString().split(' ')[0] + '.' + Math.floor(now.getMilliseconds() / 100);
         }
 
-        // ==================== GERÇEK PAKET VE LOG FONKSİYONLARI ====================
+        // ==================== LOG VE KONTROL HİYERARŞİSİ FONKSİYONLARI ====================
         function addPacketLog(line) {
-            const stream = document.getElementById('packet-stream-lines');
-            if (!stream) return;
-            const ph = document.getElementById('packet-placeholder');
-            if (ph) ph.remove();
-
-            const time = getTime();
-            const div = document.createElement('div');
-            div.style.padding = '2px 0';
-            div.style.borderBottom = '1px solid rgba(255,255,255,0.04)';
-
-            let tag = '<b style="color:var(--accent-color);">LOG</b>';
-            if (line.includes('SQL')) {
-                tag = '<b style="color:#ffaa00;">SQL</b>';
-            } else if (line.includes('ABONELİK') || line.includes('SUB_') || line.includes('ACK')) {
-                tag = '<b style="color:#00e5ff;">SUB</b>';
-            } else if (line.includes('RX')) {
-                tag = '<b style="color:#00dfb6;">RX</b>';
-            } else if (line.includes('TX') || line.includes('KOMUT')) {
-                tag = '<b style="color:#ff9900;">TX</b>';
-            } else if (line.includes('HATA') || line.includes('UYARI')) {
-                tag = '<b style="color:#ff4444;">ERR</b>';
-            }
-
-            let cleanLine = line;
-            if (/^\[\d{2}:\d{2}:\d{2}\]/.test(cleanLine)) {
-                cleanLine = cleanLine.replace(/^\[\d{2}:\d{2}:\d{2}\]\s*/, '');
-            }
-
-            div.innerHTML = `[${time}] ${tag} | ${cleanLine}`;
-            stream.appendChild(div);
-
-            if (stream.children.length > 60) {
-                stream.removeChild(stream.children[0]);
-            }
-            stream.scrollTop = stream.scrollHeight;
+            // Alt log paneli kaldırıldı; kritik iletiler sistem terminaline yazılır
+            if (line && (line.includes('HATA') || line.includes('UYARI'))) addLog(line);
         }
 
-        function clearPacketLogs() {
-            const stream = document.getElementById('packet-stream-lines');
-            if (stream) {
-                stream.innerHTML = '<div id="packet-placeholder" style="color:var(--text-dark); font-size:9.5px; padding:4px;">[TEMİZLENDİ] Paket bekleniyor...</div>';
+        function clearPacketLogs() {}
+
+        function inspectChannel(chanId) {}
+
+        let cachedHierarchyLevels = [];
+
+        async function openHierarchyModal() {
+            const modal = document.getElementById('modal-hierarchy');
+            if (modal) modal.style.display = 'flex';
+            const codeBox = document.getElementById('hierarchy-code-viewer');
+            const tabsBox = document.getElementById('hierarchy-tabs-bar');
+            if (codeBox) codeBox.textContent = "Yükleniyor...";
+            try {
+                const res = await fetch('/api/controllers/hierarchy');
+                const data = await res.json();
+                cachedHierarchyLevels = Array.isArray(data.levels) ? data.levels : [];
+                if (tabsBox && cachedHierarchyLevels.length > 0) {
+                    tabsBox.innerHTML = cachedHierarchyLevels.map((lvl, idx) =>
+                        `<button class="cod-btn" onclick="selectHierarchyLevel(${idx})" id="htab-${idx}" style="padding:4px 10px; font-size:10px; border-color:${idx===0 ? 'var(--accent-color)' : 'var(--mono-border)'}; color:${idx===0 ? 'var(--accent-color)' : '#ffffff'};">${lvl.title}</button>`
+                    ).join('');
+                    selectHierarchyLevel(0);
+                } else if (codeBox) {
+                    codeBox.textContent = "Hiyerarşi kontrolcü dosyası bulunamadı.";
+                }
+            } catch (err) {
+                if (codeBox) codeBox.textContent = "Hata: /api/controllers/hierarchy okunamadı -> " + err;
             }
         }
 
-        function inspectChannel(chanId) {
-            document.querySelectorAll('.two-way-pipe-group').forEach(el => el.classList.remove('active-channel'));
-            const targetEl = document.getElementById('channel-' + chanId);
-            if (targetEl) targetEl.classList.add('active-channel');
-            const labelEl = document.getElementById('inspected-channel-name');
-            if (labelEl) {
-                labelEl.innerText = (chanId === 'sitl') ? 'Pi5 ⇄ UE5 (Telemetri RX)' : 'SITL ⇄ UE5 (MAVLink)';
-            }
+        function selectHierarchyLevel(idx) {
+            const lvl = cachedHierarchyLevels[idx];
+            if (!lvl) return;
+            cachedHierarchyLevels.forEach((_, i) => {
+                const b = document.getElementById(`htab-${i}`);
+                if (b) {
+                    b.style.borderColor = (i === idx) ? 'var(--accent-color)' : 'var(--mono-border)';
+                    b.style.color = (i === idx) ? 'var(--accent-color)' : '#ffffff';
+                }
+            });
+            const fileEl = document.getElementById('hierarchy-file-label');
+            const codeEl = document.getElementById('hierarchy-code-viewer');
+            if (fileEl) fileEl.innerText = lvl.file || '';
+            if (codeEl) codeEl.textContent = lvl.code || '';
+        }
+
+        function closeHierarchyModal() {
+            const modal = document.getElementById('modal-hierarchy');
+            if (modal) modal.style.display = 'none';
         }
 
         async function triggerProbeFromDashboard() {
@@ -1419,8 +1437,16 @@
         }
 
         function openModal(type) {
-            if (type === 'ayarlar') addLog("Ayarlar: UDP 7400 RX, UDP 7499 Beacon & Prob");
-            else if (type === 'bilgi') addLog("PiSim Studio v2.0 - Raspberry Pi 5 Tactical GCS");
+            if (type === 'ayarlar') {
+                const m = document.getElementById('modal-settings');
+                if (m) m.style.display = 'flex';
+            } else if (type === 'bilgi') {
+                addLog("PiSim Studio v3.0 - Raspberry Pi 5 Tactical GCS & Binary CDR Bridge");
+            }
+        }
+        function closeSettingsModal() {
+            const m = document.getElementById('modal-settings');
+            if (m) m.style.display = 'none';
         }
 
         function addLog(msg) {
@@ -1816,6 +1842,42 @@
             }
         });
     </script>
+
+    <!-- ==================== KONTROL KODLARI HİYERARŞİSİ (SEVİYE 1-4) MODALI ==================== -->
+    <div id="modal-hierarchy" style="display:none; position:fixed; top:0; left:0; width:100vw; height:100vh; background:rgba(0,0,0,0.85); backdrop-filter:blur(5px); z-index:9999; justify-content:center; align-items:center;" onclick="if(event.target===this) closeHierarchyModal();">
+        <div style="background:#090d12; border:1px solid var(--accent-color); box-shadow:0 0 28px var(--accent-glow); max-width:960px; width:92%; max-height:85vh; display:flex; flex-direction:column; padding:14px; font-family:var(--font-mono);">
+            <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--mono-border); padding-bottom:8px; margin-bottom:10px;">
+                <div style="font-weight:900; color:var(--accent-color); font-size:13px;">🧠 KONTROL KODLARI HİYERARŞİSİ (SEVİYE 1–4)</div>
+                <button class="cod-btn" onclick="closeHierarchyModal()" style="padding:2px 8px; font-size:10px;">✕ KAPAT</button>
+            </div>
+            <div id="hierarchy-tabs-bar" style="display:flex; gap:6px; flex-wrap:wrap; margin-bottom:8px;"></div>
+            <div id="hierarchy-file-label" style="font-size:10px; color:#00e5ff; margin-bottom:6px;"></div>
+            <pre id="hierarchy-code-viewer" style="flex:1; overflow:auto; background:#05070a; border:1px solid var(--mono-border); padding:10px; font-size:10.5px; color:#e6edf3; line-height:1.45; margin:0;"></pre>
+        </div>
+    </div>
+
+    <!-- ==================== AYARLAR MODALI ==================== -->
+    <div id="modal-settings" style="display:none; position:fixed; top:0; left:0; width:100vw; height:100vh; background:rgba(0,0,0,0.82); backdrop-filter:blur(4px); z-index:9999; justify-content:center; align-items:center;" onclick="if(event.target===this) closeSettingsModal();">
+        <div style="background:#090d12; border:1px solid var(--accent-color); width:430px; max-width:92vw; padding:16px; font-family:var(--font-mono); color:#ffffff;">
+            <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--mono-border); padding-bottom:8px; margin-bottom:12px;">
+                <span style="font-weight:900; color:var(--accent-color); font-size:12px;">⚙️ AĞ VE HARİTA AYARLARI</span>
+                <button class="cod-btn" onclick="closeSettingsModal()" style="padding:2px 8px; font-size:10px;">✕ KAPAT</button>
+            </div>
+            <div style="font-size:10px; color:var(--text-muted); margin-bottom:6px;">HEDEF UNREAL ENGINE IP & PORT:</div>
+            <div style="display:flex; gap:6px; margin-bottom:12px;">
+                <input id="input-manual-target-ip" type="text" placeholder="192.168.x.x" style="flex:1; background:#05070a; border:1px solid var(--mono-border); color:#fff; padding:5px 8px; font-family:var(--font-mono); font-size:10.5px;">
+                <input id="input-manual-target-port" type="text" value="7400" style="width:65px; background:#05070a; border:1px solid var(--mono-border); color:#fff; padding:5px 8px; font-family:var(--font-mono); font-size:10.5px;">
+                <button class="cod-btn cod-btn-accent" onclick="applyManualTargetConnection()" style="padding:4px 10px; font-size:10px;">BAĞLAN</button>
+            </div>
+            <div style="font-size:10px; color:var(--text-muted); margin-bottom:6px;">HARİTA MODU HIZLI SEÇİMİ:</div>
+            <div style="display:flex; gap:6px; flex-wrap:wrap;">
+                <button class="cod-btn" onclick="userManualMapModeOverride=true; applyMapVisualMode('satellite')" style="font-size:9.5px; padding:4px 8px;">🛰️ UYDU</button>
+                <button class="cod-btn" onclick="userManualMapModeOverride=true; applyMapVisualMode('theme_vector')" style="font-size:9.5px; padding:4px 8px;">🗺️ TEMA VEKTÖR</button>
+                <button class="cod-btn" onclick="userManualMapModeOverride=true; applyMapVisualMode('dotted_grid')" style="font-size:9.5px; padding:4px 8px;">📐 NOKTALI</button>
+                <button class="cod-btn" onclick="userManualMapModeOverride=false;" style="font-size:9.5px; padding:4px 8px; border-color:var(--accent-color); color:var(--accent-color);">🔄 OTOMATİK (0,0 KURALI)</button>
+            </div>
+        </div>
+    </div>
 
 </body>
 </html>

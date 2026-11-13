@@ -291,12 +291,17 @@ class PiSimRequestHandler(http.server.SimpleHTTPRequestHandler):
                     latest_telemetry["yaw_rate_rad"] = sel_item.get("yaw_rate_rad", 0.0)
                     latest_telemetry["speed_mps"] = round(float(latest_telemetry.get("speed", 0.0)) / 3.6, 2)
                     latest_telemetry["offline_sec"] = round(sel_age, 1)
+                    latest_telemetry["vehicle_type"] = sel_item.get("vehicle_type", "aerial" if (sel_item.get("altitude", 0.0) > 2.0 or sel_item.get("airspeed", 0.0) > 0.0 or sel_item.get("lift_body")) else "ground")
+                    latest_telemetry["topics"] = sel_item.get("topics", [f"/{selected_vehicle_code}/imu", f"/{selected_vehicle_code}/gps", f"/{selected_vehicle_code}/camera/h264", f"/{selected_vehicle_code}/channels", f"/{selected_vehicle_code}/ack"])
+                    latest_telemetry["mission_active"] = bool(telemetry_db.get_active_mission(selected_vehicle_code))
                 else:
                     latest_telemetry["vehicle_code"] = None
                     latest_telemetry["vehicle_id"] = None
                     latest_telemetry["vehicle_name"] = None
                     latest_telemetry["flight_mode"] = "BEKLİYOR"
                     latest_telemetry["streaming"] = False
+                    latest_telemetry["topics"] = []
+                    latest_telemetry["mission_active"] = False
 
                 latest_telemetry["connected"] = is_ue5_online
                 latest_telemetry["streaming"] = sel_is_streaming
@@ -304,11 +309,37 @@ class PiSimRequestHandler(http.server.SimpleHTTPRequestHandler):
                 latest_telemetry["fleet"] = fleet_list
                 latest_telemetry["selected_vehicle_code"] = selected_vehicle_code
                 latest_telemetry["video_subscribed"] = is_video_subscribed
-                latest_telemetry["recent_logs"] = pop_recent_system_logs()
 
                 payload = json.dumps(latest_telemetry).encode('utf-8')
 
             self.wfile.write(payload)
+            return
+
+        # 2d. Hiyerarşik Kontrol Kodları (Seviye 1 - 4) API uç noktası
+        if clean_path == '/api/controllers/hierarchy':
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.send_header('Cache-Control', 'no-cache, no-store, must-revalidate')
+            self.end_headers()
+            ctrl_root = Path(__file__).parent / "controllers"
+            levels = [
+                ("level1_atomic", "Seviye 1: Atomik Hareket Primitifleri", "level1_atomic/atomic_motion.py"),
+                ("level2_navigation", "Seviye 2: Navigasyon ve Konum Takibi", "level2_navigation/waypoint_and_follow.py"),
+                ("level3_perception", "Seviye 3: Görüntü (H.264 ACK=3) ve LiDAR Algılama", "level3_perception/vision_lidar_processor.py"),
+                ("level4_mission_swarm", "Seviye 4: Görev ve Çoklu Sürü Orkestrasyonu", "level4_mission_swarm/swarm_mission_planner.py"),
+            ]
+            out_levels = []
+            for lid, title, rel in levels:
+                fpath = ctrl_root / rel
+                code_text = fpath.read_text(encoding='utf-8', errors='replace') if fpath.exists() else ""
+                out_levels.append({
+                    "id": lid,
+                    "title": title,
+                    "file": f"controllers/{rel}",
+                    "code": code_text,
+                })
+            self.wfile.write(json.dumps({"status": "OK", "levels": out_levels}).encode('utf-8'))
             return
 
         # 2c. Görev ve Metro Hattı REST API uç noktası
