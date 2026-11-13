@@ -693,3 +693,4 @@ def inspect_cdr_packet(topic: str, raw_bytes: bytes) -> Dict[str, Any]:
         "ack_label": get_ack_label(ack_code),
         "json": json_view,
     }
+
