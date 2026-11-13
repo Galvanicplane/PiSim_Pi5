@@ -342,6 +342,103 @@ class PiSimRequestHandler(http.server.SimpleHTTPRequestHandler):
             self.wfile.write(json.dumps({"status": "OK", "levels": out_levels}).encode('utf-8'))
             return
 
+        # 2e-ctrl. Hiyerarşik Kontrol Kodlarını (Seviye 1 - 4) Canlı Çalıştırıp Unreal'a Basma Uç Noktası
+        if clean_path == '/api/controllers/run':
+            qs = parse_qs(parsed_url.query)
+            level_id = qs.get('level', ['level1_atomic'])[0].strip()
+            v_code = (qs.get('code', [''])[0].strip() or selected_vehicle_code or 'RV01')
+            target_host = discovered_ue5_ip or "127.0.0.1"
+            summary = ""
+            channels_dict = {"1": 0.0, "2": 0.0, "3": 0.0, "4": 0.0}
+            ack_sent = None
+
+            try:
+                from controllers.level1_atomic.atomic_motion import AtomicMotionController
+                from controllers.level2_navigation.waypoint_and_follow import GeoPose, WaypointAndFollowController
+                from controllers.level3_perception.vision_lidar_processor import CameraPerceptionProcessor, LidarObstacleProcessor
+                from controllers.level4_mission_swarm.swarm_mission_planner import MissionTask, SwarmMissionPlanner
+
+                with telemetry_lock:
+                    v_data = fleet_telemetry.get(v_code) or latest_telemetry or {}
+                    cur_lat = float(v_data.get("lat", 0.0) or 0.0)
+                    cur_lon = float(v_data.get("lon", 0.0) or 0.0)
+                    cur_yaw = float(v_data.get("yaw", 0.0) or 0.0)
+
+                if level_id == 'level1_atomic':
+                    out = AtomicMotionController().drive_straight_distance(0.0, 5.0, speed_mps=2.0)
+                    channels_dict = out.to_channels_dict()
+                    summary = f"[Seviye 1] {out.summary}"
+                elif level_id == 'level2_navigation':
+                    curr = GeoPose(lat=cur_lat, lon=cur_lon, yaw_deg=cur_yaw)
+                    tgt = GeoPose(lat=cur_lat + 0.0001, lon=cur_lon + 0.00005, yaw_deg=cur_yaw)
+                    out = WaypointAndFollowController().navigate_to_coordinate(curr, tgt)
+                    channels_dict = out.to_channels_dict()
+                    summary = f"[Seviye 2] {out.summary}"
+                elif level_id == 'level3_perception':
+                    ack_sent = CameraPerceptionProcessor().build_camera_ack_payload(v_code, True)
+                    send_camera_ack_trigger(v_code, ros2_cdr.ACK_TRIGGER_STREAM)
+                    rep = LidarObstacleProcessor().evaluate_scan([2.2, 4.0, 5.0, 1.8])
+                    channels_dict = {"1": 0.25 if not rep.obstacle_blocked else -0.2, "2": rep.avoidance_steer_norm, "3": 0.0, "4": 0.0}
+                    summary = f"[Seviye 3] ACK=3 (H.264) + LiDAR: {rep.summary}"
+                elif level_id == 'level4_mission_swarm':
+                    planner = SwarmMissionPlanner()
+                    curr = GeoPose(lat=cur_lat, lon=cur_lon, yaw_deg=cur_yaw)
+                    wp = GeoPose(lat=cur_lat + 0.00015, lon=cur_lon + 0.0001, yaw_deg=cur_yaw)
+                    planner.assign_mission(MissionTask(vehicle_code=v_code, mission_type="patrol", waypoints=[wp], active=True))
+                    out = planner.step_vehicle(v_code, {v_code: curr}, lidar_ranges=[4.5, 4.5, 4.5, 4.5])
+                    channels_dict = out.to_channels_dict()
+                    summary = f"[Seviye 4] {out.summary}"
+                else:
+                    summary = f"Bilinmeyen seviye: {level_id}"
+
+                # Sonucu Zenoh Binary CDR ve Unreal Port 7402/7410 üzerinden yayınla
+                ch_pkt = {
+                    "topic": f"/{v_code}/channels",
+                    "cmd": "channels",
+                    "target": v_code,
+                    "channels": channels_dict,
+                    "source": level_id,
+                    "timestamp": time.time(),
+                }
+                if zenoh_session_ref is not None:
+                    try:
+                        cdr = ros2_cdr.serialize_channels_cdr(v_code, channels_dict)
+                        zenoh_session_ref.put(f"pisim/{v_code}/channels", cdr)
+                    except Exception:
+                        pass
+
+                tx_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                tx_sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+                raw_bytes = (json.dumps(ch_pkt) + "\n").encode("utf-8")
+                for tgt_ip in {target_host, "127.0.0.1", "255.255.255.255"}:
+                    for tgt_port in (SWARM_COMMAND_PORT, 7410):
+                        try:
+                            tx_sock.sendto(raw_bytes, (tgt_ip, tgt_port))
+                        except Exception:
+                            pass
+                tx_sock.close()
+                add_system_log(f"🧠 {summary} -> {v_code} ({channels_dict})")
+
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.send_header('Access-Control-Allow-Origin', '*')
+                self.end_headers()
+                self.wfile.write(json.dumps({
+                    "status": "OK",
+                    "level": level_id,
+                    "vehicle": v_code,
+                    "channels": channels_dict,
+                    "ack": ack_sent,
+                    "summary": summary,
+                }).encode('utf-8'))
+            except Exception as err:
+                self.send_response(500)
+                self.send_header('Content-Type', 'application/json')
+                self.send_header('Access-Control-Allow-Origin', '*')
+                self.end_headers()
+                self.wfile.write(json.dumps({"status": "ERROR", "error": str(err)}).encode('utf-8'))
+            return
+
         # 2c. Görev ve Metro Hattı REST API uç noktası
         if clean_path in ('/api/mission', '/api/missions'):
             self.send_response(200)
@@ -692,9 +789,26 @@ class PiSimRequestHandler(http.server.SimpleHTTPRequestHandler):
                     "timestamp": time.time()
                 }
                 drive_payload = (json.dumps(payload_data) + "\n").encode('utf-8')
-                sock.sendto(drive_payload, ("255.255.255.255", SWARM_COMMAND_PORT))
-                sock.sendto(drive_payload, (target_host, SWARM_COMMAND_PORT))
-                sock.sendto(drive_payload, ("127.0.0.1", SWARM_COMMAND_PORT))
+                ch_payload = (json.dumps({
+                    "topic": f"/{target_code}/channels",
+                    "cmd": "channels",
+                    "target": target_code,
+                    "channels": {"1": throttle, "2": steering, "3": 0.0, "4": 0.0},
+                    "timestamp": time.time()
+                }) + "\n").encode('utf-8')
+                for tgt_ip in ("255.255.255.255", target_host, "127.0.0.1"):
+                    for tgt_port in (SWARM_COMMAND_PORT, 7410):
+                        try:
+                            sock.sendto(drive_payload, (tgt_ip, tgt_port))
+                            sock.sendto(ch_payload, (tgt_ip, tgt_port))
+                        except Exception:
+                            pass
+                if zenoh_session_ref is not None:
+                    try:
+                        cdr = ros2_cdr.serialize_channels_cdr(target_code, {"1": throttle, "2": steering, "3": 0.0, "4": 0.0})
+                        zenoh_session_ref.put(f"pisim/{target_code}/channels", cdr)
+                    except Exception:
+                        pass
             except Exception as e:
                 print(f"[DRIVE TX Hatasi]: {e}")
             finally:

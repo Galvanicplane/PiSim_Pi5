@@ -79,3 +79,4 @@ class SwarmMissionPlanner:
             return out
 
         return ChannelOutput(0.0, 0.0, done=True, summary="Mission complete")
+

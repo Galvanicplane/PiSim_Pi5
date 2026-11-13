@@ -1233,12 +1233,15 @@
         function inspectChannel(chanId) {}
 
         let cachedHierarchyLevels = [];
+        let activeHierarchyIdx = 0;
 
         async function openHierarchyModal() {
             const modal = document.getElementById('modal-hierarchy');
             if (modal) modal.style.display = 'flex';
             const codeBox = document.getElementById('hierarchy-code-viewer');
             const tabsBox = document.getElementById('hierarchy-tabs-bar');
+            const runRes = document.getElementById('hierarchy-run-result');
+            if (runRes) runRes.innerText = '';
             if (codeBox) codeBox.textContent = "Yükleniyor...";
             try {
                 const res = await fetch('/api/controllers/hierarchy');
@@ -1258,6 +1261,7 @@
         }
 
         function selectHierarchyLevel(idx) {
+            activeHierarchyIdx = idx;
             const lvl = cachedHierarchyLevels[idx];
             if (!lvl) return;
             cachedHierarchyLevels.forEach((_, i) => {
@@ -1271,6 +1275,36 @@
             const codeEl = document.getElementById('hierarchy-code-viewer');
             if (fileEl) fileEl.innerText = lvl.file || '';
             if (codeEl) codeEl.textContent = lvl.code || '';
+        }
+
+        async function runCurrentHierarchyLevel() {
+            const lvl = cachedHierarchyLevels[activeHierarchyIdx];
+            const outEl = document.getElementById('hierarchy-run-result');
+            if (!lvl) return;
+            const targetCode = (typeof selectedVehicleCode !== 'undefined' && selectedVehicleCode) ? selectedVehicleCode : 'RV01';
+            if (outEl) {
+                outEl.style.color = '#ffaa00';
+                outEl.innerText = `⏳ ${lvl.title} çalıştırılıyor...`;
+            }
+            try {
+                const res = await fetch(`/api/controllers/run?level=${encodeURIComponent(lvl.id)}&code=${encodeURIComponent(targetCode)}`);
+                const data = await res.json();
+                if (data.status === 'OK') {
+                    if (outEl) {
+                        outEl.style.color = '#00dfb6';
+                        outEl.innerText = `✅ [${data.vehicle}] ${data.summary} | Kanallar: ${JSON.stringify(data.channels)}`;
+                    }
+                    if (typeof addLog === 'function') addLog(`🧠 ${data.summary}`);
+                } else if (outEl) {
+                    outEl.style.color = '#ff3b30';
+                    outEl.innerText = `❌ Hata: ${data.error || 'Bilinmeyen hata'}`;
+                }
+            } catch (err) {
+                if (outEl) {
+                    outEl.style.color = '#ff3b30';
+                    outEl.innerText = `❌ İstek hatası: ${err}`;
+                }
+            }
         }
 
         function closeHierarchyModal() {
@@ -1851,7 +1885,11 @@
                 <button class="cod-btn" onclick="closeHierarchyModal()" style="padding:2px 8px; font-size:10px;">✕ KAPAT</button>
             </div>
             <div id="hierarchy-tabs-bar" style="display:flex; gap:6px; flex-wrap:wrap; margin-bottom:8px;"></div>
-            <div id="hierarchy-file-label" style="font-size:10px; color:#00e5ff; margin-bottom:6px;"></div>
+            <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:6px; flex-wrap:wrap;">
+                <div id="hierarchy-file-label" style="font-size:10px; color:#00e5ff;"></div>
+                <button class="cod-btn cod-btn-accent" onclick="runCurrentHierarchyLevel()" style="padding:4px 10px; font-size:10px; font-weight:800;">▶️ BU SEVİYEYİ CANLI ÇALIŞTIR (UNREAL'A GÖNDER)</button>
+            </div>
+            <div id="hierarchy-run-result" style="font-size:10px; margin-bottom:6px; min-height:14px;"></div>
             <pre id="hierarchy-code-viewer" style="flex:1; overflow:auto; background:#05070a; border:1px solid var(--mono-border); padding:10px; font-size:10.5px; color:#e6edf3; line-height:1.45; margin:0;"></pre>
         </div>
     </div>

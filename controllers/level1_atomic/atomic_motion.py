@@ -125,3 +125,4 @@ class AtomicMotionController:
             done=False,
             summary=f"Climb target={target_alt_m:.1f}m err={alt_err:+.1f}m pitch={pitch_cmd:+.2f} thr={throttle:.2f}",
         )
+
